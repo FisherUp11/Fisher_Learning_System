@@ -1,0 +1,17 @@
+{
+  "name": "字芽 · 汉字学习",
+  "short_name": "字芽",
+  "description": "亲子汉字识认与间隔复习",
+  "start_url": "/learn",
+  "display": "standalone",
+  "background_color": "#fffaf1",
+  "theme_color": "#355d45",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
