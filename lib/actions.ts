@@ -167,18 +167,35 @@ export async function deleteLearnerAndCurrentLibrary(formData: FormData) {
   revalidatePath("/parent");
 }
 
-async function getOwnedActivePackage(learnerId: string) {
+async function getOwnedLearner(learnerId: string) {
   const { supabase, user } = await authenticatedClient();
   if (!learnerId) throw new Error("请选择孩子");
 
   const { data: learner, error } = await supabase
     .from("learner_profiles")
-    .select("id,active_package_id")
+    .select("id")
     .eq("id", learnerId)
     .eq("parent_user_id", user.id)
     .single();
-  if (error || !learner?.active_package_id) throw new Error("找不到这个孩子的当前字册");
-  return { supabase, user, packageId: learner.active_package_id };
+  if (error || !learner) throw new Error("找不到这个孩子档案");
+  return { supabase, user };
+}
+
+async function assertCharacterInLearnerLibrary(supabase: Awaited<ReturnType<typeof createClient>>, learnerId: string, characterId: string, packageId?: string) {
+  const { data: links, error: linksError } = await supabase
+    .from("learner_content_packages")
+    .select("package_id")
+    .eq("learner_id", learnerId);
+  if (linksError || !links?.length) throw new Error("找不到这个孩子的字库归属，请先运行 006 数据库脚本");
+  const allowedPackageIds = packageId ? [packageId] : links.map((link) => link.package_id);
+  if (packageId && !links.some((link) => link.package_id === packageId)) throw new Error("这个字册不属于该孩子");
+  const { data: membership, error: membershipError } = await supabase
+    .from("package_characters")
+    .select("character_id")
+    .in("package_id", allowedPackageIds)
+    .eq("character_id", characterId)
+    .maybeSingle();
+  if (membershipError || !membership) throw new Error("这个字不在该孩子的字库中");
 }
 
 export async function updateCharacterContent(formData: FormData) {
@@ -191,14 +208,8 @@ export async function updateCharacterContent(formData: FormData) {
   const exampleSentence = String(formData.get("example_sentence") ?? "").trim().slice(0, 300) || null;
   if (!characterId || !pinyinMarked || !meaning) throw new Error("拼音和释义不能为空");
 
-  const { supabase, user, packageId } = await getOwnedActivePackage(learnerId);
-  const { data: membership, error: membershipError } = await supabase
-    .from("package_characters")
-    .select("character_id")
-    .eq("package_id", packageId)
-    .eq("character_id", characterId)
-    .maybeSingle();
-  if (membershipError || !membership) throw new Error("这个字不在当前字册中");
+  const { supabase, user } = await getOwnedLearner(learnerId);
+  await assertCharacterInLearnerLibrary(supabase, learnerId, characterId);
 
   const { error } = await supabase
     .from("characters")
@@ -213,9 +224,11 @@ export async function updateCharacterContent(formData: FormData) {
 export async function removeCharacterFromCurrentPackage(formData: FormData) {
   const learnerId = String(formData.get("learner_id") ?? "");
   const characterId = String(formData.get("character_id") ?? "");
-  if (!characterId) throw new Error("缺少要移除的汉字");
+  const packageId = String(formData.get("package_id") ?? "");
+  if (!characterId || !packageId) throw new Error("请先选择要管理的具体字册");
 
-  const { supabase, packageId } = await getOwnedActivePackage(learnerId);
+  const { supabase } = await getOwnedLearner(learnerId);
+  await assertCharacterInLearnerLibrary(supabase, learnerId, characterId, packageId);
   const { data: sessions, error: sessionsError } = await supabase
     .from("daily_sessions")
     .select("id")
@@ -357,6 +370,11 @@ export async function importCharacters(formData: FormData) {
   if (joins.some((item) => !item.character_id)) throw new Error("导入后无法找到部分汉字，请重新上传");
   const { error: joinError } = await supabase.from("package_characters").insert(joins);
   if (joinError) throw new Error(joinError.message);
+
+  const { error: packageLinkError } = await supabase
+    .from("learner_content_packages")
+    .insert({ learner_id: learnerId, package_id: packageRow.id });
+  if (packageLinkError) throw new Error(`字册已创建，但无法关联到孩子：${packageLinkError.message}`);
 
   const { error: updateError } = await supabase
     .from("learner_profiles")

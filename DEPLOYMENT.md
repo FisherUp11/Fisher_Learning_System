@@ -28,7 +28,8 @@
 3. 点击 **Run**。首次运行通常只需要几秒。
 4. 再打开 [supabase/004_library_pagination.sql](./supabase/004_library_pagination.sql)，复制**全部内容**到 SQL Editor 并点击 **Run**。它为“字库”提供服务端筛选与分页。
 5. 再运行 [supabase/005_daily_new_limit_50.sql](./supabase/005_daily_new_limit_50.sql)，使“家长”页的 20–50 个新字冲刺选项生效。
-6. 成功后，在 SQL Editor 依次执行下面两段验证；两段都应返回结果或空表，不应报权限/函数不存在错误。
+6. 再运行 [supabase/006_multi_package_library.sql](./supabase/006_multi_package_library.sql)，使每个孩子保留全部历史导入字册，并让“字库”可以按来源字册筛选。
+7. 成功后，在 SQL Editor 依次执行下面两段验证；两段都应返回结果或空表，不应报权限/函数不存在错误。
 
 ```sql
 select table_name
@@ -51,11 +52,13 @@ where routine_schema = 'public'
 
 若需要在家长页选择每天 40 或 50 个新字，请再运行 [supabase/005_daily_new_limit_50.sql](./supabase/005_daily_new_limit_50.sql)。它只放宽每日新字数量的数据库校验，不会重排当天已生成的学习任务。
 
+若已经为同一个孩子导入过多份 CSV，请运行 [supabase/006_multi_package_library.sql](./supabase/006_multi_package_library.sql)。它会建立“孩子 ↔ 字册”的长期关系，并自动回填历史数据：优先使用当前字册、已有学习记录；只有一个孩子的账号会把剩余历史字册安全归给该孩子。不会删除任何字册或学习记录。
+
 ### 2.1 SQL 做了什么，为什么必须整段运行
 
-- 建立内容、孩子、当前学习状态、每日队列、不可变回答历史共 8 张表。
+- 建立内容、孩子、当前学习状态、每日队列、不可变回答历史等基础表；006 额外建立“孩子 ↔ 字册”关联表。
 - 所有表都开启 RLS；每位家长只能看到自己孩子/内容的数据。
-- 创建 `get_today_queue`、`answer_queue_item` 与字库汇总函数；已部署的旧版本再运行 004 补充分页查询函数。
+- 创建 `get_today_queue`、`answer_queue_item` 与字库汇总函数；004/006 会把字库查询升级为可分页、可按历史导入包筛选的版本。
 - 函数只授予 `authenticated` 执行权，并在函数内再次核验 `auth.uid()` 是否拥有该孩子档案。
 
 不要只复制建表部分、漏掉最后的 RLS/function grant；那会导致应用无法安全工作。
@@ -122,7 +125,7 @@ npm run dev
 5. 对一张复习字点击“再学一次”，确认它在队列末尾出现一次强化卡。
 6. 强化卡答“我认识”后刷新页面，确认它不会恢复原等级，而会留在降级后的状态、次日优先。
 7. 到 Supabase Table Editor → `learning_attempts`，确认每一次回答都有独立记录。
-8. 到“字库”页，切换不同孩子，筛选“还没学 / 现在该复习 / 稳定认识”，并展开一个字确认回答次数、阶段与下次复习日正确显示；确认每页只显示 48 个字并可翻页。
+8. 到“字库”页，确认默认“全部已导入字册”能显示每份 CSV 的汉字；按“来源字册”筛选其中一份，并展开一个字确认回答次数、阶段、下次复习日和来源字册正确显示；确认每页只显示 48 个字并可翻页。
 
 如果第 3 步上传后“学一学”仍显示空字册，请先刷新一次页面；仍失败时查看浏览器控制台与 Vercel/Next 终端错误，再检查 SQL 是否完整运行。
 

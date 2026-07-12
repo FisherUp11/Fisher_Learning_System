@@ -129,6 +129,7 @@ input, select { width:100%; min-height:46px; padding:10px 12px; border:1px solid
 .library-row-title { min-width:0; flex:1; display:grid; gap:3px; }
 .library-row-title strong { font-size:18px; }
 .library-row-title span { overflow:hidden; color:var(--muted); font:13px/1.35 ui-sans-serif, system-ui, sans-serif; text-overflow:ellipsis; white-space:nowrap; }
+.library-row-title .library-source { color:var(--leaf); font-size:11px; font-weight:800; }
 .library-quick-progress { display:grid; min-width:132px; gap:4px; color:var(--muted); font:12px/1.2 ui-sans-serif, system-ui, sans-serif; }
 .library-quick-progress strong { color:var(--ink); font-size:13px; }
 .library-quick-progress span { white-space:nowrap; }
@@ -177,7 +178,7 @@ input, select { width:100%; min-height:46px; padding:10px 12px; border:1px solid
   .settings-fields { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .library-tools { grid-template-columns: minmax(0, 1fr) auto; align-items:end; }
   .library-search { min-width:360px; }
-  .library-filters { grid-template-columns:minmax(230px, 1fr) minmax(150px, .55fr) minmax(150px, .55fr) auto; align-items:end; }
+  .library-filters { grid-template-columns:minmax(220px, 1fr) minmax(150px, .62fr) minmax(135px, .5fr) minmax(135px, .5fr) auto; align-items:end; }
   .library-filters .text-button { align-self:center; }
   .library-quick-progress { min-width:164px; }
   .character-edit .form-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); }
