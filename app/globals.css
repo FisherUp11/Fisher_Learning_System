@@ -76,8 +76,15 @@ h1 { margin:0; font-size: clamp(32px, 8vw, 58px); line-height:1.05; letter-spaci
 .pinyin { margin:0; color:var(--leaf); font: 800 clamp(29px,8vw,40px)/1.2 ui-sans-serif, system-ui, sans-serif; }
 .meaning { margin:9px 0 0; font-size:19px; line-height:1.6; }
 .words { margin:12px 0 0; color:var(--muted); font-size:17px; line-height:1.6; }
+.card-tools { position:relative; z-index:1; display:flex; flex-wrap:wrap; justify-content:center; gap:8px; }
 .listen { position:relative; z-index:1; justify-self:center; min-height:48px; padding:9px 16px; border:1px solid #c8ddc8; border-radius:99px; color:var(--leaf); background:#f7fcf5; font-weight:800; }
 .listen:disabled { cursor:wait; opacity:.7; }
+.memory-image-button { position:relative; z-index:1; min-height:48px; padding:9px 16px; border:1px solid #e5ceb2; border-radius:99px; color:#805525; background:#fff8ea; font-weight:800; }
+.memory-image-button:disabled { cursor:wait; opacity:.7; }
+.memory-image-panel { position:relative; z-index:2; display:grid; gap:12px; margin:14px 0 2px; padding:12px; border:1px solid #eadcc5; border-radius:20px; background:#fffdf8; box-shadow:0 12px 28px rgba(67,55,31,.08); animation:rise .22s ease-out; }
+.memory-image-panel img { display:block; width:100%; max-width:420px; max-height:330px; margin:0 auto; border-radius:14px; object-fit:contain; background:var(--paper-deep); }
+.memory-image-panel p { margin:0 0 8px; color:var(--muted); font-size:14px; line-height:1.5; }
+.memory-image-error { position:relative; z-index:1; margin:10px 0 0; color:#9d4e2e; text-align:center; font-size:13px; }
 .listen-tools { position:relative; z-index:1; display:flex; flex-wrap:wrap; gap:8px; margin-top:16px; }
 .small-listen { min-height:42px; padding:8px 12px; font-size:14px; }
 .stop-listen { min-height:42px; padding:8px 12px; border:0; border-radius:99px; color:#9d4e2e; background:#fce8dc; font-weight:800; }
@@ -85,6 +92,7 @@ h1 { margin:0; font-size: clamp(32px, 8vw, 58px); line-height:1.05; letter-spaci
 .answer-known { color:#fff; background:var(--leaf); }
 .answer-again { color:#9d4e2e; background:#fce8dc; }
 .hint { margin:0; text-align:center; color:var(--muted); font-size:14px; }
+.answer-notice { margin:0; padding:10px 12px; border-radius:13px; color:var(--leaf); background:var(--leaf-soft); text-align:center; font-size:14px; line-height:1.45; }
 
 .panel { padding:20px; }
 .panel + .panel { margin-top:16px; }
@@ -106,6 +114,7 @@ h1 { margin:0; font-size: clamp(32px, 8vw, 58px); line-height:1.05; letter-spaci
 .learner-switch label { flex:1; }
 .learner-switch .secondary { min-height:46px; white-space:nowrap; }
 label { display:grid; gap:7px; font: 700 13px/1.2 ui-sans-serif, system-ui, sans-serif; }
+.field-note { color:var(--muted); font:500 12px/1.45 ui-sans-serif, system-ui, sans-serif; }
 input, select { width:100%; min-height:46px; padding:10px 12px; border:1px solid #d8cdbb; border-radius:13px; color:var(--ink); background:#fffdf8; outline-color:var(--leaf); }
 .notice { padding:12px 14px; border-radius:14px; background:var(--sun-soft); color:#7e5629; font-size:14px; line-height:1.5; }
 .library-header { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; }
@@ -155,6 +164,9 @@ input, select { width:100%; min-height:46px; padding:10px 12px; border:1px solid
 .library-pagination button:disabled { cursor:not-allowed; opacity:.45; }
 .empty { display:grid; justify-items:center; gap:14px; padding:52px 24px; text-align:center; }
 .empty-mark { font-size:54px; }
+.page-loading { display:flex; align-items:center; gap:14px; min-height:120px; color:var(--leaf); }
+.page-loading p { margin:5px 0 0; color:var(--muted); font-size:14px; }
+.loading-leaf { display:grid; place-items:center; width:42px; height:42px; border-radius:14px; background:var(--leaf-soft); font:800 21px/1 "Kaiti SC", "STKaiti", "KaiTi", serif; animation:leaf-pulse 1.15s ease-in-out infinite; }
 
 .login-page { min-height:100vh; display:grid; place-items:center; padding:24px; }
 .login-card { width:min(100%, 450px); padding:32px; }
@@ -168,12 +180,14 @@ input, select { width:100%; min-height:46px; padding:10px 12px; border:1px solid
 .success { margin:12px 0 0; color:var(--leaf); font-size:14px; }
 
 @keyframes rise { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+@keyframes leaf-pulse { 50% { transform:translateY(-3px); opacity:.72; } }
 @media (min-width: 760px) {
   .shell { padding-bottom: 28px; }
   .topbar { padding-top: 24px; }
   .bottom-nav { position:static; transform:none; width:auto; margin:0 auto 22px; max-width:640px; box-shadow:none; background:transparent; border:0; }
   .nav-link { max-width:128px; }
   .character-card { min-height: 610px; padding:30px 44px 28px; }
+  .memory-image-panel { grid-template-columns:minmax(0, 1.1fr) minmax(190px, .9fr); align-items:center; }
   .today-card { padding:32px; }
   .settings-fields { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .library-tools { grid-template-columns: minmax(0, 1fr) auto; align-items:end; }

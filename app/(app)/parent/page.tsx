@@ -38,7 +38,7 @@ export default async function ParentPage() {
             <div className="child-settings-head"><span className="child-sprout" aria-hidden="true">🌱</span><span><strong>{learner.display_name}</strong><small>{learner.active_package_id ? "已有学习包" : "尚未导入字册"}</small></span></div>
             <div className="settings-fields">
               <label>孩子昵称<input name="display_name" defaultValue={learner.display_name} required maxLength={24} /></label>
-              <label>每天新字数量<select name="daily_new_limit" defaultValue={String(learner.daily_new_limit)}><option value="1">1 个（轻松）</option><option value="3">3 个（慢一点）</option><option value="5">5 个（推荐）</option><option value="8">8 个（快一些）</option><option value="10">10 个（稳定学习）</option><option value="20">20 个（冲刺筛查）</option><option value="30">30 个（冲刺筛查）</option><option value="40">40 个（快速摸底）</option><option value="50">50 个（快速摸底）</option></select></label>
+              <label>每天新字数量<select name="daily_new_limit" defaultValue={String(learner.daily_new_limit)}><option value="1">1 个（轻松）</option><option value="3">3 个（慢一点）</option><option value="5">5 个（推荐）</option><option value="8">8 个（快一些）</option><option value="10">10 个（稳定学习）</option><option value="20">20 个（冲刺筛查）</option><option value="30">30 个（冲刺筛查）</option><option value="40">40 个（快速摸底）</option><option value="50">50 个（快速摸底）</option></select><span className="field-note">保存后，今天已经生成的学习卡不变；明天会自动按新数量排入新字。</span></label>
             </div>
             <button className="secondary" type="submit">保存 {learner.display_name} 的设置</button>
             {learner.active_package_id && <a className="text-button" href={`/library?learner=${learner.id}`}>查看 / 修正 {learner.display_name} 的字库</a>}

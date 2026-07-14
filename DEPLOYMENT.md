@@ -1,6 +1,6 @@
 # 字芽 MVP｜保姆级部署与首次测试
 
-这份手册假定项目根目录是 `汉字学习系统方案`，且你已经把 Supabase 与 Azure 的环境变量写在本目录 `.env.local`。**不要把 `.env.local` 上传到 Git、聊天窗口或 Vercel 的公开变量。**
+这份手册假定项目根目录是 `Fisher_Learning_System`，且你已经把 Supabase 与 Azure 的环境变量写在本目录 `.env.local`。**不要把 `.env.local` 上传到 Git、聊天窗口或 Vercel 的公开变量。**
 
 ## 0. 这次会得到什么
 
@@ -29,7 +29,8 @@
 4. 再打开 [supabase/004_library_pagination.sql](./supabase/004_library_pagination.sql)，复制**全部内容**到 SQL Editor 并点击 **Run**。它为“字库”提供服务端筛选与分页。
 5. 再运行 [supabase/005_daily_new_limit_50.sql](./supabase/005_daily_new_limit_50.sql)，使“家长”页的 20–50 个新字冲刺选项生效。
 6. 再运行 [supabase/006_multi_package_library.sql](./supabase/006_multi_package_library.sql)，使每个孩子保留全部历史导入字册，并让“字库”可以按来源字册筛选。
-7. 成功后，在 SQL Editor 依次执行下面两段验证；两段都应返回结果或空表，不应报权限/函数不存在错误。
+7. 再运行 [supabase/007_queue_count_and_memory_image.sql](./supabase/007_queue_count_and_memory_image.sql)，使学习卡在强化卡加入后显示服务端准确待答数。
+8. 成功后，在 SQL Editor 依次执行下面两段验证；两段都应返回结果或空表，不应报权限/函数不存在错误。
 
 ```sql
 select table_name
@@ -53,6 +54,8 @@ where routine_schema = 'public'
 若需要在家长页选择每天 40 或 50 个新字，请再运行 [supabase/005_daily_new_limit_50.sql](./supabase/005_daily_new_limit_50.sql)。它只放宽每日新字数量的数据库校验，不会重排当天已生成的学习任务。
 
 若已经为同一个孩子导入过多份 CSV，请运行 [supabase/006_multi_package_library.sql](./supabase/006_multi_package_library.sql)。它会建立“孩子 ↔ 字册”的长期关系，并自动回填历史数据：优先使用当前字册、已有学习记录；只有一个孩子的账号会把剩余历史字册安全归给该孩子。不会删除任何字册或学习记录。
+
+若已更新到“联想图 / 准确待答数”版本，请再运行 [supabase/007_queue_count_and_memory_image.sql](./supabase/007_queue_count_and_memory_image.sql)。它只替换 `answer_queue_item` 函数，让每次回答返回事务完成后的真实待答次数；不会改变复习规则或删除任何数据。
 
 ### 2.1 SQL 做了什么，为什么必须整段运行
 
@@ -95,9 +98,13 @@ AZURE_OPENAI_ENDPOINT=
 AZURE_OPENAI_API_KEY=
 AZURE_OPENAI_DEPLOYMENT=
 AZURE_OPENAI_API_VERSION=2024-10-21
+
+# 可选：Azure 中部署 gpt-image-1-mini 后的部署名与该部署可用的 API 版本
+AZURE_IMAGE_DEPLOYMENT=
+AZURE_IMAGE_API_VERSION=
 ```
 
-你现有 `.env.local` 的 Supabase/Azure 字段已经符合这套命名。MVP 核心只需要 Supabase；Azure Speech 和 OpenAI 缺失时分别退回浏览器朗读/不显示生成内容，学习记录不受影响。
+你现有 `.env.local` 的 Supabase/Azure 字段已经符合这套命名。MVP 核心只需要 Supabase；Azure Speech 和 OpenAI 缺失时分别退回浏览器朗读/不显示生成内容，学习记录不受影响。联想图按钮会在图片模型尚未配置时给出明确提示，孩子仍可继续学习。
 
 安全检查：
 
@@ -126,6 +133,7 @@ npm run dev
 6. 强化卡答“我认识”后刷新页面，确认它不会恢复原等级，而会留在降级后的状态、次日优先。
 7. 到 Supabase Table Editor → `learning_attempts`，确认每一次回答都有独立记录。
 8. 到“字库”页，确认默认“全部已导入字册”能显示每份 CSV 的汉字；按“来源字册”筛选其中一份，并展开一个字确认回答次数、阶段、下次复习日和来源字册正确显示；确认每页只显示 48 个字并可翻页。
+9. 已配置图片模型时，在“学一学”点击“看联想图”，确认出现无文字的儿童联想插图；点击“收起图片，再认一认”后，图片隐藏且不会影响答题。
 
 如果第 3 步上传后“学一学”仍显示空字册，请先刷新一次页面；仍失败时查看浏览器控制台与 Vercel/Next 终端错误，再检查 SQL 是否完整运行。
 
@@ -164,7 +172,7 @@ character,pinyin_marked,meaning,word_1,word_2,example_sentence,sequence
 - `meaning`：儿童能懂的短释义。
 - `sequence`：学习顺序；建议先从高频、容易造词的字开始。
 - 一次上传一个学习包。重新上传会创建新包并把当前孩子切换到新包，不会删除旧记录。
-- 前期若孩子已有识字基础，可在家长页临时选择每天 20–50 个新字做快速摸底；摸底结束后建议改为 8–10 个。每个新字当天还会有一次强化确认，因此 50 个新字最多可能形成约 100 次卡片回答。当天已生成的任务不会被取消，新的上限会补充后续未加入的字。
+- 前期若孩子已有识字基础，可在家长页临时选择每天 20–50 个新字做快速摸底；摸底结束后建议改为 8–10 个。每个新字当天还会有一次强化确认，因此 50 个新字最多可能形成约 100 次卡片回答。**当天已生成的任务不会被取消或重排；保存后的新上限会在孩子时区的下一天自动生效。**
 
 ## 8. 常见问题
 

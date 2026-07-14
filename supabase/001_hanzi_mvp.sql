@@ -338,6 +338,7 @@ declare
   v_append_kind text := null;
   v_reinforcement_added boolean := false;
   v_position integer;
+  v_pending_count integer := 0;
   v_mastered_at timestamptz;
 begin
   if p_result not in ('known', 'again') then
@@ -433,7 +434,12 @@ begin
   insert into public.learning_attempts (request_id, learner_id, character_id, state_id, session_item_id, result, queue_kind, previous_stage, next_stage, next_due_at)
   values (p_request_id, p_learner_id, v_item.character_id, v_state.id, v_item.id, p_result, v_item.queue_kind, v_previous_stage, v_next_stage, v_next_due_at);
 
-  return jsonb_build_object('next_stage', v_next_stage, 'next_due_at', v_next_due_at, 'reinforcement_added', v_reinforcement_added);
+  -- 新字和答错可能追加当天强化卡，所以这里返回答题后的服务端真实待答数。
+  select count(*) into v_pending_count
+  from public.daily_session_items i
+  where i.session_id = v_item.session_id and i.status = 'pending';
+
+  return jsonb_build_object('next_stage', v_next_stage, 'next_due_at', v_next_due_at, 'reinforcement_added', v_reinforcement_added, 'pending_count', v_pending_count);
 end;
 $$;
 

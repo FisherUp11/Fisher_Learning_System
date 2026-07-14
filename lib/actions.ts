@@ -59,7 +59,7 @@ export async function answerQueueItem(input: {
     p_request_id: input.requestId,
   });
   if (error) throw new Error(error.message);
-  return data as { next_stage: number; next_due_at: string; reinforcement_added: boolean };
+  return data as { next_stage?: number; next_due_at?: string; reinforcement_added?: boolean; pending_count?: number; idempotent?: boolean };
 }
 
 export async function createLearner(formData: FormData) {

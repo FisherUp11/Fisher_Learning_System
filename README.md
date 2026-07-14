@@ -18,6 +18,8 @@
 | [04_内容导入与实施路线图.md](./04_内容导入与实施路线图.md) | 1300 字导入规范、验收标准、开发分期 | 内容整理者、开发者 |
 | [05_待确认的产品问题.md](./05_待确认的产品问题.md) | 基本已经决定、但不阻碍先做原型的问题 | 产品负责人 |
 | [DEPLOYMENT.md](./DEPLOYMENT.md) | 从 SQL、环境变量到 Vercel 发布的逐步操作 | 部署者 |
+| [07_自定义域名配置_le.fisherai6.top.md](./07_自定义域名配置_le.fisherai6.top.md) | Cloudflare、Vercel、Supabase 的 `le.fisherai6.top` 正式域名配置 | 部署者 |
+| [08_联想图功能配置.md](./08_联想图功能配置.md) | Azure 部署 `gpt-image-1-mini`、环境变量、成本与验收 | 部署者 |
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | 当前代码边界、数据流、迭代约束与 AI Agent 交接说明 | 后续开发者 / AI Agent |
 
 ## 本次参考了什么
@@ -67,6 +69,6 @@ flowchart LR
 
 ## 当前 MVP 代码
 
-本目录同时是 MVP 应用根目录：`app/` 是 Next.js 前端，`supabase/001_hanzi_mvp.sql` 是建表、RLS 和复习函数，`supabase/004_library_pagination.sql` 用于分页字库查询，`supabase/005_daily_new_limit_50.sql` 将每日新字上限扩展到 50，`supabase/006_multi_package_library.sql` 使一个孩子可保留并汇总查看多份 CSV 字册，`samples/characters-sample.csv` 用于 30 字试跑。请严格按 [DEPLOYMENT.md](./DEPLOYMENT.md) 操作，不要手工改写 SQL 中的复习函数。
+本目录同时是 MVP 应用根目录：`app/` 是 Next.js 前端，`supabase/001_hanzi_mvp.sql` 是建表、RLS 和复习函数，`supabase/004_library_pagination.sql` 用于分页字库查询，`supabase/005_daily_new_limit_50.sql` 将每日新字上限扩展到 50，`supabase/006_multi_package_library.sql` 使一个孩子可保留并汇总查看多份 CSV 字册，`supabase/007_queue_count_and_memory_image.sql` 使学习页在强化卡加入后显示服务端准确待答数，`samples/characters-sample.csv` 用于 30 字试跑。请严格按 [DEPLOYMENT.md](./DEPLOYMENT.md) 操作，不要手工改写 SQL 中的复习函数。
 
 若已部署的学习页出现队列函数返回类型错误，使用 [002_fix_get_today_queue.sql](./supabase/002_fix_get_today_queue.sql) 热修复即可；它不会删除学习数据。

@@ -11,6 +11,7 @@ flowchart TB
   UI --> Auth[Supabase Auth\n仅家长会话]
   UI --> DB[(Supabase Postgres\n内容、状态、尝试历史)]
   UI --> Speech[Next Route Handler\nAzure Speech / 浏览器回退]
+  UI --> Image[受保护的临时联想图 Route\nAzure gpt-image-1-mini]
   UI -.后续审核内容.-> AI[Azure OpenAI]
   DB --> Scheduler[Postgres RPC\n队列与答案事务]
 ```
@@ -28,12 +29,13 @@ flowchart TB
 | 路径 | 职责 | 修改注意 |
 | --- | --- | --- |
 | `app/(app)/learn/page.tsx` | 已登录后的儿童学习入口 | 不在此处写复习算法。 |
-| `components/learning-experience.tsx` | 卡片状态、揭示答案、提交回答、朗读回退 | 只调用 Server Action。 |
+| `components/learning-experience.tsx` | 卡片状态、揭示答案、提交回答、朗读回退、临时联想图 | 图片只留在当前浏览器内存，不能阻塞答题。 |
 | `app/(app)/parent/page.tsx` | 家长档案、导入、基础进度 | 所有写入走 `lib/actions.ts`。 |
 | `lib/actions.ts` | Server Actions、CSV 校验/导入、RPC 调用 | 必须先 `auth.getUser()`；不可用 service role。 |
 | `lib/supabase/*`、`proxy.ts` | Supabase SSR cookie 会话刷新 | 跟随 Supabase SSR 官方模式；不要改为 localStorage-only。 |
 | `app/api/speech/route.ts` | 持有 Azure Speech key 的服务器端语音代理 | 绝不把 Azure key 返回给浏览器。 |
 | `app/api/ai/character-content/route.ts` | 预留的受保护 AI 生成接口 | 输出必须审核/缓存后才给孩子端。 |
+| `app/api/ai/character-memory-image/route.ts` | 临时儿童联想图 | 先验证家长、孩子和字库归属；只传服务端规范内容给 Azure。 |
 | `supabase/001_hanzi_mvp.sql` | 表、RLS、RPC、索引 | 是 MVP 的数据库单一事实来源。 |
 | `samples/characters-sample.csv` | 30 字真实试跑内容 | 修改后需重新人工检查拼音/例句。 |
 
@@ -110,8 +112,8 @@ sequenceDiagram
   DB->>DB: 验证孩子归属、锁定队列项/学习状态
   DB->>DB: 计算降级/升级、必要时追加强化卡
   DB->>DB: 写 learning_attempts + 更新 state + 标记队列项 answered
-  DB-->>A: 新阶段、下次日期、是否追加强化
-  A-->>K: 刷新今日 pending 队列
+  DB-->>A: 新阶段、下次日期、是否追加强化、真实待答次数
+  A-->>K: 后台刷新今日 pending 队列
 ```
 
 幂等键是 `learning_attempts.request_id`。网络重试时，前端使用同一个 request id；数据库只处理第一次请求。每个 `daily_session_item` 也有唯一回答记录，避免双击导致两次升级。
@@ -152,6 +154,7 @@ sequenceDiagram
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY`/`PUBLISHABLE_KEY` | 可以 | 受 RLS 保护的公开客户端 key。 |
 | `AZURE_SPEECH_KEY` | 不可以 | Route Handler 调 Azure TTS。 |
 | `AZURE_OPENAI_API_KEY` | 不可以 | Route Handler 调 Azure OpenAI。 |
+| `AZURE_IMAGE_DEPLOYMENT` / `AZURE_IMAGE_API_VERSION` | 不可以 | Azure `gpt-image-1-mini` 的服务器端部署配置。 |
 | `SUPABASE_SERVICE_ROLE_KEY` | 不需要；禁止前端 | 本 MVP 没有理由使用。 |
 
 ## 9. 计划内扩展点
@@ -163,6 +166,12 @@ sequenceDiagram
 ### AI 内容审核（1.1）
 
 增加 `character_ai_candidates`：`character_id, prompt_version, model, generated_json, review_status, approved_at`。AI endpoint 只能创建候选；只有家长发布后的人工内容才进入孩子卡片。绝不让生成结果覆盖 `pinyin_marked` 和 `meaning`。
+
+### 临时联想图（当前已实现）
+
+- 它是帮助孩子记忆字义的**联想**，不是任何汉字的字源考据结论；界面和提示词均不得把它表述为“真实造字来历”。
+- 只在家长已登录、该字确实属于所选孩子字库时才能调用；浏览器只持有一次生成后的临时图片，收起或换卡不改变数据库内容。
+- 图片模型不可用、被安全过滤或网络失败时，只显示失败提示，不能影响“我认识 / 再学一次”与复习记录。
 
 ### 古诗与音乐（2/3）
 
