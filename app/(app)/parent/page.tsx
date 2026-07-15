@@ -1,4 +1,5 @@
-import { createLearner, importCharacters, signOut, updateLearnerSettings } from "@/lib/actions";
+import Link from "next/link";
+import { createLearner, importCharacters, importPoems, signOut, updateLearnerSettings } from "@/lib/actions";
 import { DeleteLearnerForm } from "@/components/delete-learner-form";
 import { createClient } from "@/lib/supabase/server";
 
@@ -70,8 +71,21 @@ export default async function ParentPage() {
       </section>
 
       <section className="panel">
+        <h2>导入诗词册</h2>
+        <p className="notice">CSV 必填列：<code>poem_key,title,author,content</code>。可选列：<code>dynasty,sequence</code>。<code>poem_key</code> 是诗词的稳定编号；相同编号再次导入会更新诗词内容，但不会删除孩子已有的打卡记录。</p>
+        <div className="template-download"><span>先下载模板，填好第一批 28 首后再上传。</span><a className="text-button" href="/samples/poems-template.csv" download>下载诗词 CSV 模板</a></div>
+        {hasLearners ? <form action={importPoems} className="form-grid" style={{ marginTop: 16 }}>
+          <label>这份诗词册导入给哪位孩子<select name="learner_id" required defaultValue={learners?.[0]?.id}>{learners?.map((learner) => <option key={learner.id} value={learner.id}>{learner.display_name}</option>)}</select></label>
+          <label>诗词册名称<input name="poem_collection_title" defaultValue="第一批古诗词（28首）" required maxLength={80} /></label>
+          <label>CSV 文件<input name="poem_csv_file" type="file" accept=".csv,text/csv" required /></label>
+          <p className="small muted">每次导入都会保留为一份来源诗词册，并叠加显示在“诗词背诵”中；以后新增诗词时，孩子已打卡的诗词不会消失。</p>
+          <button className="primary" type="submit">校验并导入诗词</button>
+        </form> : <p className="muted">创建孩子档案后可以导入。</p>}
+      </section>
+
+      <section className="panel">
         <h2>下一步</h2>
-        <div className="list"><div className="list-row"><span>1. 下载样例 CSV，先导入 30 个字。</span><a className="text-button" href="/samples/characters-sample.csv" download>下载</a></div><div className="list-row"><span>2. 在 iPhone 打开“学一学”，完成一轮真实测试。</span><a className="text-button" href="/learn">开始</a></div></div>
+        <div className="list"><div className="list-row"><span>1. 下载样例 CSV，先导入 30 个字。</span><a className="text-button" href="/samples/characters-sample.csv" download>下载</a></div><div className="list-row"><span>2. 在 iPhone 打开“学一学”，完成一轮真实测试。</span><a className="text-button" href="/learn">开始</a></div><div className="list-row"><span>3. 导入诗词后，每背一次就在“诗词背诵”打一次卡。</span><Link className="text-button" href="/poems">去背诵</Link></div></div>
         <form action={signOut} style={{ marginTop: 18 }}><button className="text-button danger" type="submit">退出家长账号</button></form>
       </section>
     </div>

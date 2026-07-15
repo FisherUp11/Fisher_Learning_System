@@ -30,13 +30,14 @@
 5. 再运行 [supabase/005_daily_new_limit_50.sql](./supabase/005_daily_new_limit_50.sql)，使“家长”页的 20–50 个新字冲刺选项生效。
 6. 再运行 [supabase/006_multi_package_library.sql](./supabase/006_multi_package_library.sql)，使每个孩子保留全部历史导入字册，并让“字库”可以按来源字册筛选。
 7. 再运行 [supabase/007_queue_count_and_memory_image.sql](./supabase/007_queue_count_and_memory_image.sql)，使学习卡在强化卡加入后显示服务端准确待答数。
-8. 成功后，在 SQL Editor 依次执行下面两段验证；两段都应返回结果或空表，不应报权限/函数不存在错误。
+8. 再运行 [supabase/008_poem_recitation_mvp.sql](./supabase/008_poem_recitation_mvp.sql)，启用诗词册、每次背诵打卡、可选评分和背诵日期记录。
+9. 成功后，在 SQL Editor 依次执行下面两段验证；两段都应返回结果或空表，不应报权限/函数不存在错误。
 
 ```sql
 select table_name
 from information_schema.tables
 where table_schema = 'public'
-  and table_name in ('learner_profiles', 'characters', 'learning_states', 'learning_attempts')
+  and table_name in ('learner_profiles', 'characters', 'learning_states', 'learning_attempts', 'poems', 'poem_recitation_attempts')
 order by table_name;
 ```
 
@@ -57,9 +58,11 @@ where routine_schema = 'public'
 
 若已更新到“联想图 / 准确待答数”版本，请再运行 [supabase/007_queue_count_and_memory_image.sql](./supabase/007_queue_count_and_memory_image.sql)。它只替换 `answer_queue_item` 函数，让每次回答返回事务完成后的真实待答次数；不会改变复习规则或删除任何数据。
 
+若已更新到诗词背诵版本，请再运行 [supabase/008_poem_recitation_mvp.sql](./supabase/008_poem_recitation_mvp.sql)。它会新建 `poem_collections`、`poems`、`learner_poem_collections` 与 `poem_recitation_attempts` 等表，并对所有新表启用 RLS；不会修改汉字队列、学习阶段或任何旧数据。
+
 ### 2.1 SQL 做了什么，为什么必须整段运行
 
-- 建立内容、孩子、当前学习状态、每日队列、不可变回答历史等基础表；006 额外建立“孩子 ↔ 字册”关联表。
+- 建立内容、孩子、当前学习状态、每日队列、不可变回答历史等基础表；006 额外建立“孩子 ↔ 字册”关联表；008 建立“孩子 ↔ 诗词册”和可重复追加的背诵记录表。
 - 所有表都开启 RLS；每位家长只能看到自己孩子/内容的数据。
 - 创建 `get_today_queue`、`answer_queue_item` 与字库汇总函数；004/006 会把字库查询升级为可分页、可按历史导入包筛选的版本。
 - 函数只授予 `authenticated` 执行权，并在函数内再次核验 `auth.uid()` 是否拥有该孩子档案。
@@ -134,6 +137,7 @@ npm run dev
 7. 到 Supabase Table Editor → `learning_attempts`，确认每一次回答都有独立记录。
 8. 到“字库”页，确认默认“全部已导入字册”能显示每份 CSV 的汉字；按“来源字册”筛选其中一份，并展开一个字确认回答次数、阶段、下次复习日和来源字册正确显示；确认每页只显示 48 个字并可翻页。
 9. 已配置图片模型时，在“学一学”点击“看联想图”，确认出现无文字的儿童联想插图；点击“收起图片，再认一认”后，图片隐藏且不会影响答题。
+10. 到“家长”页下载 `poems-template.csv`，用模板中的 3 首先试跑或填入第一批 28 首后上传；在顶部“学习模块”打开“诗词背诵”，点进一首诗，连续点击两次“今天背过一次”，确认页面显示 2 条记录、Supabase `poem_recitation_attempts` 也有同一日期的 2 行。再试一次“暂不评分”，确认该行保留且标为未评分。
 
 如果第 3 步上传后“学一学”仍显示空字册，请先刷新一次页面；仍失败时查看浏览器控制台与 Vercel/Next 终端错误，再检查 SQL 是否完整运行。
 
@@ -175,6 +179,17 @@ character,pinyin_marked,meaning,word_1,word_2,example_sentence,sequence
 - 前期若孩子已有识字基础，可在家长页临时选择每天 20–50 个新字做快速摸底；摸底结束后建议改为 8–10 个。每个新字当天还会有一次强化确认，因此 50 个新字最多可能形成约 100 次卡片回答。**当天已生成的任务不会被取消或重排；保存后的新上限会在孩子时区的下一天自动生效。**
 
 ## 8. 常见问题
+
+### 诗词页提示缺少表或权限错误
+
+先确认完整运行了 [supabase/008_poem_recitation_mvp.sql](./supabase/008_poem_recitation_mvp.sql)，不要只复制其中的 `create table`。脚本末尾的 RLS policy 与 `grant` 同样必需。然后刷新浏览器；仍有问题时，在 SQL Editor 执行：
+
+```sql
+select id, poem_key, title from public.poems order by created_at desc limit 10;
+select learner_id, poem_id, recited_local_date, score from public.poem_recitation_attempts order by recited_at desc limit 20;
+```
+
+若第一句能返回诗词、第二句在打卡后能返回记录，说明数据层正常，接着检查是否在页面选择了正确的孩子。
 
 ### 注册后没有收到邮件
 

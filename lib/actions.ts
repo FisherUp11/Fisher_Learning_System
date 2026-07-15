@@ -267,6 +267,15 @@ type ParsedCharacter = {
   sequence: number;
 };
 
+type ParsedPoem = {
+  poem_key: string;
+  title: string;
+  author: string;
+  dynasty: string | null;
+  content: string;
+  sequence: number;
+};
+
 function parseCsv(text: string): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
@@ -385,6 +394,149 @@ export async function importCharacters(formData: FormData) {
   revalidatePath("/learn");
   revalidatePath("/parent");
   revalidatePath("/library");
+}
+
+export async function importPoems(formData: FormData) {
+  const { supabase, user } = await authenticatedClient();
+  const learnerId = String(formData.get("learner_id") ?? "");
+  const title = String(formData.get("poem_collection_title") ?? "第一批古诗词").trim().slice(0, 80);
+  const file = formData.get("poem_csv_file");
+  if (!learnerId || !(file instanceof File) || file.size === 0) throw new Error("请选择孩子并上传诗词 CSV 文件");
+  if (!title) throw new Error("请填写诗词册名称");
+  if (file.size > 2_000_000) throw new Error("CSV 请控制在 2MB 内");
+
+  const rows = parseCsv(await file.text());
+  if (rows.length < 2) throw new Error("CSV 至少应包含表头和一首诗词");
+  const headers = rows[0].map((header) => header.replace(/^\uFEFF/, "").trim());
+  for (const required of ["poem_key", "title", "author", "content"]) {
+    if (!headers.includes(required)) throw new Error(`CSV 缺少必填列：${required}`);
+  }
+
+  const seen = new Set<string>();
+  const poems: ParsedPoem[] = rows.slice(1).map((cells, index) => {
+    const record = Object.fromEntries(headers.map((header, cellIndex) => [header, cells[cellIndex] ?? ""]));
+    const poemKey = pick(record, "poem_key");
+    const poemTitle = pick(record, "title");
+    const author = pick(record, "author");
+    const dynasty = pick(record, "dynasty") || null;
+    const content = pick(record, "content").replace(/\\n/g, "\n");
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(poemKey)) throw new Error(`第 ${index + 2} 行：poem_key 只能使用字母、数字、下划线或短横线`);
+    if (!poemTitle || !author || !content) throw new Error(`第 ${index + 2} 行：标题、作者和正文不能为空`);
+    if (poemTitle.length > 80 || author.length > 50 || (dynasty?.length ?? 0) > 30 || content.length > 4000) throw new Error(`第 ${index + 2} 行：有字段超过长度限制`);
+    if (seen.has(poemKey)) throw new Error(`第 ${index + 2} 行：poem_key“${poemKey}”重复`);
+    seen.add(poemKey);
+    const suppliedSequence = Number(pick(record, "sequence"));
+    return {
+      poem_key: poemKey,
+      title: poemTitle,
+      author,
+      dynasty,
+      content,
+      sequence: Number.isFinite(suppliedSequence) && suppliedSequence > 0 ? Math.floor(suppliedSequence) : index + 1,
+    };
+  });
+
+  const { data: learner, error: learnerError } = await supabase
+    .from("learner_profiles")
+    .select("id")
+    .eq("id", learnerId)
+    .eq("parent_user_id", user.id)
+    .single();
+  if (learnerError || !learner) throw new Error("找不到这个孩子档案");
+
+  const { data: collection, error: collectionError } = await supabase
+    .from("poem_collections")
+    .insert({ created_by: user.id, code: `poems-${Date.now()}`, title, status: "published" })
+    .select("id")
+    .single();
+  if (collectionError || !collection) throw new Error(collectionError?.message ?? "创建诗词册失败");
+
+  const imported: Array<{ id: string; poem_key: string }> = [];
+  for (let index = 0; index < poems.length; index += 100) {
+    const batch = poems.slice(index, index + 100);
+    const { data, error } = await supabase
+      .from("poems")
+      .upsert(batch.map((poem) => ({
+        created_by: user.id,
+        poem_key: poem.poem_key,
+        title: poem.title,
+        author: poem.author,
+        dynasty: poem.dynasty,
+        content: poem.content,
+        updated_at: new Date().toISOString(),
+      })), { onConflict: "created_by,poem_key" })
+      .select("id,poem_key");
+    if (error) throw new Error(error.message);
+    imported.push(...(data ?? []));
+  }
+  const idsByKey = new Map(imported.map((poem) => [poem.poem_key, poem.id]));
+  const items = poems.map((poem) => ({ collection_id: collection.id, poem_id: idsByKey.get(poem.poem_key), sequence: poem.sequence }));
+  if (items.some((item) => !item.poem_id)) throw new Error("导入后无法找到部分诗词，请重新上传");
+  const { error: itemError } = await supabase.from("poem_collection_items").insert(items);
+  if (itemError) throw new Error(itemError.message);
+
+  const { error: linkError } = await supabase
+    .from("learner_poem_collections")
+    .insert({ learner_id: learnerId, collection_id: collection.id });
+  if (linkError) throw new Error(`诗词册已创建，但无法关联到孩子：${linkError.message}`);
+
+  revalidatePath("/parent");
+  revalidatePath("/poems");
+}
+
+function localDateInTimezone(timezone: string) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone || "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const get = (type: string) => parts.find((part) => part.type === type)?.value;
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+export async function recordPoemRecitation(formData: FormData) {
+  const { supabase, user } = await authenticatedClient();
+  const learnerId = String(formData.get("learner_id") ?? "");
+  const poemId = String(formData.get("poem_id") ?? "");
+  const scoreValue = String(formData.get("score") ?? "").trim();
+  const note = String(formData.get("note") ?? "").trim().slice(0, 300) || null;
+  if (!learnerId || !poemId) throw new Error("缺少孩子或诗词信息");
+  const score = scoreValue ? Number(scoreValue) : null;
+  if (score !== null && (!Number.isInteger(score) || score < 1 || score > 10)) throw new Error("掌握评分请选择 1–10 分，或暂不评分");
+
+  const { data: learner, error: learnerError } = await supabase
+    .from("learner_profiles")
+    .select("id,timezone")
+    .eq("id", learnerId)
+    .eq("parent_user_id", user.id)
+    .single();
+  if (learnerError || !learner) throw new Error("找不到这个孩子档案");
+
+  const { data: collections, error: collectionsError } = await supabase
+    .from("learner_poem_collections")
+    .select("collection_id")
+    .eq("learner_id", learnerId);
+  if (collectionsError || !collections?.length) throw new Error("找不到这个孩子的诗词册，请先运行 008 数据库脚本并导入诗词");
+  const { data: membership, error: membershipError } = await supabase
+    .from("poem_collection_items")
+    .select("poem_id")
+    .in("collection_id", collections.map((item) => item.collection_id))
+    .eq("poem_id", poemId)
+    .limit(1);
+  if (membershipError || !membership?.length) throw new Error("这首诗不属于该孩子的诗词册");
+
+  const { error } = await supabase.from("poem_recitation_attempts").insert({
+    learner_id: learnerId,
+    poem_id: poemId,
+    recorded_by: user.id,
+    recited_local_date: localDateInTimezone(learner.timezone),
+    score,
+    note,
+  });
+  if (error) throw new Error(error.message);
+  revalidatePath("/poems");
+  revalidatePath(`/poems/${poemId}`);
 }
 
 export async function signOut() {

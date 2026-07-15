@@ -31,7 +31,11 @@ flowchart TB
 | `app/(app)/learn/page.tsx` | 已登录后的儿童学习入口 | 不在此处写复习算法。 |
 | `components/learning-experience.tsx` | 卡片状态、揭示答案、提交回答、朗读回退、临时联想图 | 图片只留在当前浏览器内存，不能阻塞答题。 |
 | `app/(app)/parent/page.tsx` | 家长档案、导入、基础进度 | 所有写入走 `lib/actions.ts`。 |
+| `app/(app)/poems/page.tsx` | 诗词背诵概览、筛选、推荐、分页 | 只展示记录与建议，不运行汉字复习算法。 |
+| `app/(app)/poems/[poemId]/page.tsx` | 单首诗正文、打卡历史、评分概况 | 每条记录必须来自 `poem_recitation_attempts`。 |
+| `components/poem-recitation-form.tsx` | “今天背过一次”可重复打卡表单 | 不在客户端合并同日点击。 |
 | `lib/actions.ts` | Server Actions、CSV 校验/导入、RPC 调用 | 必须先 `auth.getUser()`；不可用 service role。 |
+| `lib/poems.ts` | 诗词册、内容与背诵记录的只读聚合 | 供诗词页面使用；不要混入汉字 stage。 |
 | `lib/supabase/*`、`proxy.ts` | Supabase SSR cookie 会话刷新 | 跟随 Supabase SSR 官方模式；不要改为 localStorage-only。 |
 | `app/api/speech/route.ts` | 持有 Azure Speech key 的服务器端语音代理 | 绝不把 Azure key 返回给浏览器。 |
 | `app/api/ai/character-content/route.ts` | 预留的受保护 AI 生成接口 | 输出必须审核/缓存后才给孩子端。 |
@@ -54,6 +58,14 @@ erDiagram
   DAILY_SESSIONS ||--o{ DAILY_SESSION_ITEMS : queues
   LEARNING_STATES ||--o{ LEARNING_ATTEMPTS : records
   DAILY_SESSION_ITEMS ||--|| LEARNING_ATTEMPTS : answers_once
+  AUTH_USERS ||--o{ POEM_COLLECTIONS : creates
+  AUTH_USERS ||--o{ POEMS : creates
+  POEM_COLLECTIONS ||--o{ POEM_COLLECTION_ITEMS : contains
+  POEMS ||--o{ POEM_COLLECTION_ITEMS : appears_in
+  LEARNER_PROFILES ||--o{ LEARNER_POEM_COLLECTIONS : receives
+  POEM_COLLECTIONS ||--o{ LEARNER_POEM_COLLECTIONS : links
+  LEARNER_PROFILES ||--o{ POEM_RECITATION_ATTEMPTS : practices
+  POEMS ||--o{ POEM_RECITATION_ATTEMPTS : is_recited
 ```
 
 ### 每张表的含义
@@ -68,6 +80,10 @@ erDiagram
 | `daily_sessions` | 孩子本地日期的一次今日任务容器 | 不代表每次点击。 |
 | `daily_session_items` | 今日/补带/强化卡的固定队列 | 每张项只允许回答一次。 |
 | `learning_attempts` | 每一次 `known/again` 的不可变事实 | 不更新、不覆盖。 |
+| `poem_collections` | 一次 CSV 导入形成的一份诗词册 | 不存孩子的背诵次数。 |
+| `poems` | 家长私有的诗词正文与作者信息，由 `poem_key` 稳定识别 | 不存某个孩子的评分。 |
+| `learner_poem_collections` | 诗词册与孩子的长期关联 | 新导入必须追加，不能覆盖旧关联。 |
+| `poem_recitation_attempts` | 每次“今天背过一次”的历史事实，含本地日期、可空评分与备注 | 不合并同一天的多次打卡。 |
 
 ## 4. 当前复习算法（不可拆分）
 
@@ -173,9 +189,16 @@ sequenceDiagram
 - 只在家长已登录、该字确实属于所选孩子字库时才能调用；浏览器只持有一次生成后的临时图片，收起或换卡不改变数据库内容。
 - 图片模型不可用、被安全过滤或网络失败时，只显示失败提示，不能影响“我认识 / 再学一次”与复习记录。
 
-### 古诗与音乐（2/3）
+### 诗词背诵记录（当前已实现）
 
-先增加 `learning_items` 统一抽象或把 `learning_states.character_id` 迁移为 `(item_type,item_id)`；这是一次正式数据迁移，不要在现表临时塞 nullable 的 `poem_id/music_id`。复习 RPC 再扩展为 item 类型分支，保留 `learning_attempts` 的历史兼容性。
+- 诗词模块目前是独立的“内容 + 记录”模型：`poem_recitation_attempts` 允许同日多行，`recited_local_date` 是孩子时区的真实练习日期，`score` 可为 null。
+- 首次和后续 CSV 都会创建独立诗词册并关联到所选孩子；页面默认汇总所有导入批次，并可按来源筛选。
+- 当前没有把诗词接入汉字的 `get_today_queue` / `answer_queue_item`，这是刻意的边界：背诵事实可靠后，再另做诗词调度状态与可解释的间隔提醒。
+- 若将来加入按句背诵或自动提醒，请新增诗词专用状态表与迁移，不要给 `learning_states` / `learning_attempts` 临时加 nullable `poem_id`。
+
+### 音乐（后续）
+
+音乐应复用“内容 + 追加历史”的模式，并在上传 MP3 前设计私有 Storage、版权归属与删除机制。
 
 ### 跟读/背诵（4）
 
@@ -186,9 +209,9 @@ sequenceDiagram
 在让新的 AI Agent 修改项目时，先把下面内容给它：
 
 ```text
-请先阅读 ARCHITECTURE.md、DEPLOYMENT.md、01_产品方案与MVP.md 和 supabase/001_hanzi_mvp.sql。
-这是一个 Next.js + Supabase SSR 的儿童汉字学习 PWA。
-不要在前端计算复习阶段；不要暴露 Azure/Supabase service key；所有学习记录必须追加 learning_attempts；修改复习算法时同步修改 SQL、文档和测试。
+请先阅读 ARCHITECTURE.md、DEPLOYMENT.md、01_产品方案与MVP.md、09_诗词背诵模块说明.md 和 supabase/001_hanzi_mvp.sql。
+这是一个 Next.js + Supabase SSR 的儿童识字与诗词背诵记录 PWA。
+不要在前端计算汉字复习阶段；不要暴露 Azure/Supabase service key；汉字回答必须追加 learning_attempts，诗词打卡必须追加 poem_recitation_attempts；修改复习算法时同步修改 SQL、文档和测试。
 ```
 
 并要求 Agent 完成真实检查：`npm run lint`、`npm run build`、移动端浏览器验收；若修改 SQL，使用两个测试家长账号验证跨家庭 RLS。

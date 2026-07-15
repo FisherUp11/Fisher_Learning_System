@@ -35,6 +35,16 @@ a { color: inherit; text-decoration: none; }
 .topbar { max-width: 1100px; margin: 0 auto; padding: 18px 20px 10px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .brand { display: flex; align-items: center; gap: 10px; font-size: 19px; font-weight: 800; letter-spacing: .04em; }
 .brand-mark { display:grid; place-items:center; width: 36px; height:36px; border-radius: 13px; color:#fffaf1; background: var(--leaf); box-shadow: 0 7px 17px rgba(53,93,69,.24); }
+.module-picker { position:relative; margin-right:auto; }
+.module-trigger { display:flex; align-items:center; gap:7px; min-height:38px; padding:8px 12px; border:1px solid var(--line); border-radius:99px; color:var(--leaf); background:rgba(255,253,248,.8); font:800 13px/1 ui-sans-serif,system-ui,sans-serif; }
+.module-menu { position:absolute; z-index:30; top:calc(100% + 8px); left:0; display:grid; gap:5px; width:min(310px, calc(100vw - 40px)); padding:10px; border:1px solid var(--line); border-radius:19px; background:rgba(255,253,248,.98); box-shadow:0 16px 38px rgba(55,45,25,.16); }
+.module-menu > p { margin:4px 7px 5px; color:var(--muted); font:700 11px/1 ui-sans-serif,system-ui,sans-serif; letter-spacing:.1em; }
+.module-menu a, .module-menu-soon { display:flex; align-items:center; gap:10px; padding:10px; border-radius:13px; }
+.module-menu a:hover, .module-menu a.active { background:var(--leaf-soft); }
+.module-menu a > span, .module-menu-soon > span { display:grid; place-items:center; width:34px; height:34px; border-radius:11px; color:var(--leaf); background:var(--paper-deep); font:800 17px/1 "Kaiti SC","STKaiti","KaiTi",serif; }
+.module-menu strong, .module-menu-soon strong { display:grid; gap:3px; font-size:14px; }
+.module-menu small, .module-menu-soon small { color:var(--muted); font:500 11px/1.3 ui-sans-serif,system-ui,sans-serif; }
+.module-menu-soon { opacity:.58; }
 .account { color: var(--muted); font-family: ui-sans-serif, system-ui, sans-serif; font-size: 13px; }
 .page { width: min(100%, 1100px); margin: 0 auto; padding: 16px 20px 36px; }
 .bottom-nav { position: fixed; z-index: 10; left: 50%; bottom: calc(12px + env(safe-area-inset-bottom)); transform: translateX(-50%); display:flex; gap: 4px; width: min(calc(100% - 28px), 460px); padding: 7px; border: 1px solid rgba(233,223,207,.9); border-radius: 20px; background: rgba(255,250,241,.94); box-shadow: 0 12px 38px rgba(55,45,25,.18); backdrop-filter: blur(14px); }
@@ -117,6 +127,7 @@ label { display:grid; gap:7px; font: 700 13px/1.2 ui-sans-serif, system-ui, sans
 .field-note { color:var(--muted); font:500 12px/1.45 ui-sans-serif, system-ui, sans-serif; }
 input, select { width:100%; min-height:46px; padding:10px 12px; border:1px solid #d8cdbb; border-radius:13px; color:var(--ink); background:#fffdf8; outline-color:var(--leaf); }
 .notice { padding:12px 14px; border-radius:14px; background:var(--sun-soft); color:#7e5629; font-size:14px; line-height:1.5; }
+.template-download { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:12px; padding:11px 13px; border-radius:14px; background:rgba(226,237,223,.6); color:var(--muted); font:13px/1.45 ui-sans-serif,system-ui,sans-serif; }
 .library-header { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; }
 .library-meta { margin:0; color:var(--muted); font:13px/1.45 ui-sans-serif, system-ui, sans-serif; }
 .library-tools { display:grid; gap:12px; margin-top:16px; }
@@ -162,6 +173,56 @@ input, select { width:100%; min-height:46px; padding:10px 12px; border:1px solid
 .library-pagination span { min-width:92px; text-align:center; color:var(--muted); font:700 13px/1 ui-sans-serif, system-ui, sans-serif; }
 .library-pagination .secondary { min-height:42px; padding:8px 14px; font-size:14px; }
 .library-pagination button:disabled { cursor:not-allowed; opacity:.45; }
+.poem-filters { display:grid; gap:12px; margin-top:16px; padding:14px; border:1px solid var(--line); border-radius:18px; background:rgba(245,252,243,.55); }
+.poem-filters .secondary { min-height:46px; }
+.poem-summary { margin-top:16px; }
+.section-heading { display:flex; align-items:end; justify-content:space-between; gap:12px; }
+.poem-recommendations { margin-top:16px; }
+.poem-suggestion-grid { display:grid; gap:10px; margin-top:14px; }
+.poem-suggestion { display:grid; gap:4px; padding:14px; border:1px solid var(--line); border-radius:16px; background:linear-gradient(135deg, rgba(255,240,217,.78), rgba(255,253,248,.82)); }
+.poem-suggestion:hover { border-color:#d9c18f; transform:translateY(-1px); }
+.poem-suggestion-title { font-size:18px; font-weight:800; }
+.poem-suggestion > span:not(.poem-suggestion-title) { color:var(--muted); font:12px/1.3 ui-sans-serif,system-ui,sans-serif; }
+.poem-suggestion strong { margin-top:3px; color:#8a5b24; font:800 12px/1.2 ui-sans-serif,system-ui,sans-serif; }
+.poem-grid { display:grid; gap:12px; margin-top:18px; }
+.poem-card { display:grid; gap:7px; min-height:202px; padding:17px; border:1px solid var(--line); border-radius:20px; background:rgba(255,253,248,.9); transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease; }
+.poem-card:hover { border-color:#d8c5a0; box-shadow:0 10px 24px rgba(67,55,31,.08); transform:translateY(-2px); }
+.poem-card-top { display:flex; align-items:center; gap:9px; min-width:0; }
+.poem-card-seal { display:grid; place-items:center; width:30px; height:30px; border-radius:10px; color:var(--leaf); background:var(--leaf-soft); font:800 16px/1 "Kaiti SC","STKaiti","KaiTi",serif; }
+.poem-card-source { overflow:hidden; color:var(--muted); font:11px/1.2 ui-sans-serif,system-ui,sans-serif; text-overflow:ellipsis; white-space:nowrap; }
+.poem-card h3 { margin:7px 0 0; font-size:23px; line-height:1.15; }
+.poem-byline { margin:0; color:var(--muted); font-size:14px; }
+.poem-card-stats { display:grid; gap:3px; margin-top:auto; color:var(--muted); font:12px/1.35 ui-sans-serif,system-ui,sans-serif; }
+.poem-card-foot { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:5px; }
+.poem-status, .poem-score { display:inline-flex; width:max-content; padding:5px 7px; border-radius:99px; color:var(--leaf); background:var(--leaf-soft); font:800 11px/1 ui-sans-serif,system-ui,sans-serif; }
+.poem-status.unstarted { color:var(--muted); background:var(--paper-deep); }
+.poem-status.unscored { color:#7e5629; background:var(--sun-soft); }
+.poem-status.needs-work { color:#9d4e2e; background:#fce8dc; }
+.poem-score { color:var(--muted); background:transparent; padding-right:0; }
+.poem-detail-page { display:grid; gap:16px; padding-top:18px; }
+.back-link { width:max-content; color:var(--leaf); font:800 14px/1.3 ui-sans-serif,system-ui,sans-serif; }
+.poem-paper { position:relative; overflow:hidden; padding:32px 24px; border:1px solid #e4d6bd; border-radius:28px; background:linear-gradient(135deg, #fffaf1, #f7efdf); box-shadow:var(--card-shadow); text-align:center; }
+.poem-paper::after { content:""; position:absolute; right:-80px; bottom:-100px; width:220px; height:220px; border-radius:50%; background:rgba(82,123,84,.10); }
+.poem-paper h1 { position:relative; z-index:1; margin-top:12px; font-size:clamp(37px,10vw,62px); }
+.poem-detail-byline { position:relative; z-index:1; margin:12px 0 0; color:var(--muted); font-size:17px; }
+.poem-lines { position:relative; z-index:1; display:grid; gap:14px; margin:36px auto 4px; font:clamp(24px,6.8vw,36px)/1.45 "Kaiti SC","STKaiti","KaiTi",serif; letter-spacing:.08em; }
+.poem-lines p { margin:0; }
+.poem-detail-summary { margin:0; }
+.recitation-form { display:grid; gap:15px; padding:22px; border:1px solid #cfe0ce; border-radius:24px; background:linear-gradient(130deg, rgba(226,237,223,.86), rgba(255,253,248,.92)); }
+.recitation-form h2 { margin:0; font-size:23px; }
+.recitation-form p { margin:6px 0 0; color:var(--muted); font-size:13px; line-height:1.45; }
+.recitation-fields { display:grid; gap:12px; }
+.recitation-form .primary { width:100%; }
+.recitation-form .primary:disabled { cursor:wait; opacity:.7; }
+.recitation-history h2 { margin-bottom:7px; }
+.history-list { display:grid; gap:9px; margin-top:16px; }
+.history-row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:5px 12px; align-items:center; padding:13px; border:1px solid var(--line); border-radius:15px; background:rgba(255,253,248,.82); }
+.history-row > div { display:grid; gap:3px; }
+.history-row strong { font-size:15px; }
+.history-row span { color:var(--muted); font:12px/1.2 ui-sans-serif,system-ui,sans-serif; }
+.history-row p { grid-column:1 / -1; margin:4px 0 0; color:var(--muted); font-size:13px; line-height:1.45; }
+.history-score { padding:6px 8px; border-radius:99px; color:var(--leaf) !important; background:var(--leaf-soft); font-weight:800 !important; }
+.history-score.unscored { color:#7e5629 !important; background:var(--sun-soft); }
 .empty { display:grid; justify-items:center; gap:14px; padding:52px 24px; text-align:center; }
 .empty-mark { font-size:54px; }
 .page-loading { display:flex; align-items:center; gap:14px; min-height:120px; color:var(--leaf); }
@@ -193,14 +254,22 @@ input, select { width:100%; min-height:46px; padding:10px 12px; border:1px solid
   .library-tools { grid-template-columns: minmax(0, 1fr) auto; align-items:end; }
   .library-search { min-width:360px; }
   .library-filters { grid-template-columns:minmax(220px, 1fr) minmax(150px, .62fr) minmax(135px, .5fr) minmax(135px, .5fr) auto; align-items:end; }
+  .poem-filters { grid-template-columns:minmax(220px, 1fr) minmax(160px, .7fr) minmax(165px, .7fr) auto; align-items:end; }
   .library-filters .text-button { align-self:center; }
   .library-quick-progress { min-width:164px; }
   .character-edit .form-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); }
   .character-edit .form-grid label:last-child { grid-column:1 / -1; }
   .character-edit-actions { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .learning-record { grid-template-columns:repeat(4, minmax(0, 1fr)); }
+  .poem-suggestion-grid { grid-template-columns:repeat(4, minmax(0,1fr)); }
+  .poem-grid { grid-template-columns:repeat(3, minmax(0,1fr)); }
+  .recitation-fields { grid-template-columns:repeat(2, minmax(0,1fr)); }
 }
 @media (max-width: 580px) {
+  .topbar { gap:9px; }
+  .module-trigger { padding:8px 9px; font-size:12px; }
+  .account { display:none; }
+  .template-download { align-items:flex-start; flex-direction:column; }
   .library-row > summary { display:grid; grid-template-columns:48px minmax(0, 1fr) auto; gap:8px 12px; align-items:center; }
   .library-character { grid-column:1; grid-row:1 / span 2; }
   .library-row-title { grid-column:2; grid-row:1; }

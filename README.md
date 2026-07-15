@@ -1,6 +1,6 @@
 # 亲子汉字学习系统｜方案总览
 
-> 目标：先为一位孩子做出一套每天愿意打开、能持续复习、父母看得懂进度的学习工具；以后再从“识字”逐步扩展到拼音、古诗词和音乐。
+> 目标：先为一位孩子做出一套每天愿意打开、能持续复习、父母看得懂进度的学习工具；目前已包含识字学习与诗词背诵记录，后续再扩展拼音与音乐。
 
 ## 建议结论
 
@@ -20,6 +20,7 @@
 | [DEPLOYMENT.md](./DEPLOYMENT.md) | 从 SQL、环境变量到 Vercel 发布的逐步操作 | 部署者 |
 | [07_自定义域名配置_le.fisherai6.top.md](./07_自定义域名配置_le.fisherai6.top.md) | Cloudflare、Vercel、Supabase 的 `le.fisherai6.top` 正式域名配置 | 部署者 |
 | [08_联想图功能配置.md](./08_联想图功能配置.md) | Azure 部署 `gpt-image-1-mini`、环境变量、成本与验收 | 部署者 |
+| [09_诗词背诵模块说明.md](./09_诗词背诵模块说明.md) | 诗词 CSV、打卡/评分规则与后续迭代边界 | 家长、后续开发者 |
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | 当前代码边界、数据流、迭代约束与 AI Agent 交接说明 | 后续开发者 / AI Agent |
 
 ## 本次参考了什么
@@ -59,7 +60,7 @@ flowchart LR
   D --> E[复习计划]
   E --> F[首页提示下一步]
   F --> C
-  C -.第二阶段.-> G[古诗模块]
+  C -.已接入记录版.-> G[古诗打卡/评分模块]
   C -.第三阶段.-> H[音乐模块]
 ```
 
@@ -69,6 +70,6 @@ flowchart LR
 
 ## 当前 MVP 代码
 
-本目录同时是 MVP 应用根目录：`app/` 是 Next.js 前端，`supabase/001_hanzi_mvp.sql` 是建表、RLS 和复习函数，`supabase/004_library_pagination.sql` 用于分页字库查询，`supabase/005_daily_new_limit_50.sql` 将每日新字上限扩展到 50，`supabase/006_multi_package_library.sql` 使一个孩子可保留并汇总查看多份 CSV 字册，`supabase/007_queue_count_and_memory_image.sql` 使学习页在强化卡加入后显示服务端准确待答数，`samples/characters-sample.csv` 用于 30 字试跑。请严格按 [DEPLOYMENT.md](./DEPLOYMENT.md) 操作，不要手工改写 SQL 中的复习函数。
+本目录同时是 MVP 应用根目录：`app/` 是 Next.js 前端；`supabase/001_hanzi_mvp.sql` 是识字基础表、RLS 和复习函数；`004`–`007` 是后续识字升级；`supabase/008_poem_recitation_mvp.sql` 新增诗词册、背诵历史与 RLS；`samples/characters-sample.csv` 用于识字试跑，`samples/poems-template.csv` 是准备 28 首诗词的模板。请严格按 [DEPLOYMENT.md](./DEPLOYMENT.md) 操作，不要手工改写 SQL 中的复习函数。
 
 若已部署的学习页出现队列函数返回类型错误，使用 [002_fix_get_today_queue.sql](./supabase/002_fix_get_today_queue.sql) 热修复即可；它不会删除学习数据。
