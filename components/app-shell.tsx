@@ -13,6 +13,7 @@ const links = [
 const moduleLinks = [
   { href: "/learn", label: "汉字学习", description: "一字一字，建立认读记忆", mark: "字" },
   { href: "/poems", label: "诗词背诵", description: "记录背诵次数与掌握评分", mark: "诗" },
+  { href: "/music", label: "音乐天地", description: "听、唱、辨音与节奏练习", mark: "乐" },
 ];
 
 export function AppShell({ email, children }: { email: string; children: React.ReactNode }) {
@@ -39,7 +40,6 @@ export function AppShell({ email, children }: { email: string; children: React.R
           {menuOpen && <div className="module-menu" id="learning-modules">
             <p>选择学习内容</p>
             {moduleLinks.map((link) => <Link key={link.href} href={link.href} className={pathname.startsWith(link.href) ? "active" : ""} onClick={() => setMenuOpen(false)}><span>{link.mark}</span><strong>{link.label}<small>{link.description}</small></strong></Link>)}
-            <div className="module-menu-soon"><span>乐</span><strong>音乐诗歌<small>以后开放</small></strong></div>
           </div>}
         </div>
         <span className="account">{email}</span>

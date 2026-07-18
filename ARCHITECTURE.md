@@ -12,8 +12,10 @@ flowchart TB
   UI --> DB[(Supabase Postgres\n内容、状态、尝试历史)]
   UI --> Speech[Next Route Handler\nAzure Speech / 浏览器回退]
   UI --> Image[受保护的临时联想图 Route\nAzure gpt-image-1-mini]
+  UI --> R2[Cloudflare R2 私有 Bucket\nMP3、封面、琴谱]
   UI -.后续审核内容.-> AI[Azure OpenAI]
   DB --> Scheduler[Postgres RPC\n队列与答案事务]
+  DB --> MusicScheduler[Postgres RPC\n音乐练习记录与间隔]
 ```
 
 ### 核心原则
@@ -34,6 +36,12 @@ flowchart TB
 | `app/(app)/poems/page.tsx` | 诗词背诵概览、筛选、推荐、分页 | 只展示记录与建议，不运行汉字复习算法。 |
 | `app/(app)/poems/[poemId]/page.tsx` | 单首诗正文、打卡历史、评分概况 | 每条记录必须来自 `poem_recitation_attempts`。 |
 | `components/poem-recitation-form.tsx` | “今天背过一次”可重复打卡表单 | 不在客户端合并同日点击。 |
+| `app/(app)/music/page.tsx` | 音乐总览、孩子切换、类型筛选与建议 | 只展示数据库已计算的阶段和到期日。 |
+| `app/(app)/music/[itemId]/page.tsx` | 播放、歌词/琴谱、辨音揭晓、结果打卡与历史 | 读取 R2 文件前必须验证孩子已被分配。 |
+| `app/(app)/music/manage/*` | 家长内容创建、编辑、发布、孩子分配与媒体维护 | 删除内容/资源是破坏性操作，保留二次确认。 |
+| `app/api/music/assets/upload-url/route.ts` | 验证文件类型/大小/归属，签发 R2 PUT URL | R2 密钥永远不返回浏览器。 |
+| `lib/music-actions.ts` / `lib/music-data.ts` | 音乐写入边界与只读聚合 | 练习结果走 `record_music_practice`，不在 Action 中计算阶段。 |
+| `lib/r2.ts` | S3 Client、上传/读取签名 URL、R2 删除 | 延迟初始化，避免无 R2 变量时阻断 Next.js 构建。 |
 | `lib/actions.ts` | Server Actions、CSV 校验/导入、RPC 调用 | 必须先 `auth.getUser()`；不可用 service role。 |
 | `lib/poems.ts` | 诗词册、内容与背诵记录的只读聚合 | 供诗词页面使用；不要混入汉字 stage。 |
 | `lib/supabase/*`、`proxy.ts` | Supabase SSR cookie 会话刷新 | 跟随 Supabase SSR 官方模式；不要改为 localStorage-only。 |
@@ -41,6 +49,7 @@ flowchart TB
 | `app/api/ai/character-content/route.ts` | 预留的受保护 AI 生成接口 | 输出必须审核/缓存后才给孩子端。 |
 | `app/api/ai/character-memory-image/route.ts` | 临时儿童联想图 | 先验证家长、孩子和字库归属；只传服务端规范内容给 Azure。 |
 | `supabase/001_hanzi_mvp.sql` | 表、RLS、RPC、索引 | 是 MVP 的数据库单一事实来源。 |
+| `supabase/009_music_learning_mvp.sql` | 音乐表、RLS、索引与练习 RPC | 不修改汉字/诗词表；必须整段运行。 |
 | `samples/characters-sample.csv` | 30 字真实试跑内容 | 修改后需重新人工检查拼音/例句。 |
 
 ## 3. 数据模型与归属
@@ -66,6 +75,14 @@ erDiagram
   POEM_COLLECTIONS ||--o{ LEARNER_POEM_COLLECTIONS : links
   LEARNER_PROFILES ||--o{ POEM_RECITATION_ATTEMPTS : practices
   POEMS ||--o{ POEM_RECITATION_ATTEMPTS : is_recited
+  AUTH_USERS ||--o{ MUSIC_ITEMS : creates
+  MUSIC_ITEMS ||--o{ MUSIC_ASSETS : has
+  LEARNER_PROFILES ||--o{ LEARNER_MUSIC_ITEMS : receives
+  MUSIC_ITEMS ||--o{ LEARNER_MUSIC_ITEMS : assigns
+  LEARNER_PROFILES ||--o{ MUSIC_LEARNING_STATES : tracks
+  MUSIC_ITEMS ||--o{ MUSIC_LEARNING_STATES : is_practiced
+  LEARNER_PROFILES ||--o{ MUSIC_PRACTICE_ATTEMPTS : practices
+  MUSIC_ITEMS ||--o{ MUSIC_PRACTICE_ATTEMPTS : records
 ```
 
 ### 每张表的含义
@@ -84,6 +101,11 @@ erDiagram
 | `poems` | 家长私有的诗词正文与作者信息，由 `poem_key` 稳定识别 | 不存某个孩子的评分。 |
 | `learner_poem_collections` | 诗词册与孩子的长期关联 | 新导入必须追加，不能覆盖旧关联。 |
 | `poem_recitation_attempts` | 每次“今天背过一次”的历史事实，含本地日期、可空评分与备注 | 不合并同一天的多次打卡。 |
+| `music_items` | 唱一唱、辨声音或打节奏的内容与发布状态 | 不存 MP3 二进制，不存孩子进度。 |
+| `music_assets` | R2 `object_key`、原文件名、MIME、大小、类型与顺序 | 不存公开 URL；读取 URL 必须临时签发。 |
+| `learner_music_items` | 内容与孩子的分配关系 | 未分配内容不能出现在孩子页。 |
+| `music_learning_states` | 某孩子对某音乐项的阶段、到期日和最近结果 | 不可代替历史。 |
+| `music_practice_attempts` | 每一次听/唱/辨认/节奏结果，含孩子本地日期和可选猜测备注 | 不覆盖或合并；同日多次就是多行。 |
 
 ## 4. 当前复习算法（不可拆分）
 
@@ -154,6 +176,8 @@ sequenceDiagram
 
 以后如改函数签名，必须相应更新最后的 `revoke/grant execute`；否则旧函数可能仍默认对 `PUBLIC` 可执行。
 
+`record_music_practice` 采用 `SECURITY INVOKER`：它在调用家长的 RLS 权限下运行，仍会显式检查孩子归属、内容归属、已分配和已发布状态。`request_id` 唯一，同一次点击即使网络重试也只记一次。
+
 ## 7. Next.js 与认证边界
 
 - Server Component 默认读取数据；页面在 `(app)` 路由组内，layout 用 `auth.getUser()` 拦截未登录访问。
@@ -161,6 +185,8 @@ sequenceDiagram
 - Client Component 仅用于卡片点击、浏览器朗读和局部状态；不含任何管理员密钥。
 - `lib/actions.ts` 是 server-only 的写入边界。每一个 Action 都先获取用户再写入。
 - `/api/speech`、`/api/ai/*` 都先校验登录，并且只在服务器读取 Azure 变量。
+- `/api/music/assets/upload-url` 在 Node.js Route Handler 中校验登录、内容归属、MIME 与大小，再返回单个对象的短时 PUT URL。
+- R2 SDK 只在签名/删除时延迟初始化；因此未配置 R2 时仍可构建、登录并使用汉字/诗词模块。
 
 ## 8. 环境变量与部署边界
 
@@ -171,6 +197,9 @@ sequenceDiagram
 | `AZURE_SPEECH_KEY` | 不可以 | Route Handler 调 Azure TTS。 |
 | `AZURE_OPENAI_API_KEY` | 不可以 | Route Handler 调 Azure OpenAI。 |
 | `AZURE_IMAGE_DEPLOYMENT` / `AZURE_IMAGE_API_VERSION` | 不可以 | Azure `gpt-image-1-mini` 的服务器端部署配置。 |
+| `R2_ACCOUNT_ID` | 不可以 | 生成 Cloudflare R2 S3 endpoint。 |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | 不可以 | 生成短时预签名 URL 与删除对象。 |
+| `R2_BUCKET_NAME` | 不可以 | 当前音乐私有 Bucket，默认 `fisher-learning-media`。 |
 | `SUPABASE_SERVICE_ROLE_KEY` | 不需要；禁止前端 | 本 MVP 没有理由使用。 |
 
 ## 9. 计划内扩展点
@@ -196,9 +225,14 @@ sequenceDiagram
 - 当前没有把诗词接入汉字的 `get_today_queue` / `answer_queue_item`，这是刻意的边界：背诵事实可靠后，再另做诗词调度状态与可解释的间隔提醒。
 - 若将来加入按句背诵或自动提醒，请新增诗词专用状态表与迁移，不要给 `learning_states` / `learning_attempts` 临时加 nullable `poem_id`。
 
-### 音乐（后续）
+### 音乐学习（当前已实现）
 
-音乐应复用“内容 + 追加历史”的模式，并在上传 MP3 前设计私有 Storage、版权归属与删除机制。
+- 内容类型为 `song / instrument / rhythm`，分别对应“唱一唱 / 辨声音 / 打节奏”。封面、乐器图和节奏谱都可空；歌曲可维护最多 5 张统一命名的“琴谱”。
+- 歌曲结果有“只听过 / 跟着唱 / 提示下会唱 / 独立会唱”；只听过不升阶。辨音与节奏采用二值结果，答错降两级并第二天再练。
+- 阶段 0–7 的正向间隔为 1/1/3/7/14/30/60/90 天；阶段 7 再次成功后间隔 180 天。该算法是家庭学习建议，不是音乐能力评价。
+- 每次点击都追加 `music_practice_attempts`；同一天练习多次就有多行。乐器实际猜测放在可选 `guess_note`，不强制填写。
+- 文件放在私有 Cloudflare R2；上传 URL 10 分钟过期，读取 URL 1 小时过期。R2 密钥只存在 Vercel 服务器环境变量。
+- 当前不需要 Supabase Edge Functions：事务走 Postgres RPC，签名走 Next.js Route Handler。未来需要转码、波形或长任务时再评估异步工作流。
 
 ### 跟读/背诵（4）
 
@@ -209,9 +243,9 @@ sequenceDiagram
 在让新的 AI Agent 修改项目时，先把下面内容给它：
 
 ```text
-请先阅读 ARCHITECTURE.md、DEPLOYMENT.md、01_产品方案与MVP.md、09_诗词背诵模块说明.md 和 supabase/001_hanzi_mvp.sql。
-这是一个 Next.js + Supabase SSR 的儿童识字与诗词背诵记录 PWA。
-不要在前端计算汉字复习阶段；不要暴露 Azure/Supabase service key；汉字回答必须追加 learning_attempts，诗词打卡必须追加 poem_recitation_attempts；修改复习算法时同步修改 SQL、文档和测试。
+请先阅读 ARCHITECTURE.md、DEPLOYMENT.md、01_产品方案与MVP.md、09_诗词背诵模块说明.md、10_Cloudflare_R2保姆级配置教程.md、supabase/001_hanzi_mvp.sql 和 supabase/009_music_learning_mvp.sql。
+这是一个 Next.js + Supabase SSR + 私有 Cloudflare R2 的儿童家庭学习 PWA，包含汉字、诗词和音乐。
+不要在前端计算复习阶段；不要暴露 Azure、R2 或 Supabase service key；汉字回答必须追加 learning_attempts，诗词打卡必须追加 poem_recitation_attempts，音乐练习必须通过 record_music_practice 追加 music_practice_attempts；修改复习算法时同步修改 SQL、文档和测试。
 ```
 
 并要求 Agent 完成真实检查：`npm run lint`、`npm run build`、移动端浏览器验收；若修改 SQL，使用两个测试家长账号验证跨家庭 RLS。

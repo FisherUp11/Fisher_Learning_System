@@ -31,13 +31,18 @@
 6. 再运行 [supabase/006_multi_package_library.sql](./supabase/006_multi_package_library.sql)，使每个孩子保留全部历史导入字册，并让“字库”可以按来源字册筛选。
 7. 再运行 [supabase/007_queue_count_and_memory_image.sql](./supabase/007_queue_count_and_memory_image.sql)，使学习卡在强化卡加入后显示服务端准确待答数。
 8. 再运行 [supabase/008_poem_recitation_mvp.sql](./supabase/008_poem_recitation_mvp.sql)，启用诗词册、每次背诵打卡、可选评分和背诵日期记录。
-9. 成功后，在 SQL Editor 依次执行下面两段验证；两段都应返回结果或空表，不应报权限/函数不存在错误。
+9. 再运行 [supabase/009_music_learning_mvp.sql](./supabase/009_music_learning_mvp.sql)，启用“唱一唱 / 辨声音 / 打节奏”、孩子分配、每次练习历史和音乐记忆阶段。
+10. 成功后，在 SQL Editor 依次执行下面两段验证；两段都应返回结果或空表，不应报权限/函数不存在错误。
 
 ```sql
 select table_name
 from information_schema.tables
 where table_schema = 'public'
-  and table_name in ('learner_profiles', 'characters', 'learning_states', 'learning_attempts', 'poems', 'poem_recitation_attempts')
+  and table_name in (
+    'learner_profiles', 'characters', 'learning_states', 'learning_attempts',
+    'poems', 'poem_recitation_attempts',
+    'music_items', 'music_assets', 'music_learning_states', 'music_practice_attempts'
+  )
 order by table_name;
 ```
 
@@ -45,7 +50,7 @@ order by table_name;
 select routine_name
 from information_schema.routines
 where routine_schema = 'public'
-  and routine_name in ('get_today_queue', 'answer_queue_item', 'get_library_progress', 'get_library_rows');
+  and routine_name in ('get_today_queue', 'answer_queue_item', 'get_library_progress', 'get_library_rows', 'record_music_practice');
 ```
 
 如果你已经运行过 001、并且学习页显示 `structure of query does not match function result type`，不要删除任何表；只运行 [supabase/002_fix_get_today_queue.sql](./supabase/002_fix_get_today_queue.sql)，然后刷新学习页。
@@ -60,9 +65,11 @@ where routine_schema = 'public'
 
 若已更新到诗词背诵版本，请再运行 [supabase/008_poem_recitation_mvp.sql](./supabase/008_poem_recitation_mvp.sql)。它会新建 `poem_collections`、`poems`、`learner_poem_collections` 与 `poem_recitation_attempts` 等表，并对所有新表启用 RLS；不会修改汉字队列、学习阶段或任何旧数据。
 
+若已更新到音乐学习版本，请再运行 [supabase/009_music_learning_mvp.sql](./supabase/009_music_learning_mvp.sql)。它只新增音乐专用表、RLS 和一个练习 RPC，不修改汉字/诗词数据。文件本体放在 Cloudflare R2，数据库仅保存对象键与文件元数据。
+
 ### 2.1 SQL 做了什么，为什么必须整段运行
 
-- 建立内容、孩子、当前学习状态、每日队列、不可变回答历史等基础表；006 额外建立“孩子 ↔ 字册”关联表；008 建立“孩子 ↔ 诗词册”和可重复追加的背诵记录表。
+- 建立内容、孩子、当前学习状态、每日队列、不可变回答历史等基础表；006 额外建立“孩子 ↔ 字册”关联表；008 建立诗词内容与背诵记录；009 建立音乐内容、媒体元数据、练习状态与历史。
 - 所有表都开启 RLS；每位家长只能看到自己孩子/内容的数据。
 - 创建 `get_today_queue`、`answer_queue_item` 与字库汇总函数；004/006 会把字库查询升级为可分页、可按历史导入包筛选的版本。
 - 函数只授予 `authenticated` 执行权，并在函数内再次核验 `auth.uid()` 是否拥有该孩子档案。
@@ -105,14 +112,20 @@ AZURE_OPENAI_API_VERSION=2024-10-21
 # 可选：Azure 中部署 gpt-image-1-mini 后的部署名与该部署可用的 API 版本
 AZURE_IMAGE_DEPLOYMENT=
 AZURE_IMAGE_API_VERSION=
+
+# 音乐模块：Cloudflare R2 私有 Bucket
+R2_ACCOUNT_ID=
+R2_ACCESS_KEY_ID=
+R2_SECRET_ACCESS_KEY=
+R2_BUCKET_NAME=fisher-learning-media
 ```
 
-你现有 `.env.local` 的 Supabase/Azure 字段已经符合这套命名。MVP 核心只需要 Supabase；Azure Speech 和 OpenAI 缺失时分别退回浏览器朗读/不显示生成内容，学习记录不受影响。联想图按钮会在图片模型尚未配置时给出明确提示，孩子仍可继续学习。
+你现有 `.env.local` 的 Supabase/Azure 字段已经符合这套命名。MVP 核心只需要 Supabase；Azure Speech 和 OpenAI 缺失时分别退回浏览器朗读/不显示生成内容，学习记录不受影响。音乐文件上传与播放需要 4 个 `R2_*` 变量，请按 [Cloudflare R2 保姆级配置教程](./10_Cloudflare_R2保姆级配置教程.md) 操作。
 
 安全检查：
 
 - `NEXT_PUBLIC_` 只允许 Supabase URL 与 anon/publishable key；它们设计上可在浏览器使用。
-- **绝不**给 `AZURE_*`、Supabase `service_role` 加 `NEXT_PUBLIC_` 前缀。
+- **绝不**给 `AZURE_*`、`R2_*`、Supabase `service_role` 加 `NEXT_PUBLIC_` 前缀。
 - 不要在客户端代码、CSV、日志或截图中记录任何密钥。
 
 ## 5. 本机启动
@@ -138,6 +151,7 @@ npm run dev
 8. 到“字库”页，确认默认“全部已导入字册”能显示每份 CSV 的汉字；按“来源字册”筛选其中一份，并展开一个字确认回答次数、阶段、下次复习日和来源字册正确显示；确认每页只显示 48 个字并可翻页。
 9. 已配置图片模型时，在“学一学”点击“看联想图”，确认出现无文字的儿童联想插图；点击“收起图片，再认一认”后，图片隐藏且不会影响答题。
 10. 到“家长”页下载 `poems-template.csv`，用模板中的 3 首先试跑或填入第一批 28 首后上传；在顶部“学习模块”打开“诗词背诵”，点进一首诗，连续点击两次“今天背过一次”，确认页面显示 2 条记录、Supabase `poem_recitation_attempts` 也有同一日期的 2 行。再试一次“暂不评分”，确认该行保留且标为未评分。
+11. 按 [Cloudflare R2 保姆级配置教程](./10_Cloudflare_R2保姆级配置教程.md) 创建私有 Bucket、CORS 和 Token；在“学习模块 → 音乐天地 → 家长管理”创建一首测试歌曲，上传 MP3、分配孩子并发布；在孩子页播放后点一次练习结果，确认 `music_practice_attempts` 新增 1 行。
 
 如果第 3 步上传后“学一学”仍显示空字册，请先刷新一次页面；仍失败时查看浏览器控制台与 Vercel/Next 终端错误，再检查 SQL 是否完整运行。
 
