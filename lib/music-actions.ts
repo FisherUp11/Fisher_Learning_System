@@ -6,9 +6,17 @@ import { createClient } from "@/lib/supabase/server";
 import { deleteR2Object } from "@/lib/r2";
 
 export type MusicItemType = "song" | "instrument" | "rhythm";
+export type MusicItemStatus = "draft" | "published" | "archived";
 export type MusicPracticeResult =
   | "song_listened" | "song_sang_along" | "song_prompted" | "song_independent"
   | "instrument_known" | "instrument_again" | "rhythm_known" | "rhythm_again";
+
+export type MusicSaveState = {
+  status: "idle" | "success" | "error";
+  message: string;
+  savedStatus?: MusicItemStatus;
+  savedAt?: string;
+};
 
 async function authenticatedMusicClient() {
   const supabase = await createClient();
@@ -41,41 +49,61 @@ export async function createMusicItem(formData: FormData) {
   redirect(`/music/manage/${data.id}`);
 }
 
-export async function updateMusicItem(formData: FormData) {
-  const itemId = String(formData.get("item_id") ?? "");
-  const { supabase, user, item } = await ownedMusicItem(itemId);
-  const title = String(formData.get("title") ?? "").trim().slice(0, 100);
-  const category = String(formData.get("category") ?? "").trim().slice(0, 60) || null;
-  const description = String(formData.get("description") ?? "").trim().slice(0, 500) || null;
-  const lyrics = String(formData.get("lyrics") ?? "").trim().slice(0, 12000) || null;
-  const correctAnswer = String(formData.get("correct_answer") ?? "").trim().slice(0, 100) || null;
-  const instructions = String(formData.get("instructions") ?? "").trim().slice(0, 2000) || null;
-  const difficulty = Math.max(1, Math.min(5, Number(formData.get("difficulty") ?? 1) || 1));
-  const status = String(formData.get("status") ?? "draft");
-  if (!title) throw new Error("内容名称不能为空");
-  if (!["draft", "published", "archived"].includes(status)) throw new Error("发布状态不正确");
-  if (item.item_type === "instrument" && !correctAnswer) throw new Error("辨声音内容必须填写正确乐器名称");
+export async function updateMusicItem(_previousState: MusicSaveState, formData: FormData): Promise<MusicSaveState> {
+  try {
+    const itemId = String(formData.get("item_id") ?? "");
+    const { supabase, user, item } = await ownedMusicItem(itemId);
+    const title = String(formData.get("title") ?? "").trim().slice(0, 100);
+    const category = String(formData.get("category") ?? "").trim().slice(0, 60) || null;
+    const description = String(formData.get("description") ?? "").trim().slice(0, 500) || null;
+    const lyrics = String(formData.get("lyrics") ?? "").trim().slice(0, 12000) || null;
+    const correctAnswer = String(formData.get("correct_answer") ?? "").trim().slice(0, 100) || null;
+    const instructions = String(formData.get("instructions") ?? "").trim().slice(0, 2000) || null;
+    const difficulty = Math.max(1, Math.min(5, Number(formData.get("difficulty") ?? 1) || 1));
+    const requestedStatus = String(formData.get("status") ?? "draft");
+    if (!title) throw new Error("内容名称不能为空");
+    if (!["draft", "published", "archived"].includes(requestedStatus)) throw new Error("发布状态不正确");
+    if (item.item_type === "instrument" && !correctAnswer) throw new Error("辨声音内容必须填写正确乐器名称");
 
-  const { error } = await supabase.from("music_items").update({
-    title, category, description, lyrics, correct_answer: correctAnswer, instructions, difficulty, status, updated_at: new Date().toISOString(),
-  }).eq("id", itemId).eq("created_by", user.id);
-  if (error) throw new Error(error.message);
+    const requestedLearnerIds = [...new Set(formData.getAll("learner_ids").map(String).filter(Boolean))];
+    const [{ data: ownedLearners, error: learnerError }, { data: currentAssignments, error: assignmentReadError }] = await Promise.all([
+      requestedLearnerIds.length
+        ? supabase.from("learner_profiles").select("id").eq("parent_user_id", user.id).in("id", requestedLearnerIds)
+        : Promise.resolve({ data: [], error: null }),
+      supabase.from("learner_music_items").select("learner_id").eq("item_id", itemId),
+    ]);
+    if (learnerError) throw new Error(learnerError.message);
+    if (assignmentReadError) throw new Error(assignmentReadError.message);
+    if ((ownedLearners?.length ?? 0) !== requestedLearnerIds.length) throw new Error("孩子分配信息不正确");
 
-  const requestedLearnerIds = [...new Set(formData.getAll("learner_ids").map(String).filter(Boolean))];
-  const { data: ownedLearners, error: learnerError } = requestedLearnerIds.length
-    ? await supabase.from("learner_profiles").select("id").eq("parent_user_id", user.id).in("id", requestedLearnerIds)
-    : { data: [], error: null };
-  if (learnerError) throw new Error(learnerError.message);
-  if ((ownedLearners?.length ?? 0) !== requestedLearnerIds.length) throw new Error("孩子分配信息不正确");
-  const { error: clearError } = await supabase.from("learner_music_items").delete().eq("item_id", itemId);
-  if (clearError) throw new Error(clearError.message);
-  if (requestedLearnerIds.length) {
-    const { error: assignError } = await supabase.from("learner_music_items").insert(requestedLearnerIds.map((learnerId) => ({ learner_id: learnerId, item_id: itemId })));
-    if (assignError) throw new Error(assignError.message);
+    const currentLearnerIds = new Set((currentAssignments ?? []).map((assignment) => assignment.learner_id));
+    const requestedLearnerIdSet = new Set(requestedLearnerIds);
+    const learnerIdsToAdd = requestedLearnerIds.filter((learnerId) => !currentLearnerIds.has(learnerId));
+    const learnerIdsToRemove = [...currentLearnerIds].filter((learnerId) => !requestedLearnerIdSet.has(learnerId));
+    const savedAt = new Date().toISOString();
+    const [updateResult, removeResult, addResult] = await Promise.all([
+      supabase.from("music_items").update({
+        title, category, description, lyrics, correct_answer: correctAnswer, instructions, difficulty, status: requestedStatus, updated_at: savedAt,
+      }).eq("id", itemId).eq("created_by", user.id).select("status,updated_at").single(),
+      learnerIdsToRemove.length
+        ? supabase.from("learner_music_items").delete().eq("item_id", itemId).in("learner_id", learnerIdsToRemove)
+        : Promise.resolve({ error: null }),
+      learnerIdsToAdd.length
+        ? supabase.from("learner_music_items").insert(learnerIdsToAdd.map((learnerId) => ({ learner_id: learnerId, item_id: itemId })))
+        : Promise.resolve({ error: null }),
+    ]);
+    if (updateResult.error || !updateResult.data) throw new Error(updateResult.error?.message ?? "内容资料没有成功写入数据库");
+    if (removeResult.error) throw new Error(removeResult.error.message);
+    if (addResult.error) throw new Error(addResult.error.message);
+
+    const savedStatus = updateResult.data.status as MusicItemStatus;
+    revalidatePath("/music");
+    revalidatePath("/music/manage");
+    revalidatePath(`/music/manage/${itemId}`);
+    return { status: "success", message: `已保存为“${savedStatus === "published" ? "已发布" : savedStatus === "archived" ? "已归档" : "草稿"}”`, savedStatus, savedAt: updateResult.data.updated_at };
+  } catch (error) {
+    return { status: "error", message: error instanceof Error ? error.message : "保存失败，请稍后再试" };
   }
-  revalidatePath("/music");
-  revalidatePath("/music/manage");
-  revalidatePath(`/music/manage/${itemId}`);
 }
 
 export async function registerMusicAsset(input: {

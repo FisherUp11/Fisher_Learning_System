@@ -270,6 +270,10 @@ textarea { min-height:112px; resize:vertical; line-height:1.65; }
 .music-publish-badge.archived { color:var(--muted); background:var(--paper-deep); }
 .music-editor-page { display:grid; gap:16px; padding-top:18px; }
 .music-editor-form { display:grid; gap:14px; }
+.music-save-row { display:flex; flex-wrap:wrap; align-items:center; gap:11px 16px; }
+.music-save-button { min-width:178px; }
+.music-save-feedback { min-height:22px; flex:1 1 230px; }
+.music-save-feedback p { margin:0; }
 .music-editor-grid { display:grid; gap:12px; }
 .lyrics-editor { min-height:260px; }
 .learner-assignment { display:flex; flex-wrap:wrap; gap:10px; margin:0; padding:14px; border:1px solid var(--line); border-radius:16px; }
