@@ -7,11 +7,18 @@ export const dynamic = "force-dynamic";
 
 export default async function ParentPage() {
   const supabase = await createClient();
-  const [{ data: learners }, { data: states }, { data: attempts }] = await Promise.all([
+  const [{ data: baseLearners }, { data: catechismSettings }, { data: states }, { data: attempts }] = await Promise.all([
     supabase.from("learner_profiles").select("id,display_name,daily_new_limit,active_package_id").order("created_at"),
+    supabase.from("learner_profiles").select("id,catechism_daily_new_limit,catechism_review_limit").order("created_at"),
     supabase.from("learning_states").select("learner_id,stage,due_at"),
     supabase.from("learning_attempts").select("learner_id,result,answered_at").order("answered_at", { ascending: false }).limit(60),
   ]);
+  const catechismSettingsByLearner = new Map((catechismSettings ?? []).map((setting) => [setting.id, setting]));
+  const learners = (baseLearners ?? []).map((learner) => ({
+    ...learner,
+    catechism_daily_new_limit: catechismSettingsByLearner.get(learner.id)?.catechism_daily_new_limit ?? 3,
+    catechism_review_limit: catechismSettingsByLearner.get(learner.id)?.catechism_review_limit ?? 10,
+  }));
   const hasLearners = Boolean(learners?.length);
   const known = states?.filter((state) => state.stage >= 5).length ?? 0;
   const unstable = states?.filter((state) => state.stage <= 2).length ?? 0;
@@ -40,6 +47,8 @@ export default async function ParentPage() {
             <div className="settings-fields">
               <label>孩子昵称<input name="display_name" defaultValue={learner.display_name} required maxLength={24} /></label>
               <label>每天新字数量<select name="daily_new_limit" defaultValue={String(learner.daily_new_limit)}><option value="1">1 个（轻松）</option><option value="3">3 个（慢一点）</option><option value="5">5 个（推荐）</option><option value="8">8 个（快一些）</option><option value="10">10 个（稳定学习）</option><option value="20">20 个（冲刺筛查）</option><option value="30">30 个（冲刺筛查）</option><option value="40">40 个（快速摸底）</option><option value="50">50 个（快速摸底）</option></select><span className="field-note">保存后，今天已经生成的学习卡不变；明天会自动按新数量排入新字。</span></label>
+              <label>信仰问答 · 每天新问题<input name="catechism_daily_new_limit" type="number" min="1" max="20" step="1" defaultValue={learner.catechism_daily_new_limit} /><span className="field-note">可填 1–20，默认 3。新的数量立即用于下一次打开“问一问”；已经练过的问题不会重新算作新问题。</span></label>
+              <label>信仰问答 · 每天到期复习上限<input name="catechism_review_limit" type="number" min="1" max="50" step="1" defaultValue={learner.catechism_review_limit} /><span className="field-note">可填 1–50，默认 10；优先安排上次还不会、已经到期或阶段较低的问题。</span></label>
             </div>
             <button className="secondary" type="submit">保存 {learner.display_name} 的设置</button>
             {learner.active_package_id && <a className="text-button" href={`/library?learner=${learner.id}`}>查看 / 修正 {learner.display_name} 的字库</a>}
@@ -54,6 +63,8 @@ export default async function ParentPage() {
         <form action={createLearner} className="form-grid" style={{ marginTop: 18 }}>
           <label>孩子昵称<input name="display_name" required maxLength={24} placeholder="例如：小满" /></label>
           <label>每天新字数量<select name="daily_new_limit" defaultValue="5"><option value="3">3 个（慢一点）</option><option value="5">5 个（推荐）</option><option value="8">8 个（快一些）</option><option value="10">10 个（稳定学习）</option><option value="20">20 个（冲刺筛查）</option><option value="30">30 个（冲刺筛查）</option><option value="40">40 个（快速摸底）</option><option value="50">50 个（快速摸底）</option></select></label>
+          <label>信仰问答 · 每天新问题<input name="catechism_daily_new_limit" type="number" min="1" max="20" step="1" defaultValue="3" /></label>
+          <label>信仰问答 · 每天复习上限<input name="catechism_review_limit" type="number" min="1" max="50" step="1" defaultValue="10" /></label>
           <button className="secondary" type="submit">创建孩子档案</button>
         </form>
       </section>
@@ -84,8 +95,15 @@ export default async function ParentPage() {
       </section>
 
       <section className="panel">
+        <h2>儿童信仰问答</h2>
+        <p className="notice">支持中英文问题与答案、CSV 多批次导入、按孩子分配、答错降级和间隔复习。先运行 <code>supabase/010_catechism_learning_mvp.sql</code>。</p>
+        <div className="template-download"><span>下载 UTF-8 模板，准备第一批 145 问。</span><a className="text-button" href="/api/templates/catechism">下载信仰问答 CSV 模板</a></div>
+        <Link className="primary full" style={{ display: "grid", placeItems: "center", marginTop: 16 }} href="/catechism/manage">导入和管理问答册</Link>
+      </section>
+
+      <section className="panel">
         <h2>下一步</h2>
-        <div className="list"><div className="list-row"><span>1. 下载样例 CSV，先导入 30 个字。</span><a className="text-button" href="/samples/characters-sample.csv" download>下载</a></div><div className="list-row"><span>2. 在 iPhone 打开“学一学”，完成一轮真实测试。</span><a className="text-button" href="/learn">开始</a></div><div className="list-row"><span>3. 导入诗词后，每背一次就在“诗词背诵”打一次卡。</span><Link className="text-button" href="/poems">去背诵</Link></div><div className="list-row"><span>4. 创建歌曲、辨音和节奏练习，并上传 MP3 与琴谱。</span><Link className="text-button" href="/music/manage">管理音乐</Link></div></div>
+        <div className="list"><div className="list-row"><span>1. 下载样例 CSV，先导入 30 个字。</span><a className="text-button" href="/samples/characters-sample.csv" download>下载</a></div><div className="list-row"><span>2. 在 iPhone 打开“学一学”，完成一轮真实测试。</span><a className="text-button" href="/learn">开始</a></div><div className="list-row"><span>3. 导入诗词后，每背一次就在“诗词背诵”打一次卡。</span><Link className="text-button" href="/poems">去背诵</Link></div><div className="list-row"><span>4. 创建歌曲、辨音和节奏练习，并上传 MP3 与琴谱。</span><Link className="text-button" href="/music/manage">管理音乐</Link></div><div className="list-row"><span>5. 导入儿童信仰问答，开始中英双语记忆。</span><Link className="text-button" href="/catechism/manage">管理问答</Link></div></div>
         <form action={signOut} style={{ marginTop: 18 }}><button className="text-button danger" type="submit">退出家长账号</button></form>
       </section>
     </div>

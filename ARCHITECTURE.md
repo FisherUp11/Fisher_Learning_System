@@ -16,12 +16,13 @@ flowchart TB
   UI -.后续审核内容.-> AI[Azure OpenAI]
   DB --> Scheduler[Postgres RPC\n队列与答案事务]
   DB --> MusicScheduler[Postgres RPC\n音乐练习记录与间隔]
+  DB --> CatechismScheduler[Postgres RPC\n信仰问答判断与间隔]
 ```
 
 ### 核心原则
 
 1. **内容、当前状态、历史事实三者不能混在一张表。**
-2. **前端只提交 `known/again`，不计算下一阶段。** 复习规则只在数据库 `answer_queue_item` 中执行。
+2. **前端只提交人工判断，不计算下一阶段。** 汉字走 `answer_queue_item`、音乐走 `record_music_practice`、信仰问答走 `record_catechism_attempt`；复习规则只在对应数据库 RPC 中执行。
 3. **孩子没有 Supabase 登录账号。** 当前 MVP 使用家长会话访问孩子档案；以后独立儿童会话必须重新设计授权模型。
 4. **AI / Azure 不可用不能阻塞学习。** 它们是内容与朗读增强，不是系统事实来源。
 5. **任何跨家庭读取都必须失败。** 前端隐藏、页面跳转不是权限控制，RLS 和函数内验证才是。
@@ -39,6 +40,11 @@ flowchart TB
 | `app/(app)/music/page.tsx` | 音乐总览、孩子切换、类型筛选与建议 | 只展示数据库已计算的阶段和到期日。 |
 | `app/(app)/music/[itemId]/page.tsx` | 播放、歌词/琴谱、辨音揭晓、结果打卡与历史 | 读取 R2 文件前必须验证孩子已被分配。 |
 | `app/(app)/music/manage/*` | 家长内容创建、编辑、发布、孩子分配与媒体维护 | 删除内容/资源是破坏性操作，保留二次确认。 |
+| `app/(app)/catechism/page.tsx` | 问答册概览、掌握状态、来源筛选、搜索与分页 | 汇总所有已分配问答册；不在页面计算新的学习阶段。 |
+| `app/(app)/catechism/study/page.tsx` | 生成当日到期复习与新问题队列 | 默认每天 3 新问 / 10 复习，实际值来自孩子档案。 |
+| `app/(app)/catechism/manage/*` | CSV 导入、问答册发布/分配、逐问修正与归档 | 获授权文本不得由 AI 自动改写；已有历史时使用归档。 |
+| `components/catechism-study-experience.tsx` | 答案揭晓、双语朗读和二值人工判断 | 只提交 `recited/again`，不计算升降级。 |
+| `lib/catechism.ts` / `lib/catechism-actions.ts` | 问答聚合、今日建议、CSV 写入边界与练习 RPC | 每次判断必须带唯一 `request_id`。 |
 | `app/api/music/assets/upload-url/route.ts` | 验证文件类型/大小/归属，签发 R2 PUT URL | R2 密钥永远不返回浏览器。 |
 | `lib/music-actions.ts` / `lib/music-data.ts` | 音乐写入边界与只读聚合 | 练习结果走 `record_music_practice`，不在 Action 中计算阶段。 |
 | `lib/r2.ts` | S3 Client、上传/读取签名 URL、R2 删除 | 延迟初始化，避免无 R2 变量时阻断 Next.js 构建。 |
@@ -48,8 +54,9 @@ flowchart TB
 | `app/api/speech/route.ts` | 持有 Azure Speech key 的服务器端语音代理 | 绝不把 Azure key 返回给浏览器。 |
 | `app/api/ai/character-content/route.ts` | 预留的受保护 AI 生成接口 | 输出必须审核/缓存后才给孩子端。 |
 | `app/api/ai/character-memory-image/route.ts` | 临时儿童联想图 | 先验证家长、孩子和字库归属；只传服务端规范内容给 Azure。 |
-| `supabase/001_hanzi_mvp.sql` | 表、RLS、RPC、索引 | 是 MVP 的数据库单一事实来源。 |
+| `supabase/001_hanzi_mvp.sql` | 识字基础表、RLS、RPC、索引 | 当前数据库结构以已按顺序执行的迁移脚本累计结果为准。 |
 | `supabase/009_music_learning_mvp.sql` | 音乐表、RLS、索引与练习 RPC | 不修改汉字/诗词表；必须整段运行。 |
+| `supabase/010_catechism_learning_mvp.sql` | 信仰问答表、孩子设置、RLS、索引与练习 RPC | 不修改旧模块历史；必须整段运行。 |
 | `samples/characters-sample.csv` | 30 字真实试跑内容 | 修改后需重新人工检查拼音/例句。 |
 
 ## 3. 数据模型与归属
@@ -83,6 +90,14 @@ erDiagram
   MUSIC_ITEMS ||--o{ MUSIC_LEARNING_STATES : is_practiced
   LEARNER_PROFILES ||--o{ MUSIC_PRACTICE_ATTEMPTS : practices
   MUSIC_ITEMS ||--o{ MUSIC_PRACTICE_ATTEMPTS : records
+  AUTH_USERS ||--o{ CATECHISM_COLLECTIONS : creates
+  CATECHISM_COLLECTIONS ||--o{ CATECHISM_ITEMS : contains
+  LEARNER_PROFILES ||--o{ LEARNER_CATECHISM_COLLECTIONS : receives
+  CATECHISM_COLLECTIONS ||--o{ LEARNER_CATECHISM_COLLECTIONS : links
+  LEARNER_PROFILES ||--o{ CATECHISM_LEARNING_STATES : tracks
+  CATECHISM_ITEMS ||--o{ CATECHISM_LEARNING_STATES : is_memorized
+  LEARNER_PROFILES ||--o{ CATECHISM_ATTEMPTS : practices
+  CATECHISM_ITEMS ||--o{ CATECHISM_ATTEMPTS : records
 ```
 
 ### 每张表的含义
@@ -106,6 +121,11 @@ erDiagram
 | `learner_music_items` | 内容与孩子的分配关系 | 未分配内容不能出现在孩子页。 |
 | `music_learning_states` | 某孩子对某音乐项的阶段、到期日和最近结果 | 不可代替历史。 |
 | `music_practice_attempts` | 每一次听/唱/辨认/节奏结果，含孩子本地日期和可选猜测备注 | 不覆盖或合并；同日多次就是多行。 |
+| `catechism_collections` | 一次导入形成的一份有版本、来源与授权说明的问答册 | 不跨版本自动合并问题。 |
+| `catechism_items` | 某一版本内的中英文问题、答案、经文和稳定编号 | 不存孩子进度，不由 AI 自动改写。 |
+| `learner_catechism_collections` | 问答册与孩子的分配关系 | 取消分配不删除历史，重新分配后可恢复。 |
+| `catechism_learning_states` | 某孩子对某问题的当前阶段、次数和到期日 | 不可代替不可变历史。 |
+| `catechism_attempts` | 每次 `recited/again` 的事实、前后阶段、本地日期与幂等键 | 同日多次不合并，不更新覆盖。 |
 
 ## 4. 当前复习算法（不可拆分）
 
@@ -178,6 +198,15 @@ sequenceDiagram
 
 `record_music_practice` 采用 `SECURITY INVOKER`：它在调用家长的 RLS 权限下运行，仍会显式检查孩子归属、内容归属、已分配和已发布状态。`request_id` 唯一，同一次点击即使网络重试也只记一次。
 
+`record_catechism_attempt` 采用受限的 `SECURITY DEFINER`，因为 `catechism_learning_states` 和 `catechism_attempts` 对普通登录用户只开放读取，所有写入必须经过同一事务。函数必须保持空 `search_path`、全限定表名、显式 `auth.uid()` 归属检查，并只向 `authenticated` 授予执行权。问答历史不允许前端直接更新或删除。
+
+### 迁移纪律
+
+- 已部署环境的真实结构是 `001` 加后续适用的 `002`–`010` 累计结果，不要回头改已经在线执行过的旧脚本来“假装升级”。
+- 新的数据库变化应新增下一个编号脚本，并在执行前备份相关内容表、状态表和历史表。
+- SQL 文件要尽量可重复运行；函数签名变化时同时清理旧签名权限，外键和 RLS 变更要验证已有数据能安全通过。
+- 内容只有错字/标点修正可原地更新；答案含义、授权文本版本或译本变化必须创建新问答册。
+
 ## 7. Next.js 与认证边界
 
 - Server Component 默认读取数据；页面在 `(app)` 路由组内，layout 用 `auth.getUser()` 拦截未登录访问。
@@ -235,6 +264,15 @@ sequenceDiagram
 - 文件放在私有 Cloudflare R2；上传 URL 10 分钟过期，读取 URL 1 小时过期。R2 密钥只存在 Vercel 服务器环境变量。
 - 当前不需要 Supabase Edge Functions：事务走 Postgres RPC，签名走 Next.js Route Handler。未来需要转码、波形或长任务时再评估异步工作流。
 
+### 儿童信仰问答（当前已实现）
+
+- 首份内容是已获授权的《儿童信仰问答》（*First Catechism: Biblical Truth for God’s Children*）；系统只保存和展示家长导入的正式文本，不自动翻译或改写。
+- 中文和英文同时显示并分别朗读；`/api/speech` 根据 `lang=zh/en` 选择 Azure 声音，失败时由浏览器系统朗读回退。
+- 家长按“与原答案基本相同，约 80%–100%”人工判断 `recited/again`。未来语音转写只能辅助家长，不能覆盖人工事实。
+- `record_catechism_attempt` 通过受限 `SECURITY DEFINER` 再次核验家长归属后锁定状态，检查 `request_id`，追加历史并更新阶段。答出上升一级，未答出下降两级且次日再问；同日答对不连续升级、同日连续答错不重复降级；正向间隔为 1/3/7/14/30/60/90/180 天。
+- 每位孩子独立设置每日新问题（默认 3）和到期复习上限（默认 10）。前端只选择今日候选，不写阶段；同一问题可从问答册“单独练这一问”产生额外独立记录。
+- 不需要 Supabase Edge Functions：数据库事务走 Postgres RPC，CSV/维护走 Server Actions，朗读走 Next.js Route Handler。
+
 ### 跟读/背诵（4）
 
 音频录入前要增加家长同意、私有 Storage policy、录音删除与自动过期。Azure Speech 评分只能作为“再练习建议”，不作为孩子的能力/排名数据。
@@ -244,9 +282,9 @@ sequenceDiagram
 在让新的 AI Agent 修改项目时，先把下面内容给它：
 
 ```text
-请先阅读 ARCHITECTURE.md、DEPLOYMENT.md、01_产品方案与MVP.md、09_诗词背诵模块说明.md、10_Cloudflare_R2保姆级配置教程.md、supabase/001_hanzi_mvp.sql 和 supabase/009_music_learning_mvp.sql。
-这是一个 Next.js + Supabase SSR + 私有 Cloudflare R2 的儿童家庭学习 PWA，包含汉字、诗词和音乐。
-不要在前端计算复习阶段；不要暴露 Azure、R2 或 Supabase service key；汉字回答必须追加 learning_attempts，诗词打卡必须追加 poem_recitation_attempts，音乐练习必须通过 record_music_practice 追加 music_practice_attempts；修改复习算法时同步修改 SQL、文档和测试。
+请先阅读 ARCHITECTURE.md、DEPLOYMENT.md、01_产品方案与MVP.md、09_诗词背诵模块说明.md、10_Cloudflare_R2保姆级配置教程.md、11_儿童信仰问答模块说明.md、supabase/001_hanzi_mvp.sql、supabase/009_music_learning_mvp.sql 和 supabase/010_catechism_learning_mvp.sql。
+这是一个 Next.js + Supabase SSR + 私有 Cloudflare R2 的儿童家庭学习 PWA，包含汉字、诗词、音乐和儿童信仰问答。
+不要在前端计算复习阶段；不要暴露 Azure、R2 或 Supabase service key；汉字回答必须追加 learning_attempts，诗词打卡必须追加 poem_recitation_attempts，音乐练习必须通过 record_music_practice 追加 music_practice_attempts，信仰问答必须通过 record_catechism_attempt 追加 catechism_attempts；获授权问答不得由 AI 自动改写；修改复习算法时同步修改 SQL、文档和测试。
 ```
 
 并要求 Agent 完成真实检查：`npm run lint`、`npm run build`、移动端浏览器验收；若修改 SQL，使用两个测试家长账号验证跨家庭 RLS。

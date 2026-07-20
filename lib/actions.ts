@@ -7,6 +7,8 @@ export type Learner = {
   id: string;
   display_name: string;
   daily_new_limit: number;
+  catechism_daily_new_limit?: number;
+  catechism_review_limit?: number;
   active_package_id: string | null;
 };
 
@@ -38,6 +40,16 @@ function normalizeDailyNewLimit(value: FormDataEntryValue | null) {
   return Number.isFinite(parsed) ? Math.max(1, Math.min(50, Math.floor(parsed))) : 5;
 }
 
+function normalizeCatechismNewLimit(value: FormDataEntryValue | null) {
+  const parsed = Number(value ?? 3);
+  return Number.isFinite(parsed) ? Math.max(1, Math.min(20, Math.floor(parsed))) : 3;
+}
+
+function normalizeCatechismReviewLimit(value: FormDataEntryValue | null) {
+  const parsed = Number(value ?? 10);
+  return Number.isFinite(parsed) ? Math.max(1, Math.min(50, Math.floor(parsed))) : 10;
+}
+
 export async function loadTodayQueue(learnerId: string): Promise<QueueItem[]> {
   const { supabase } = await authenticatedClient();
   const { data, error } = await supabase.rpc("get_today_queue", { p_learner_id: learnerId });
@@ -66,16 +78,21 @@ export async function createLearner(formData: FormData) {
   const { supabase, user } = await authenticatedClient();
   const displayName = String(formData.get("display_name") ?? "").trim().slice(0, 24);
   const dailyNewLimit = normalizeDailyNewLimit(formData.get("daily_new_limit"));
+  const catechismDailyNewLimit = normalizeCatechismNewLimit(formData.get("catechism_daily_new_limit"));
+  const catechismReviewLimit = normalizeCatechismReviewLimit(formData.get("catechism_review_limit"));
   if (!displayName) throw new Error("请填写孩子昵称");
 
   const { error } = await supabase.from("learner_profiles").insert({
     parent_user_id: user.id,
     display_name: displayName,
     daily_new_limit: dailyNewLimit,
+    catechism_daily_new_limit: catechismDailyNewLimit,
+    catechism_review_limit: catechismReviewLimit,
     timezone: "Asia/Shanghai",
   });
   if (error) throw new Error(error.message);
   revalidatePath("/learn");
+  revalidatePath("/catechism");
   revalidatePath("/parent");
 }
 
@@ -84,15 +101,24 @@ export async function updateLearnerSettings(formData: FormData) {
   const learnerId = String(formData.get("learner_id") ?? "");
   const displayName = String(formData.get("display_name") ?? "").trim().slice(0, 24);
   const dailyNewLimit = normalizeDailyNewLimit(formData.get("daily_new_limit"));
+  const catechismDailyNewLimit = normalizeCatechismNewLimit(formData.get("catechism_daily_new_limit"));
+  const catechismReviewLimit = normalizeCatechismReviewLimit(formData.get("catechism_review_limit"));
   if (!learnerId || !displayName) throw new Error("孩子昵称不能为空");
 
   const { error } = await supabase
     .from("learner_profiles")
-    .update({ display_name: displayName, daily_new_limit: dailyNewLimit })
+    .update({
+      display_name: displayName,
+      daily_new_limit: dailyNewLimit,
+      catechism_daily_new_limit: catechismDailyNewLimit,
+      catechism_review_limit: catechismReviewLimit,
+    })
     .eq("id", learnerId)
     .eq("parent_user_id", user.id);
   if (error) throw new Error(error.message);
   revalidatePath("/learn");
+  revalidatePath("/catechism");
+  revalidatePath("/catechism/study");
   revalidatePath("/parent");
 }
 

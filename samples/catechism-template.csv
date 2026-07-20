@@ -1,0 +1,3 @@
+item_key,sequence,section,question_zh,question_en,answer_zh,answer_en,scripture_reference,parent_note
+child_q001,1,第一部分,"请填写第一个中文问题","Please enter the first English question","请填写中文答案","Please enter the English answer","经文出处（可选）","家长备注（可选）"
+child_q002,2,第一部分,"请填写第二个中文问题","Please enter the second English question","请填写中文答案","Please enter the English answer",,

@@ -32,7 +32,8 @@
 7. 再运行 [supabase/007_queue_count_and_memory_image.sql](./supabase/007_queue_count_and_memory_image.sql)，使学习卡在强化卡加入后显示服务端准确待答数。
 8. 再运行 [supabase/008_poem_recitation_mvp.sql](./supabase/008_poem_recitation_mvp.sql)，启用诗词册、每次背诵打卡、可选评分和背诵日期记录。
 9. 再运行 [supabase/009_music_learning_mvp.sql](./supabase/009_music_learning_mvp.sql)，启用“唱一唱 / 辨声音 / 打节奏”、孩子分配、每次练习历史和音乐记忆阶段。
-10. 成功后，在 SQL Editor 依次执行下面两段验证；两段都应返回结果或空表，不应报权限/函数不存在错误。
+10. 再运行 [supabase/010_catechism_learning_mvp.sql](./supabase/010_catechism_learning_mvp.sql)，启用儿童信仰问答、多问答册、双语内容、每日新问/复习设置和记忆阶段。
+11. 成功后，在 SQL Editor 依次执行下面两段验证；两段都应返回结果或空表，不应报权限/函数不存在错误。
 
 ```sql
 select table_name
@@ -41,7 +42,9 @@ where table_schema = 'public'
   and table_name in (
     'learner_profiles', 'characters', 'learning_states', 'learning_attempts',
     'poems', 'poem_recitation_attempts',
-    'music_items', 'music_assets', 'music_learning_states', 'music_practice_attempts'
+    'music_items', 'music_assets', 'music_learning_states', 'music_practice_attempts',
+    'catechism_collections', 'catechism_items', 'learner_catechism_collections',
+    'catechism_learning_states', 'catechism_attempts'
   )
 order by table_name;
 ```
@@ -50,7 +53,7 @@ order by table_name;
 select routine_name
 from information_schema.routines
 where routine_schema = 'public'
-  and routine_name in ('get_today_queue', 'answer_queue_item', 'get_library_progress', 'get_library_rows', 'record_music_practice');
+  and routine_name in ('get_today_queue', 'answer_queue_item', 'get_library_progress', 'get_library_rows', 'record_music_practice', 'record_catechism_attempt');
 ```
 
 如果你已经运行过 001、并且学习页显示 `structure of query does not match function result type`，不要删除任何表；只运行 [supabase/002_fix_get_today_queue.sql](./supabase/002_fix_get_today_queue.sql)，然后刷新学习页。
@@ -67,9 +70,11 @@ where routine_schema = 'public'
 
 若已更新到音乐学习版本，请再运行 [supabase/009_music_learning_mvp.sql](./supabase/009_music_learning_mvp.sql)。它只新增音乐专用表、RLS 和一个练习 RPC，不修改汉字/诗词数据。文件本体放在 Cloudflare R2，数据库仅保存对象键与文件元数据。
 
+若已更新到儿童信仰问答版本，请再运行 [supabase/010_catechism_learning_mvp.sql](./supabase/010_catechism_learning_mvp.sql)。它会给孩子档案增加默认“每天 3 个新问题、最多 10 个到期复习”的独立设置，并新增五张问答专用表、RLS 与 `record_catechism_attempt` RPC；不会修改汉字、诗词或音乐历史。
+
 ### 2.1 SQL 做了什么，为什么必须整段运行
 
-- 建立内容、孩子、当前学习状态、每日队列、不可变回答历史等基础表；006 额外建立“孩子 ↔ 字册”关联表；008 建立诗词内容与背诵记录；009 建立音乐内容、媒体元数据、练习状态与历史。
+- 建立内容、孩子、当前学习状态、每日队列、不可变回答历史等基础表；006 额外建立“孩子 ↔ 字册”关联表；008 建立诗词内容与背诵记录；009 建立音乐内容、媒体元数据、练习状态与历史；010 建立双语信仰问答、孩子分配、学习状态与每次判断历史。
 - 所有表都开启 RLS；每位家长只能看到自己孩子/内容的数据。
 - 创建 `get_today_queue`、`answer_queue_item` 与字库汇总函数；004/006 会把字库查询升级为可分页、可按历史导入包筛选的版本。
 - 函数只授予 `authenticated` 执行权，并在函数内再次核验 `auth.uid()` 是否拥有该孩子档案。
@@ -104,6 +109,9 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=
 
 AZURE_SPEECH_KEY=
 AZURE_SPEECH_REGION=
+# 可选；不填时使用默认的中文女声和美式英语女声
+AZURE_SPEECH_ZH_VOICE=zh-CN-XiaoxiaoNeural
+AZURE_SPEECH_EN_VOICE=en-US-JennyNeural
 AZURE_OPENAI_ENDPOINT=
 AZURE_OPENAI_API_KEY=
 AZURE_OPENAI_DEPLOYMENT=
@@ -152,6 +160,7 @@ npm run dev
 9. 已配置图片模型时，在“学一学”点击“看联想图”，确认出现无文字的儿童联想插图；点击“收起图片，再认一认”后，图片隐藏且不会影响答题。
 10. 到“家长”页下载 `poems-template.csv`，用模板中的 3 首先试跑或填入第一批 28 首后上传；在顶部“学习模块”打开“诗词背诵”，点进一首诗，连续点击两次“今天背过一次”，确认页面显示 2 条记录、Supabase `poem_recitation_attempts` 也有同一日期的 2 行。再试一次“暂不评分”，确认该行保留且标为未评分。
 11. 按 [Cloudflare R2 保姆级配置教程](./10_Cloudflare_R2保姆级配置教程.md) 创建私有 Bucket、CORS 和 Token；在“学习模块 → 音乐天地 → 家长管理”创建一首测试歌曲，上传 MP3、分配孩子并发布；在孩子页播放后点一次练习结果，确认 `music_practice_attempts` 新增 1 行。
+12. 到“家长 → 儿童信仰问答”下载 CSV 模板，先导入模板中的 2 问并发布；打开“问一问”，确认中英文分别朗读、答案揭晓后才能判断。对同一问连续两次点“背出来了”，确认 `catechism_attempts` 同日保留 2 行但阶段只升级一次；随后“单独练这一问”点“还要再背”，确认历史新增且答错降级一次。
 
 如果第 3 步上传后“学一学”仍显示空字册，请先刷新一次页面；仍失败时查看浏览器控制台与 Vercel/Next 终端错误，再检查 SQL 是否完整运行。
 
@@ -205,6 +214,19 @@ select learner_id, poem_id, recited_local_date, score from public.poem_recitatio
 
 若第一句能返回诗词、第二句在打卡后能返回记录，说明数据层正常，接着检查是否在页面选择了正确的孩子。
 
+### 信仰问答页提示缺少表、列或 RPC
+
+完整运行 [supabase/010_catechism_learning_mvp.sql](./supabase/010_catechism_learning_mvp.sql)，不要只运行建表部分。运行后可在 SQL Editor 检查：
+
+```sql
+select id, title, status from public.catechism_collections order by created_at desc;
+select item_key, sort_order, question_zh from public.catechism_items order by sort_order limit 10;
+select learner_id, item_id, result, practiced_local_date, stage_before, stage_after
+from public.catechism_attempts order by practiced_at desc limit 20;
+```
+
+如果 SQL Editor 能查到新表但网页仍提示 schema cache 错误，先等待十几秒并刷新页面；仍未恢复时，在 Supabase Dashboard 的 Data API 设置确认 `public` schema 已暴露。脚本已经显式给 `authenticated` 授权，但 Data API 的 schema 暴露开关仍是独立设置。
+
 ### 注册后没有收到邮件
 
 先查垃圾邮件；确认 Supabase Email provider 已启用，Site URL/Redirect URL 正确。测试阶段也可在 Supabase Auth 的 Users 页面人工确认测试用户。
@@ -223,8 +245,15 @@ select learner_id, poem_id, recited_local_date, score from public.poem_recitatio
 
 ### 怎么备份
 
-在 Supabase Dashboard 定期导出数据库备份；至少备份 `content_packages`、`characters`、`package_characters`、`learner_profiles`、`learning_states`、`learning_attempts`。不要只备份当前状态，回答历史才是以后调算法的依据。
+在 Supabase Dashboard 定期导出数据库备份。每次运行新 SQL 迁移前至少备份以下数据：
+
+- 识字：`content_packages`、`characters`、`package_characters`、`learner_profiles`、`learning_states`、`learning_attempts`；
+- 诗词：`poem_collections`、`poems`、`learner_poem_collections`、`poem_recitation_attempts`；
+- 音乐：`music_items`、`music_assets`、`learner_music_items`、`music_learning_states`、`music_practice_attempts`；
+- 信仰问答：`catechism_collections`、`catechism_items`、`learner_catechism_collections`、`catechism_learning_states`、`catechism_attempts`。
+
+不要只备份当前状态，逐次练习历史才是以后解释进度和调整算法的依据。R2 里的 MP3/琴谱不在 Supabase 数据库备份内，需要另行保留源文件或做 R2 备份。
 
 ## 9. 升级原则
 
-开始新增古诗、音乐、录音或 AI 审核前，先阅读 [ARCHITECTURE.md](./ARCHITECTURE.md)。尤其不要直接修改 `answer_queue_item`：复习规则、SQL 函数、前端文案与测试案例必须同时改。
+开始新增模块、录音或 AI 审核前，先阅读 [ARCHITECTURE.md](./ARCHITECTURE.md)。不要直接在生产库临时修改复习函数：复习规则、编号 SQL 迁移、前端文案与测试案例必须同时改。问答模块尤其不能直接写 `catechism_learning_states` 或改删 `catechism_attempts`。
