@@ -33,7 +33,8 @@
 8. 再运行 [supabase/008_poem_recitation_mvp.sql](./supabase/008_poem_recitation_mvp.sql)，启用诗词册、每次背诵打卡、可选评分和背诵日期记录。
 9. 再运行 [supabase/009_music_learning_mvp.sql](./supabase/009_music_learning_mvp.sql)，启用“唱一唱 / 辨声音 / 打节奏”、孩子分配、每次练习历史和音乐记忆阶段。
 10. 再运行 [supabase/010_catechism_learning_mvp.sql](./supabase/010_catechism_learning_mvp.sql)，启用儿童信仰问答、多问答册、双语内容、每日新问/复习设置和记忆阶段。
-11. 成功后，在 SQL Editor 依次执行下面两段验证；两段都应返回结果或空表，不应报权限/函数不存在错误。
+11. 再运行 [supabase/011_priority_character_learning.sql](./supabase/011_priority_character_learning.sql)，启用孩子级重点字、跨全部字册优先学习、重点筛选和统计。它不修改答错降级或复习间隔。
+12. 成功后，在 SQL Editor 依次执行下面两段验证；两段都应返回结果或空表，不应报权限/函数不存在错误。
 
 ```sql
 select table_name
@@ -41,6 +42,7 @@ from information_schema.tables
 where table_schema = 'public'
   and table_name in (
     'learner_profiles', 'characters', 'learning_states', 'learning_attempts',
+    'learner_character_priorities',
     'poems', 'poem_recitation_attempts',
     'music_items', 'music_assets', 'music_learning_states', 'music_practice_attempts',
     'catechism_collections', 'catechism_items', 'learner_catechism_collections',
@@ -53,7 +55,7 @@ order by table_name;
 select routine_name
 from information_schema.routines
 where routine_schema = 'public'
-  and routine_name in ('get_today_queue', 'answer_queue_item', 'get_library_progress', 'get_library_rows', 'record_music_practice', 'record_catechism_attempt');
+  and routine_name in ('get_today_queue', 'answer_queue_item', 'get_library_progress', 'get_library_rows', 'set_character_priorities', 'record_music_practice', 'record_catechism_attempt');
 ```
 
 如果你已经运行过 001、并且学习页显示 `structure of query does not match function result type`，不要删除任何表；只运行 [supabase/002_fix_get_today_queue.sql](./supabase/002_fix_get_today_queue.sql)，然后刷新学习页。
@@ -72,9 +74,11 @@ where routine_schema = 'public'
 
 若已更新到儿童信仰问答版本，请再运行 [supabase/010_catechism_learning_mvp.sql](./supabase/010_catechism_learning_mvp.sql)。它会给孩子档案增加默认“每天 3 个新问题、最多 10 个到期复习”的独立设置，并新增五张问答专用表、RLS 与 `record_catechism_attempt` RPC；不会修改汉字、诗词或音乐历史。
 
+若已更新到汉字重点字版本，请再运行 [supabase/011_priority_character_learning.sql](./supabase/011_priority_character_learning.sql)。它会新增 `learner_character_priorities` 和原子批量保存 RPC，并替换 `get_today_queue` / `get_library_rows` 的当前版本。重点字只改变候选顺序：不会提前于 `due_at` 复习，不会增加每日新字总量，也不会修改 `answer_queue_item` 或已有学习历史。前端和 `011` 必须一起上线，否则“册”会明确提示先运行脚本。
+
 ### 2.1 SQL 做了什么，为什么必须整段运行
 
-- 建立内容、孩子、当前学习状态、每日队列、不可变回答历史等基础表；006 额外建立“孩子 ↔ 字册”关联表；008 建立诗词内容与背诵记录；009 建立音乐内容、媒体元数据、练习状态与历史；010 建立双语信仰问答、孩子分配、学习状态与每次判断历史。
+- 建立内容、孩子、当前学习状态、每日队列、不可变回答历史等基础表；006 额外建立“孩子 ↔ 字册”关联表；008 建立诗词内容与背诵记录；009 建立音乐内容、媒体元数据、练习状态与历史；010 建立双语信仰问答、孩子分配、学习状态与每次判断历史；011 建立孩子级重点字及其安全保存/查询入口。
 - 所有表都开启 RLS；每位家长只能看到自己孩子/内容的数据。
 - 创建 `get_today_queue`、`answer_queue_item` 与字库汇总函数；004/006 会把字库查询升级为可分页、可按历史导入包筛选的版本。
 - 函数只授予 `authenticated` 执行权，并在函数内再次核验 `auth.uid()` 是否拥有该孩子档案。
@@ -157,10 +161,11 @@ npm run dev
 6. 强化卡答“我认识”后刷新页面，确认它不会恢复原等级，而会留在降级后的状态、次日优先。
 7. 到 Supabase Table Editor → `learning_attempts`，确认每一次回答都有独立记录。
 8. 到“字库”页，确认默认“全部已导入字册”能显示每份 CSV 的汉字；按“来源字册”筛选其中一份，并展开一个字确认回答次数、阶段、下次复习日和来源字册正确显示；确认每页只显示 48 个字并可翻页。
-9. 已配置图片模型时，在“学一学”点击“看联想图”，确认出现无文字的儿童联想插图；点击“收起图片，再认一认”后，图片隐藏且不会影响答题。
-10. 到“家长”页下载 `poems-template.csv`，用模板中的 3 首先试跑或填入第一批 28 首后上传；在顶部“学习模块”打开“诗词背诵”，点进一首诗，连续点击两次“今天背过一次”，确认页面显示 2 条记录、Supabase `poem_recitation_attempts` 也有同一日期的 2 行。再试一次“暂不评分”，确认该行保留且标为未评分。
-11. 按 [Cloudflare R2 保姆级配置教程](./10_Cloudflare_R2保姆级配置教程.md) 创建私有 Bucket、CORS 和 Token；在“学习模块 → 音乐天地 → 家长管理”创建一首测试歌曲，上传 MP3、分配孩子并发布；在孩子页播放后点一次练习结果，确认 `music_practice_attempts` 新增 1 行。
-12. 到“家长 → 儿童信仰问答”下载 CSV 模板，先导入模板中的 2 问并发布；打开“问一问”，确认中英文分别朗读、答案揭晓后才能判断。对同一问连续两次点“背出来了”，确认 `catechism_attempts` 同日保留 2 行但阶段只升级一次；随后“单独练这一问”点“还要再背”，确认历史新增且答错降级一次。
+9. 在“册”中勾选来自两次不同 CSV 的 5–10 个字，点击“保存本页重点字”；确认顶部重点统计、重点筛选和每行“重点”标识同步更新。每日新字设为 5 时，新任务仍不超过 5 个新字，并优先取未学重点字；未到期重点字不应提前出现。详细验收见 [汉字重点字功能说明](./12_汉字重点字功能说明.md)。
+10. 已配置图片模型时，在“学一学”点击“看联想图”，确认出现无文字的儿童联想插图；点击“收起图片，再认一认”后，图片隐藏且不会影响答题。
+11. 到“家长”页下载 `poems-template.csv`，用模板中的 3 首先试跑或填入第一批 28 首后上传；在顶部“学习模块”打开“诗词背诵”，点进一首诗，连续点击两次“今天背过一次”，确认页面显示 2 条记录、Supabase `poem_recitation_attempts` 也有同一日期的 2 行。再试一次“暂不评分”，确认该行保留且标为未评分。
+12. 按 [Cloudflare R2 保姆级配置教程](./10_Cloudflare_R2保姆级配置教程.md) 创建私有 Bucket、CORS 和 Token；在“学习模块 → 音乐天地 → 家长管理”创建一首测试歌曲，上传 MP3、分配孩子并发布；在孩子页播放后点一次练习结果，确认 `music_practice_attempts` 新增 1 行。
+13. 到“家长 → 儿童信仰问答”下载 CSV 模板，先导入模板中的 2 问并发布；打开“问一问”，确认中英文分别朗读、答案揭晓后才能判断。对同一问连续两次点“背出来了”，确认 `catechism_attempts` 同日保留 2 行但阶段只升级一次；随后“单独练这一问”点“还要再背”，确认历史新增且答错降级一次。
 
 如果第 3 步上传后“学一学”仍显示空字册，请先刷新一次页面；仍失败时查看浏览器控制台与 Vercel/Next 终端错误，再检查 SQL 是否完整运行。
 

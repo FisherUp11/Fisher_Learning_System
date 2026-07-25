@@ -23,6 +23,7 @@
 | [09_诗词背诵模块说明.md](./09_诗词背诵模块说明.md) | 诗词 CSV、打卡/评分规则与后续迭代边界 | 家长、后续开发者 |
 | [10_Cloudflare_R2保姆级配置教程.md](./10_Cloudflare_R2保姆级配置教程.md) | R2 Bucket、CORS、API Token、Vercel 变量与音乐上传验收 | 部署者 |
 | [11_儿童信仰问答模块说明.md](./11_儿童信仰问答模块说明.md) | 双语问答 CSV、人工判断、复习规则、管理与验收 | 家长、后续开发者 |
+| [12_汉字重点字功能说明.md](./12_汉字重点字功能说明.md) | 跨字册选择重点字、队列优先级、漏学处理和验收 | 家长、后续开发者 |
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | 当前代码边界、数据流、迭代约束与 AI Agent 交接说明 | 后续开发者 / AI Agent |
 
 ## 本次参考了什么
@@ -73,6 +74,6 @@ flowchart LR
 
 ## 当前 MVP 代码
 
-本目录同时是 MVP 应用根目录：`app/` 是 Next.js 前端；`supabase/001_hanzi_mvp.sql` 是识字基础表、RLS 和复习函数；`004`–`007` 是后续识字升级；`008` 新增诗词背诵记录；`009` 新增音乐内容、R2 媒体元数据、练习历史与记忆阶段；`010` 新增儿童信仰问答、双语内容、人工判断历史和复习 RPC。音乐文件放在私有 Cloudflare R2，请严格按 [DEPLOYMENT.md](./DEPLOYMENT.md) 与 [R2 配置教程](./10_Cloudflare_R2保姆级配置教程.md) 操作。
+本目录同时是 MVP 应用根目录：`app/` 是 Next.js 前端；`supabase/001_hanzi_mvp.sql` 是识字基础表、RLS 和复习函数；`004`–`007` 是后续识字升级；`008` 新增诗词背诵记录；`009` 新增音乐内容、R2 媒体元数据、练习历史与记忆阶段；`010` 新增儿童信仰问答、双语内容、人工判断历史和复习 RPC；`011` 新增孩子级重点字、字库筛选统计和优先队列。音乐文件放在私有 Cloudflare R2，请严格按 [DEPLOYMENT.md](./DEPLOYMENT.md) 与 [R2 配置教程](./10_Cloudflare_R2保姆级配置教程.md) 操作。
 
 若已部署的学习页出现队列函数返回类型错误，使用 [002_fix_get_today_queue.sql](./supabase/002_fix_get_today_queue.sql) 热修复即可；它不会删除学习数据。

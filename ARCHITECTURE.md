@@ -33,6 +33,8 @@ flowchart TB
 | --- | --- | --- |
 | `app/(app)/learn/page.tsx` | 已登录后的儿童学习入口 | 不在此处写复习算法。 |
 | `components/learning-experience.tsx` | 卡片状态、揭示答案、提交回答、朗读回退、临时联想图 | 图片只留在当前浏览器内存，不能阻塞答题。 |
+| `app/(app)/library/page.tsx` | 全字册掌握统计、服务端筛选与分页 | `get_library_rows` 的参数/返回字段必须与最新 SQL 同步。 |
+| `components/library-priority-manager.tsx` | 本页重点字勾选、批量保存反馈与字卡详情 | 只提交选择，不计算复习日或阶段。 |
 | `app/(app)/parent/page.tsx` | 家长档案、导入、基础进度 | 所有写入走 `lib/actions.ts`。 |
 | `app/(app)/poems/page.tsx` | 诗词背诵概览、筛选、推荐、分页 | 只展示记录与建议，不运行汉字复习算法。 |
 | `app/(app)/poems/[poemId]/page.tsx` | 单首诗正文、打卡历史、评分概况 | 每条记录必须来自 `poem_recitation_attempts`。 |
@@ -57,6 +59,7 @@ flowchart TB
 | `supabase/001_hanzi_mvp.sql` | 识字基础表、RLS、RPC、索引 | 当前数据库结构以已按顺序执行的迁移脚本累计结果为准。 |
 | `supabase/009_music_learning_mvp.sql` | 音乐表、RLS、索引与练习 RPC | 不修改汉字/诗词表；必须整段运行。 |
 | `supabase/010_catechism_learning_mvp.sql` | 信仰问答表、孩子设置、RLS、索引与练习 RPC | 不修改旧模块历史；必须整段运行。 |
+| `supabase/011_priority_character_learning.sql` | 孩子级重点字、RLS、批量保存和汉字队列/字库查询升级 | 不得修改 `answer_queue_item` 真值表。 |
 | `samples/characters-sample.csv` | 30 字真实试跑内容 | 修改后需重新人工检查拼音/例句。 |
 
 ## 3. 数据模型与归属
@@ -70,6 +73,8 @@ erDiagram
   CHARACTERS ||--o{ PACKAGE_CHARACTERS : appears_in
   LEARNER_PROFILES ||--o{ LEARNING_STATES : has
   CHARACTERS ||--o{ LEARNING_STATES : tracks
+  LEARNER_PROFILES ||--o{ LEARNER_CHARACTER_PRIORITIES : chooses
+  CHARACTERS ||--o{ LEARNER_CHARACTER_PRIORITIES : prioritizes
   LEARNER_PROFILES ||--o{ DAILY_SESSIONS : starts
   DAILY_SESSIONS ||--o{ DAILY_SESSION_ITEMS : queues
   LEARNING_STATES ||--o{ LEARNING_ATTEMPTS : records
@@ -107,6 +112,7 @@ erDiagram
 | `content_packages` | 一批由某家长创建的字册 | 不存孩子进度。 |
 | `characters` | 家长私有的规范字、拼音、释义和基础例词 | 不直接存“孩子认识吗”。 |
 | `package_characters` | 字册内的顺序 | 不存复习阶段。 |
+| `learner_character_priorities` | 某个孩子当前优先学习哪些字，跨全部关联字册生效 | 不存阶段、不复制历史、不自动视为已掌握。 |
 | `learner_profiles` | 孩子昵称、每日新字数、当前字册 | 不是可登录的 Auth 用户。 |
 | `learning_states` | 一个孩子对一个字当前的阶段/到期日 | 不可代替历史记录。 |
 | `daily_sessions` | 孩子本地日期的一次今日任务容器 | 不代表每次点击。 |
@@ -140,6 +146,19 @@ erDiagram
 | stage 1–6 | 上升一级，按新阶段间隔 | 降两级，添加当天 `error_reinforcement` |
 | stage 7 | 留在 stage 7，180 天后，写入 `mastered_at` | 降到 stage 5，清除 `mastered_at`，添加强化 |
 | `error_reinforcement` | **保持已降级阶段**，次日优先 | **保持已降级阶段**，次日优先 |
+
+### 今日队列与重点字
+
+`get_today_queue` 负责创建孩子本地日期的固定任务。`011` 之后的候选顺序是：
+
+1. 以前未答完的 `pending` 项全部转成今日 `carry`；
+2. 到期重点字；
+3. 到期普通字（与 carry 合计补到原有 15 个复习容量；carry 本身可超过 15）；
+4. 跨全部已关联、已发布字册的未学重点字；
+5. 当前 `active_package_id` 中按 CSV sequence 排列的普通新字；
+6. 回答后需要时追加的 `new_reinforcement / error_reinforcement`。
+
+重点仅参与排序：必须仍满足 `due_at <= now()` 才能成为复习候选；未学重点字占用 `daily_new_limit`，不能扩大当天新字量。当天队列一旦建立便不因家长中途更改重点而重排，避免孩子学习到一半出现顺序漂移。漏学不会自动降级，过期项继续保持到期，阶段只由 `answer_queue_item` 根据真实回答改变。
 
 ### 为什么 `error_reinforcement` 不升级
 
@@ -200,9 +219,11 @@ sequenceDiagram
 
 `record_catechism_attempt` 采用受限的 `SECURITY DEFINER`，因为 `catechism_learning_states` 和 `catechism_attempts` 对普通登录用户只开放读取，所有写入必须经过同一事务。函数必须保持空 `search_path`、全限定表名、显式 `auth.uid()` 归属检查，并只向 `authenticated` 授予执行权。问答历史不允许前端直接更新或删除。
 
+`set_character_priorities` 采用 `SECURITY INVOKER`，在家长自身 RLS 权限下批量保存当前页选择；函数仍显式验证孩子归属、字库成员关系和单次最多 100 个字。`learner_character_priorities` 的主键 `(learner_id, character_id)` 确保不同孩子可有不同重点，同一字跨多个 CSV 只保留一个重点标记。
+
 ### 迁移纪律
 
-- 已部署环境的真实结构是 `001` 加后续适用的 `002`–`010` 累计结果，不要回头改已经在线执行过的旧脚本来“假装升级”。
+- 已部署环境的真实结构是 `001` 加后续适用的 `002`–`011` 累计结果，不要回头改已经在线执行过的旧脚本来“假装升级”。
 - 新的数据库变化应新增下一个编号脚本，并在执行前备份相关内容表、状态表和历史表。
 - SQL 文件要尽量可重复运行；函数签名变化时同时清理旧签名权限，外键和 RLS 变更要验证已有数据能安全通过。
 - 内容只有错字/标点修正可原地更新；答案含义、授权文本版本或译本变化必须创建新问答册。
@@ -282,9 +303,9 @@ sequenceDiagram
 在让新的 AI Agent 修改项目时，先把下面内容给它：
 
 ```text
-请先阅读 ARCHITECTURE.md、DEPLOYMENT.md、01_产品方案与MVP.md、09_诗词背诵模块说明.md、10_Cloudflare_R2保姆级配置教程.md、11_儿童信仰问答模块说明.md、supabase/001_hanzi_mvp.sql、supabase/009_music_learning_mvp.sql 和 supabase/010_catechism_learning_mvp.sql。
+请先阅读 ARCHITECTURE.md、DEPLOYMENT.md、01_产品方案与MVP.md、09_诗词背诵模块说明.md、10_Cloudflare_R2保姆级配置教程.md、11_儿童信仰问答模块说明.md、12_汉字重点字功能说明.md、supabase/001_hanzi_mvp.sql、supabase/009_music_learning_mvp.sql、supabase/010_catechism_learning_mvp.sql 和 supabase/011_priority_character_learning.sql。
 这是一个 Next.js + Supabase SSR + 私有 Cloudflare R2 的儿童家庭学习 PWA，包含汉字、诗词、音乐和儿童信仰问答。
-不要在前端计算复习阶段；不要暴露 Azure、R2 或 Supabase service key；汉字回答必须追加 learning_attempts，诗词打卡必须追加 poem_recitation_attempts，音乐练习必须通过 record_music_practice 追加 music_practice_attempts，信仰问答必须通过 record_catechism_attempt 追加 catechism_attempts；获授权问答不得由 AI 自动改写；修改复习算法时同步修改 SQL、文档和测试。
+不要在前端计算复习阶段；不要暴露 Azure、R2 或 Supabase service key；汉字回答必须追加 learning_attempts，诗词打卡必须追加 poem_recitation_attempts，音乐练习必须通过 record_music_practice 追加 music_practice_attempts，信仰问答必须通过 record_catechism_attempt 追加 catechism_attempts；重点字只能影响候选排序，不得提前于 due_at 或改变 answer_queue_item；获授权问答不得由 AI 自动改写；修改复习算法时同步修改 SQL、文档和测试。
 ```
 
 并要求 Agent 完成真实检查：`npm run lint`、`npm run build`、移动端浏览器验收；若修改 SQL，使用两个测试家长账号验证跨家庭 RLS。

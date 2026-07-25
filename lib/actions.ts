@@ -247,6 +247,44 @@ export async function updateCharacterContent(formData: FormData) {
   revalidatePath("/learn");
 }
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function normalizeCharacterIds(values: string[]) {
+  const ids = [...new Set(values)];
+  if (ids.length > 100 || ids.some((id) => !UUID_PATTERN.test(id))) {
+    throw new Error("重点字参数不正确，请刷新页面后重试");
+  }
+  return ids;
+}
+
+export async function updateCharacterPriorities(input: {
+  learnerId: string;
+  scopeCharacterIds: string[];
+  priorityCharacterIds: string[];
+}) {
+  const learnerId = String(input.learnerId ?? "");
+  if (!UUID_PATTERN.test(learnerId)) throw new Error("请选择正确的孩子档案");
+
+  const scopeCharacterIds = normalizeCharacterIds(input.scopeCharacterIds ?? []);
+  const priorityCharacterIds = normalizeCharacterIds(input.priorityCharacterIds ?? []);
+  const scope = new Set(scopeCharacterIds);
+  if (priorityCharacterIds.some((id) => !scope.has(id))) {
+    throw new Error("重点字必须来自当前这一页");
+  }
+
+  const { supabase } = await getOwnedLearner(learnerId);
+  const { data, error } = await supabase.rpc("set_character_priorities", {
+    p_learner_id: learnerId,
+    p_scope_character_ids: scopeCharacterIds,
+    p_priority_character_ids: priorityCharacterIds,
+  });
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/library");
+  revalidatePath("/learn");
+  return { priorityCount: Number(data ?? 0) };
+}
+
 export async function removeCharacterFromCurrentPackage(formData: FormData) {
   const learnerId = String(formData.get("learner_id") ?? "");
   const characterId = String(formData.get("character_id") ?? "");
