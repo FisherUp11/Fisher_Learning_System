@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { claimHanziCompletionReward, registerActivityReward } from "@/lib/reward-service";
 
 export type Learner = {
   id: string;
@@ -71,7 +72,17 @@ export async function answerQueueItem(input: {
     p_request_id: input.requestId,
   });
   if (error) throw new Error(error.message);
-  return data as { next_stage?: number; next_due_at?: string; reinforcement_added?: boolean; pending_count?: number; idempotent?: boolean };
+  const saved = data as {
+    next_stage?: number;
+    next_due_at?: string;
+    reinforcement_added?: boolean;
+    pending_count?: number;
+    idempotent?: boolean;
+  };
+  const reward = saved.pending_count === 0
+    ? await claimHanziCompletionReward(supabase, input.learnerId)
+    : null;
+  return { ...saved, reward };
 }
 
 export async function createLearner(formData: FormData) {
@@ -590,17 +601,28 @@ export async function recordPoemRecitation(formData: FormData) {
     .limit(1);
   if (membershipError || !membership?.length) throw new Error("这首诗不属于该孩子的诗词册");
 
-  const { error } = await supabase.from("poem_recitation_attempts").insert({
-    learner_id: learnerId,
-    poem_id: poemId,
-    recorded_by: user.id,
-    recited_local_date: localDateInTimezone(learner.timezone),
-    score,
-    note,
+  const { data: attempt, error } = await supabase
+    .from("poem_recitation_attempts")
+    .insert({
+      learner_id: learnerId,
+      poem_id: poemId,
+      recorded_by: user.id,
+      recited_local_date: localDateInTimezone(learner.timezone),
+      score,
+      note,
+    })
+    .select("id")
+    .single();
+  if (error || !attempt) throw new Error(error?.message ?? "背诵记录没有保存成功");
+  const reward = await registerActivityReward(supabase, {
+    learnerId,
+    activityType: "poem",
+    sourceRecordId: attempt.id,
   });
-  if (error) throw new Error(error.message);
   revalidatePath("/poems");
   revalidatePath(`/poems/${poemId}`);
+  revalidatePath("/rewards");
+  return { reward };
 }
 
 export async function signOut() {

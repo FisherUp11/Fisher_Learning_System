@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import { answerQueueItem, loadTodayQueue, type Learner, type QueueItem } from "@/lib/actions";
+import { RewardCelebration } from "@/components/reward-celebration";
+import type { RewardOutcome } from "@/lib/reward-types";
 
 function kindLabel(kind: QueueItem["queue_kind"]) {
   if (kind === "new" || kind === "new_reinforcement") return "今天的新朋友";
@@ -54,6 +56,7 @@ export function LearningExperience({ learner }: { learner: Learner }) {
   const [memoryImageVisibleFor, setMemoryImageVisibleFor] = useState<string | null>(null);
   const [memoryImageLoading, setMemoryImageLoading] = useState(false);
   const [memoryImageError, setMemoryImageError] = useState<{ characterId: string; message: string } | null>(null);
+  const [earnedReward, setEarnedReward] = useState<RewardOutcome | null>(null);
   const queueRequest = useRef(0);
   const speechToken = useRef(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -126,6 +129,7 @@ export function LearningExperience({ learner }: { learner: Learner }) {
         : remaining.length + (saved.reinforcement_added ? 1 : 0);
       setRemainingCount(pendingCount);
       setRevealed(remaining[0]?.queue_kind === "new");
+      if (saved.reward?.awarded) setEarnedReward(saved.reward);
       if (saved.reinforcement_added) {
         setAnswerNotice(result === "known" ? "记下啦！这个字今天还会再见一次，帮它留得更牢。" : "没关系，系统已把这个字放到今天后面，再一起见一次。");
       } else {
@@ -208,7 +212,7 @@ export function LearningExperience({ learner }: { learner: Learner }) {
   if (error && !current) return <section className="panel"><p className="error">{error}</p><button className="secondary" onClick={() => void refreshQueue()}>重新加载</button></section>;
   if (!current && syncing && remainingCount > 0) return <section className="empty panel"><span className="empty-mark">🌱</span><h1>正在准备下一张</h1><p className="lede">刚才的字会在今天再见一次。</p></section>;
   if (!current) {
-    return <section className="empty panel"><span className="empty-mark">🌱</span><h1>今天完成啦！</h1><p className="lede">慢慢记住，比一次学很多更厉害。</p><button className="secondary" onClick={() => void refreshQueue()}>看看有没有新任务</button></section>;
+    return <section className="empty panel"><span className="empty-mark">🌱</span><h1>今天完成啦！</h1><p className="lede">慢慢记住，比一次学很多更厉害。</p>{earnedReward && <p className="reward-complete-note">今天的汉字全部学完，一枚贴纸已经放进贴纸册。</p>}<button className="secondary" onClick={() => void refreshQueue()}>看看有没有新任务</button>{earnedReward && <RewardCelebration learnerId={learner.id} reward={earnedReward} message="今天的汉字任务全部完成，一枚“识字小达人”贴纸住进贴纸册啦！" />}</section>;
   }
 
   const percentage = Math.min(100, Math.max(8, (current.queue_position / Math.max(current.queue_position + queue.length - 1, 1)) * 100));

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { deleteR2Object } from "@/lib/r2";
+import { registerActivityReward } from "@/lib/reward-service";
 
 export type MusicItemType = "song" | "instrument" | "rhythm";
 export type MusicItemStatus = "draft" | "published" | "archived";
@@ -182,7 +183,29 @@ export async function recordMusicPractice(input: { learnerId: string; itemId: st
     p_request_id: input.requestId,
   });
   if (error) throw new Error(error.message);
+  const { data: attempt, error: attemptError } = await supabase
+    .from("music_practice_attempts")
+    .select("id")
+    .eq("request_id", input.requestId)
+    .eq("learner_id", input.learnerId)
+    .single();
+  const activityType = input.result.startsWith("song_")
+    ? "song"
+    : input.result.startsWith("instrument_")
+      ? "instrument"
+      : "rhythm";
+  const reward = attemptError || !attempt
+    ? null
+    : await registerActivityReward(supabase, {
+      learnerId: input.learnerId,
+      activityType,
+      sourceRecordId: attempt.id,
+    });
   revalidatePath("/music");
   revalidatePath(`/music/${input.itemId}`);
-  return data as { next_stage?: number; next_due_at?: string; idempotent?: boolean };
+  revalidatePath("/rewards");
+  return {
+    ...(data as { next_stage?: number; next_due_at?: string; idempotent?: boolean }),
+    reward,
+  };
 }

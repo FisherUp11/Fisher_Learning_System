@@ -3,18 +3,22 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { recordPoemRecitation } from "@/lib/actions";
+import { RewardCelebration } from "@/components/reward-celebration";
+import { rewardProgressMessage, type RewardOutcome } from "@/lib/reward-types";
 
 export function PoemRecitationForm({ learnerId, poemId }: { learnerId: string; poemId: string }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState("");
+  const [reward, setReward] = useState<RewardOutcome | null>(null);
 
   function submit(formData: FormData) {
     setMessage("");
     startTransition(async () => {
       try {
-        await recordPoemRecitation(formData);
-        setMessage("已记下一次背诵。今天再背一次，仍可以再点一次。");
+        const result = await recordPoemRecitation(formData);
+        setReward(result.reward);
+        setMessage(`已记下一次背诵。${rewardProgressMessage(result.reward)}`);
         router.refresh();
       } catch (error) {
         setMessage(error instanceof Error ? error.message : "记录失败，请稍后再试");
@@ -32,5 +36,6 @@ export function PoemRecitationForm({ learnerId, poemId }: { learnerId: string; p
     </div>
     <button className="primary" type="submit" disabled={isPending}>{isPending ? "记录中…" : "✓ 今天背过一次"}</button>
     {message && <p className={message.startsWith("已") ? "success" : "error"}>{message}</p>}
+    {reward?.awarded && <RewardCelebration learnerId={learnerId} reward={reward} />}
   </form>;
 }

@@ -34,7 +34,8 @@
 9. 再运行 [supabase/009_music_learning_mvp.sql](./supabase/009_music_learning_mvp.sql)，启用“唱一唱 / 辨声音 / 打节奏”、孩子分配、每次练习历史和音乐记忆阶段。
 10. 再运行 [supabase/010_catechism_learning_mvp.sql](./supabase/010_catechism_learning_mvp.sql)，启用儿童信仰问答、多问答册、双语内容、每日新问/复习设置和记忆阶段。
 11. 再运行 [supabase/011_priority_character_learning.sql](./supabase/011_priority_character_learning.sql)，启用孩子级重点字、跨全部字册优先学习、重点筛选和统计。它不修改答错降级或复习间隔。
-12. 成功后，在 SQL Editor 依次执行下面两段验证；两段都应返回结果或空表，不应报权限/函数不存在错误。
+12. 再运行 [supabase/012_reward_sticker_module.sql](./supabase/012_reward_sticker_module.sql)，启用小芽贴纸册、成长星、家长手工贴纸、礼物兑换和撤销。它不修改任何学习模块的复习规则。
+13. 成功后，在 SQL Editor 依次执行下面两段验证；两段都应返回结果或空表，不应报权限/函数不存在错误。
 
 ```sql
 select table_name
@@ -46,7 +47,9 @@ where table_schema = 'public'
     'poems', 'poem_recitation_attempts',
     'music_items', 'music_assets', 'music_learning_states', 'music_practice_attempts',
     'catechism_collections', 'catechism_items', 'learner_catechism_collections',
-    'catechism_learning_states', 'catechism_attempts'
+    'catechism_learning_states', 'catechism_attempts',
+    'reward_accounts', 'reward_ledger', 'reward_growth_events',
+    'reward_catalog_items', 'reward_redemptions'
   )
 order by table_name;
 ```
@@ -55,7 +58,12 @@ order by table_name;
 select routine_name
 from information_schema.routines
 where routine_schema = 'public'
-  and routine_name in ('get_today_queue', 'answer_queue_item', 'get_library_progress', 'get_library_rows', 'set_character_priorities', 'record_music_practice', 'record_catechism_attempt');
+  and routine_name in (
+    'get_today_queue', 'answer_queue_item', 'get_library_progress', 'get_library_rows',
+    'set_character_priorities', 'record_music_practice', 'record_catechism_attempt',
+    'claim_hanzi_daily_reward', 'register_reward_activity', 'grant_manual_reward',
+    'redeem_reward', 'reverse_reward_redemption'
+  );
 ```
 
 如果你已经运行过 001、并且学习页显示 `structure of query does not match function result type`，不要删除任何表；只运行 [supabase/002_fix_get_today_queue.sql](./supabase/002_fix_get_today_queue.sql)，然后刷新学习页。
@@ -76,9 +84,11 @@ where routine_schema = 'public'
 
 若已更新到汉字重点字版本，请再运行 [supabase/011_priority_character_learning.sql](./supabase/011_priority_character_learning.sql)。它会新增 `learner_character_priorities` 和原子批量保存 RPC，并替换 `get_today_queue` / `get_library_rows` 的当前版本。重点字只改变候选顺序：不会提前于 `due_at` 复习，不会增加每日新字总量，也不会修改 `answer_queue_item` 或已有学习历史。前端和 `011` 必须一起上线，否则“册”会明确提示先运行脚本。
 
+若已更新到奖励贴纸版本，请再运行 [supabase/012_reward_sticker_module.sql](./supabase/012_reward_sticker_module.sql)。它只读取汉字、诗词和音乐的真实练习记录来判断奖励，并新增独立的奖励账户、不可变贴纸流水、成长星、礼物与兑换表。奖励调用失败不会阻断原学习记录保存。详细规则见 [小芽贴纸册说明](./13_奖励贴纸模块说明.md)。
+
 ### 2.1 SQL 做了什么，为什么必须整段运行
 
-- 建立内容、孩子、当前学习状态、每日队列、不可变回答历史等基础表；006 额外建立“孩子 ↔ 字册”关联表；008 建立诗词内容与背诵记录；009 建立音乐内容、媒体元数据、练习状态与历史；010 建立双语信仰问答、孩子分配、学习状态与每次判断历史；011 建立孩子级重点字及其安全保存/查询入口。
+- 建立内容、孩子、当前学习状态、每日队列、不可变回答历史等基础表；006 额外建立“孩子 ↔ 字册”关联表；008 建立诗词内容与背诵记录；009 建立音乐内容、媒体元数据、练习状态与历史；010 建立双语信仰问答、孩子分配、学习状态与每次判断历史；011 建立孩子级重点字及其安全保存/查询入口；012 建立贴纸流水、成长星、礼物与兑换记录。
 - 所有表都开启 RLS；每位家长只能看到自己孩子/内容的数据。
 - 创建 `get_today_queue`、`answer_queue_item` 与字库汇总函数；004/006 会把字库查询升级为可分页、可按历史导入包筛选的版本。
 - 函数只授予 `authenticated` 执行权，并在函数内再次核验 `auth.uid()` 是否拥有该孩子档案。
@@ -166,6 +176,8 @@ npm run dev
 11. 到“家长”页下载 `poems-template.csv`，用模板中的 3 首先试跑或填入第一批 28 首后上传；在顶部“学习模块”打开“诗词背诵”，点进一首诗，连续点击两次“今天背过一次”，确认页面显示 2 条记录、Supabase `poem_recitation_attempts` 也有同一日期的 2 行。再试一次“暂不评分”，确认该行保留且标为未评分。
 12. 按 [Cloudflare R2 保姆级配置教程](./10_Cloudflare_R2保姆级配置教程.md) 创建私有 Bucket、CORS 和 Token；在“学习模块 → 音乐天地 → 家长管理”创建一首测试歌曲，上传 MP3、分配孩子并发布；在孩子页播放后点一次练习结果，确认 `music_practice_attempts` 新增 1 行。
 13. 到“家长 → 儿童信仰问答”下载 CSV 模板，先导入模板中的 2 问并发布；打开“问一问”，确认中英文分别朗读、答案揭晓后才能判断。对同一问连续两次点“背出来了”，确认 `catechism_attempts` 同日保留 2 行但阶段只升级一次；随后“单独练这一问”点“还要再背”，确认历史新增且答错降级一次。
+14. 打开“奖励管理”，新增一个 10 枚贴纸的测试礼物；完成当天全部汉字卡，确认仅出现一次贴纸庆祝且 `reward_ledger` 只有一条当天 `hanzi_daily`。同一首诗当天打卡两次应只加一颗成长星；同一首歌仅听不加星；每天第三个不同的诗词/音乐项目保存练习但不再加星。累计三颗星后应自动发 1 枚贴纸。
+15. 在“奖励管理”给今天的数学作业加 1 枚，再重复提交，余额只能增加一次；测试一次礼物兑换，确认扣除正确，再点撤销，确认余额返还且原兑换记录显示“已撤销”。完整验收见 [小芽贴纸册说明](./13_奖励贴纸模块说明.md)。
 
 如果第 3 步上传后“学一学”仍显示空字册，请先刷新一次页面；仍失败时查看浏览器控制台与 Vercel/Next 终端错误，再检查 SQL 是否完整运行。
 
@@ -232,6 +244,14 @@ from public.catechism_attempts order by practiced_at desc limit 20;
 
 如果 SQL Editor 能查到新表但网页仍提示 schema cache 错误，先等待十几秒并刷新页面；仍未恢复时，在 Supabase Dashboard 的 Data API 设置确认 `public` schema 已暴露。脚本已经显式给 `authenticated` 授权，但 Data API 的 schema 暴露开关仍是独立设置。
 
+### 贴纸页提示 `reward_...` 或奖励函数不存在
+
+完整运行 [supabase/012_reward_sticker_module.sql](./supabase/012_reward_sticker_module.sql)，不要只运行前半段建表。脚本最后应显示 `reward_table_count = 5`、`reward_function_count = 5`。
+
+如果学习记录已成功保存、但提示贴纸暂未同步，先不要重复点击学习按钮。运行 `012` 后刷新贴纸册；奖励模块故意不会让自身故障阻断汉字、诗词或音乐记录。若当天汉字已经在运行 `012` 前完成，可由家长在“奖励管理 → 特别表扬”补 1 枚并写明原因。
+
+同一首诗/音乐同一天只加一颗星、同一天最多两颗星、数学同一天只发一枚，都属于预期去重规则，不是保存失败。
+
 ### 注册后没有收到邮件
 
 先查垃圾邮件；确认 Supabase Email provider 已启用，Site URL/Redirect URL 正确。测试阶段也可在 Supabase Auth 的 Users 页面人工确认测试用户。
@@ -256,6 +276,7 @@ from public.catechism_attempts order by practiced_at desc limit 20;
 - 诗词：`poem_collections`、`poems`、`learner_poem_collections`、`poem_recitation_attempts`；
 - 音乐：`music_items`、`music_assets`、`learner_music_items`、`music_learning_states`、`music_practice_attempts`；
 - 信仰问答：`catechism_collections`、`catechism_items`、`learner_catechism_collections`、`catechism_learning_states`、`catechism_attempts`。
+- 奖励：`reward_accounts`、`reward_ledger`、`reward_growth_events`、`reward_catalog_items`、`reward_redemptions`。
 
 不要只备份当前状态，逐次练习历史才是以后解释进度和调整算法的依据。R2 里的 MP3/琴谱不在 Supabase 数据库备份内，需要另行保留源文件或做 R2 备份。
 

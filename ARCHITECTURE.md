@@ -17,6 +17,7 @@ flowchart TB
   DB --> Scheduler[Postgres RPC\n队列与答案事务]
   DB --> MusicScheduler[Postgres RPC\n音乐练习记录与间隔]
   DB --> CatechismScheduler[Postgres RPC\n信仰问答判断与间隔]
+  DB --> RewardLedger[Postgres RPC\n奖励去重、贴纸流水与兑换]
 ```
 
 ### 核心原则
@@ -26,6 +27,7 @@ flowchart TB
 3. **孩子没有 Supabase 登录账号。** 当前 MVP 使用家长会话访问孩子档案；以后独立儿童会话必须重新设计授权模型。
 4. **AI / Azure 不可用不能阻塞学习。** 它们是内容与朗读增强，不是系统事实来源。
 5. **任何跨家庭读取都必须失败。** 前端隐藏、页面跳转不是权限控制，RLS 和函数内验证才是。
+6. **奖励只能引用真实学习记录，且不能反向改变学习历史。** 贴纸余额由不可变流水求和；奖励失败时原学习记录仍然成功。
 
 ## 2. 目录与责任地图
 
@@ -47,6 +49,9 @@ flowchart TB
 | `app/(app)/catechism/manage/*` | CSV 导入、问答册发布/分配、逐问修正与归档 | 获授权文本不得由 AI 自动改写；已有历史时使用归档。 |
 | `components/catechism-study-experience.tsx` | 答案揭晓、双语朗读和二值人工判断 | 只提交 `recited/again`，不计算升降级。 |
 | `lib/catechism.ts` / `lib/catechism-actions.ts` | 问答聚合、今日建议、CSV 写入边界与练习 RPC | 每次判断必须带唯一 `request_id`。 |
+| `app/(app)/rewards/page.tsx` | 孩子贴纸册、十格花园、成长星、礼物与最近流水 | 只读取奖励表，不从前端推算余额。 |
+| `app/(app)/rewards/manage/page.tsx` | 数学/手工贴纸、礼物维护、兑换与撤销 | 余额变化必须走奖励 RPC，不直接改余额。 |
+| `lib/reward-service.ts` / `lib/reward-actions.ts` / `lib/rewards.ts` | 自动奖励接入、家长写操作和奖励聚合 | 奖励故障不得阻断原学习写入。 |
 | `app/api/music/assets/upload-url/route.ts` | 验证文件类型/大小/归属，签发 R2 PUT URL | R2 密钥永远不返回浏览器。 |
 | `lib/music-actions.ts` / `lib/music-data.ts` | 音乐写入边界与只读聚合 | 练习结果走 `record_music_practice`，不在 Action 中计算阶段。 |
 | `lib/r2.ts` | S3 Client、上传/读取签名 URL、R2 删除 | 延迟初始化，避免无 R2 变量时阻断 Next.js 构建。 |
@@ -60,6 +65,7 @@ flowchart TB
 | `supabase/009_music_learning_mvp.sql` | 音乐表、RLS、索引与练习 RPC | 不修改汉字/诗词表；必须整段运行。 |
 | `supabase/010_catechism_learning_mvp.sql` | 信仰问答表、孩子设置、RLS、索引与练习 RPC | 不修改旧模块历史；必须整段运行。 |
 | `supabase/011_priority_character_learning.sql` | 孩子级重点字、RLS、批量保存和汉字队列/字库查询升级 | 不得修改 `answer_queue_item` 真值表。 |
+| `supabase/012_reward_sticker_module.sql` | 奖励账户、不可变流水、成长星、礼物、兑换与五个 RPC | 不修改任何学习阶段；必须整段运行。 |
 | `samples/characters-sample.csv` | 30 字真实试跑内容 | 修改后需重新人工检查拼音/例句。 |
 
 ## 3. 数据模型与归属
@@ -103,6 +109,12 @@ erDiagram
   CATECHISM_ITEMS ||--o{ CATECHISM_LEARNING_STATES : is_memorized
   LEARNER_PROFILES ||--o{ CATECHISM_ATTEMPTS : practices
   CATECHISM_ITEMS ||--o{ CATECHISM_ATTEMPTS : records
+  LEARNER_PROFILES ||--|| REWARD_ACCOUNTS : owns
+  LEARNER_PROFILES ||--o{ REWARD_LEDGER : earns_and_spends
+  LEARNER_PROFILES ||--o{ REWARD_GROWTH_EVENTS : accumulates
+  AUTH_USERS ||--o{ REWARD_CATALOG_ITEMS : creates
+  LEARNER_PROFILES ||--o{ REWARD_REDEMPTIONS : redeems
+  REWARD_CATALOG_ITEMS ||--o{ REWARD_REDEMPTIONS : snapshots
 ```
 
 ### 每张表的含义
@@ -132,6 +144,11 @@ erDiagram
 | `learner_catechism_collections` | 问答册与孩子的分配关系 | 取消分配不删除历史，重新分配后可恢复。 |
 | `catechism_learning_states` | 某孩子对某问题的当前阶段、次数和到期日 | 不可代替不可变历史。 |
 | `catechism_attempts` | 每次 `recited/again` 的事实、前后阶段、本地日期与幂等键 | 同日多次不合并，不更新覆盖。 |
+| `reward_accounts` | 每个孩子的贴纸目标、成长星门槛/日上限和当前未兑换星数 | 不作为贴纸余额来源。 |
+| `reward_ledger` | 每次获得、消费和返还贴纸的不可变有符号流水 | 不更新、不删除；余额必须求和。 |
+| `reward_growth_events` | 诗词/音乐项目在某天是否计入成长星 | 不替代原模块练习历史。 |
+| `reward_catalog_items` | 家长的礼物愿望、图标、成本和上下架状态 | 不保存孩子余额。 |
+| `reward_redemptions` | 礼物兑换快照与撤销状态 | 误操作用反向流水，不删除记录。 |
 
 ## 4. 当前复习算法（不可拆分）
 
@@ -190,6 +207,7 @@ sequenceDiagram
   DB->>DB: 计算降级/升级、必要时追加强化卡
   DB->>DB: 写 learning_attempts + 更新 state + 标记队列项 answered
   DB-->>A: 新阶段、下次日期、是否追加强化、真实待答次数
+  A->>DB: 若待答数为 0，幂等领取当日汉字贴纸
   A-->>K: 后台刷新今日 pending 队列
 ```
 
@@ -221,9 +239,11 @@ sequenceDiagram
 
 `set_character_priorities` 采用 `SECURITY INVOKER`，在家长自身 RLS 权限下批量保存当前页选择；函数仍显式验证孩子归属、字库成员关系和单次最多 100 个字。`learner_character_priorities` 的主键 `(learner_id, character_id)` 确保不同孩子可有不同重点，同一字跨多个 CSV 只保留一个重点标记。
 
+奖励模块的五个函数采用受限的 `SECURITY DEFINER`，负责跨表核验真实练习、锁定奖励账户、去重与追加流水；奖励账户、流水、成长星和兑换表只给普通登录用户读取权限，不能绕过 RPC 直接写。`claim_hanzi_daily_reward` 只有在当天会话有已答卡且没有待答卡时才发放；`register_reward_activity` 从诗词/音乐历史反查项目、结果和孩子本地日期，不接受客户端自行声明“已完成”。函数保持空 `search_path`、全限定表名，只向 `authenticated` 开放并再次核验孩子归属。同一业务日期、项目或请求都有唯一键，重试不会重复记账。
+
 ### 迁移纪律
 
-- 已部署环境的真实结构是 `001` 加后续适用的 `002`–`011` 累计结果，不要回头改已经在线执行过的旧脚本来“假装升级”。
+- 已部署环境的真实结构是 `001` 加后续适用的 `002`–`012` 累计结果，不要回头改已经在线执行过的旧脚本来“假装升级”。
 - 新的数据库变化应新增下一个编号脚本，并在执行前备份相关内容表、状态表和历史表。
 - SQL 文件要尽量可重复运行；函数签名变化时同时清理旧签名权限，外键和 RLS 变更要验证已有数据能安全通过。
 - 内容只有错字/标点修正可原地更新；答案含义、授权文本版本或译本变化必须创建新问答册。
@@ -294,6 +314,15 @@ sequenceDiagram
 - 每位孩子独立设置每日新问题（默认 3）和到期复习上限（默认 10）。前端只选择今日候选，不写阶段；同一问题可从问答册“单独练这一问”产生额外独立记录。
 - 不需要 Supabase Edge Functions：数据库事务走 Postgres RPC，CSV/维护走 Server Actions，朗读走 Next.js Route Handler。
 
+### 小芽贴纸奖励（当前已实现）
+
+- 完成当天全部汉字卡自动发 1 枚贴纸，每个孩子每天一次；`learner_id + dedupe_key` 防止刷新和重复请求多发。
+- 诗词、跟唱、辨音、节奏的真实练习可产生成长星；同项目同日最多一颗、每日最多两颗、三颗自动换一枚贴纸。歌曲仅听不加星，辨音/节奏奖励认真尝试而非正确率。
+- 家长可记录每日一次数学贴纸、一次性导入线下余额、特别表扬与有原因的修正。
+- 兑换追加负数流水，撤销兑换追加等额正数流水；任何余额不得通过更新一列来“改成某个数”。
+- 不需要 Edge Function 或新增环境变量。数据库负责事务和幂等，Next.js 负责页面、Server Action 与学习完成后的非阻断式调用。
+- 规则、部署和验收以 [13_奖励贴纸模块说明.md](./13_奖励贴纸模块说明.md) 为准。
+
 ### 跟读/背诵（4）
 
 音频录入前要增加家长同意、私有 Storage policy、录音删除与自动过期。Azure Speech 评分只能作为“再练习建议”，不作为孩子的能力/排名数据。
@@ -303,9 +332,9 @@ sequenceDiagram
 在让新的 AI Agent 修改项目时，先把下面内容给它：
 
 ```text
-请先阅读 ARCHITECTURE.md、DEPLOYMENT.md、01_产品方案与MVP.md、09_诗词背诵模块说明.md、10_Cloudflare_R2保姆级配置教程.md、11_儿童信仰问答模块说明.md、12_汉字重点字功能说明.md、supabase/001_hanzi_mvp.sql、supabase/009_music_learning_mvp.sql、supabase/010_catechism_learning_mvp.sql 和 supabase/011_priority_character_learning.sql。
-这是一个 Next.js + Supabase SSR + 私有 Cloudflare R2 的儿童家庭学习 PWA，包含汉字、诗词、音乐和儿童信仰问答。
-不要在前端计算复习阶段；不要暴露 Azure、R2 或 Supabase service key；汉字回答必须追加 learning_attempts，诗词打卡必须追加 poem_recitation_attempts，音乐练习必须通过 record_music_practice 追加 music_practice_attempts，信仰问答必须通过 record_catechism_attempt 追加 catechism_attempts；重点字只能影响候选排序，不得提前于 due_at 或改变 answer_queue_item；获授权问答不得由 AI 自动改写；修改复习算法时同步修改 SQL、文档和测试。
+请先阅读 ARCHITECTURE.md、DEPLOYMENT.md、01_产品方案与MVP.md、09_诗词背诵模块说明.md、10_Cloudflare_R2保姆级配置教程.md、11_儿童信仰问答模块说明.md、12_汉字重点字功能说明.md、13_奖励贴纸模块说明.md、supabase/001_hanzi_mvp.sql、supabase/009_music_learning_mvp.sql、supabase/010_catechism_learning_mvp.sql、supabase/011_priority_character_learning.sql 和 supabase/012_reward_sticker_module.sql。
+这是一个 Next.js + Supabase SSR + 私有 Cloudflare R2 的儿童家庭学习 PWA，包含汉字、诗词、音乐、儿童信仰问答和小芽贴纸奖励。
+不要在前端计算复习阶段；不要暴露 Azure、R2 或 Supabase service key；汉字回答必须追加 learning_attempts，诗词打卡必须追加 poem_recitation_attempts，音乐练习必须通过 record_music_practice 追加 music_practice_attempts，信仰问答必须通过 record_catechism_attempt 追加 catechism_attempts；重点字只能影响候选排序，不得提前于 due_at 或改变 answer_queue_item；奖励余额只能来自 reward_ledger 的流水求和，兑换与撤销都不删除历史，奖励失败不得阻断学习记录；获授权问答不得由 AI 自动改写；修改复习或奖励规则时同步修改 SQL、文档和测试。
 ```
 
 并要求 Agent 完成真实检查：`npm run lint`、`npm run build`、移动端浏览器验收；若修改 SQL，使用两个测试家长账号验证跨家庭 RLS。

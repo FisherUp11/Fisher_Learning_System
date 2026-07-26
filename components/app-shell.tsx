@@ -16,18 +16,29 @@ const catechismLinks = [
   { href: "/catechism/manage", label: "家长", icon: "家" },
 ];
 
+const rewardLinks = [
+  { href: "/rewards", label: "贴纸册", icon: "贴" },
+  { href: "/rewards/manage", label: "奖励管理", icon: "礼" },
+  { href: "/parent", label: "家长", icon: "家" },
+];
+
 const moduleLinks = [
   { href: "/learn", label: "汉字学习", description: "一字一字，建立认读记忆", mark: "字" },
   { href: "/poems", label: "诗词背诵", description: "记录背诵次数与掌握评分", mark: "诗" },
   { href: "/music", label: "音乐天地", description: "听、唱、辨音与节奏练习", mark: "乐" },
   { href: "/catechism", label: "儿童信仰问答", description: "中英双语，一问一答记真理", mark: "问" },
+  { href: "/rewards", label: "小芽贴纸册", description: "认真完成，积累贴纸兑换礼物", mark: "贴" },
 ];
 
 export function AppShell({ email, children }: { email: string; children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
-  const navigationLinks = pathname.startsWith("/catechism") ? catechismLinks : hanziLinks;
+  const navigationLinks = pathname.startsWith("/catechism")
+    ? catechismLinks
+    : pathname.startsWith("/rewards")
+      ? rewardLinks
+      : hanziLinks;
 
   // 这三个页面是家庭内的高频切换页。进入应用后轻量预取一次，iPhone 上点“芽/册/家”时无需再等路由代码和首个 RSC 请求开始。
   useEffect(() => {

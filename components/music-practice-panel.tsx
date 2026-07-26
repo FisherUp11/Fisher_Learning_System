@@ -5,6 +5,8 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { recordMusicPractice, type MusicItemType, type MusicPracticeResult } from "@/lib/music-actions";
+import { RewardCelebration } from "@/components/reward-celebration";
+import { rewardProgressMessage, type RewardOutcome } from "@/lib/reward-types";
 
 type AssetView = { id: string; assetType: string; label: string | null; originalName: string; url: string | null };
 
@@ -34,6 +36,7 @@ export function MusicPracticePanel({ learnerId, itemId, itemType, title, lyrics,
   const [answerVisible, setAnswerVisible] = useState(false);
   const [guessNote, setGuessNote] = useState("");
   const [message, setMessage] = useState("");
+  const [reward, setReward] = useState<RewardOutcome | null>(null);
   const audio = assets.find((asset) => ["audio", "demo_audio"].includes(asset.assetType) && asset.url);
   const cover = assets.find((asset) => ["cover", "instrument_image"].includes(asset.assetType) && asset.url);
   const sheets = assets.filter((asset) => ["score", "rhythm_sheet"].includes(asset.assetType) && asset.url);
@@ -42,8 +45,9 @@ export function MusicPracticePanel({ learnerId, itemId, itemType, title, lyrics,
     setMessage("");
     startTransition(async () => {
       try {
-        await recordMusicPractice({ learnerId, itemId, result, guessNote: itemType === "instrument" ? guessNote : "", requestId: crypto.randomUUID() });
-        setMessage("这一次已经记下，系统会按新的时间安排下次练习。");
+        const saved = await recordMusicPractice({ learnerId, itemId, result, guessNote: itemType === "instrument" ? guessNote : "", requestId: crypto.randomUUID() });
+        setReward(saved.reward);
+        setMessage(`这一次已经记下，系统会按新的时间安排下次练习。${saved.reward ? rewardProgressMessage(saved.reward) : "奖励进度稍后可以在贴纸册查看。"}`);
         router.refresh();
       } catch (error) {
         setMessage(error instanceof Error ? error.message : "记录失败，请稍后再试");
@@ -63,5 +67,6 @@ export function MusicPracticePanel({ learnerId, itemId, itemType, title, lyrics,
     {itemType === "song" && lyrics && <section className="panel music-lyrics"><p className="eyebrow">歌词</p>{lyrics.split(/\r?\n/).map((line, index) => line.trim() ? <p key={`${line}-${index}`}>{line}</p> : <br key={`blank-${index}`} />)}</section>}
     {sheets.length > 0 && <section className="panel"><h2>{itemType === "song" ? "琴谱" : "练习谱"}</h2><p className="library-meta">点击图片可打开原图查看。</p><div className="music-sheet-gallery">{sheets.map((sheet, index) => <a href={sheet.url!} target="_blank" rel="noreferrer" key={sheet.id}><img src={sheet.url!} alt={sheet.label ?? `${title} 第 ${index + 1} 张谱`} /><span>{sheet.label ?? `${itemType === "song" ? "琴谱" : "节奏谱"} ${index + 1}`}</span></a>)}</div></section>}
     <section className="music-checkin"><div><p className="eyebrow">本次练习结果</p><h2>{itemType === "song" ? "今天唱到哪一步？" : itemType === "instrument" ? "这次认出来了吗？" : "这次能打出来吗？"}</h2>{itemType === "song" && <p>“只听过”只记录接触次数，不会被当成已经会唱。</p>}</div><div className={`music-result-grid ${itemType}`}>{results[itemType].map((result) => <button type="button" className={`music-result ${result.tone}`} disabled={isPending || (itemType === "instrument" && !answerVisible)} onClick={() => practice(result.value)} key={result.value}>{isPending ? "记录中…" : result.label}</button>)}</div>{itemType === "instrument" && !answerVisible && <p className="field-note">揭晓答案后才能记录结果。</p>}{message && <p className={message.startsWith("这一次") ? "success" : "error"}>{message}</p>}</section>
+    {reward?.awarded && <RewardCelebration learnerId={learnerId} reward={reward} />}
   </>;
 }

@@ -102,8 +102,14 @@ export default async function ParentPage() {
       </section>
 
       <section className="panel">
+        <h2>小芽贴纸与礼物</h2>
+        <p className="notice">完成当天汉字任务会自动得到 1 枚贴纸；诗词和音乐积累成长星。线下数学、礼物清单和兑换由家长在奖励管理页处理。首次使用前请运行 <code>supabase/012_reward_sticker_module.sql</code>。</p>
+        <Link className="primary full" style={{ display: "grid", placeItems: "center", marginTop: 16 }} href="/rewards/manage">管理贴纸和礼物</Link>
+      </section>
+
+      <section className="panel">
         <h2>下一步</h2>
-        <div className="list"><div className="list-row"><span>1. 下载样例 CSV，先导入 30 个字。</span><a className="text-button" href="/samples/characters-sample.csv" download>下载</a></div><div className="list-row"><span>2. 在 iPhone 打开“学一学”，完成一轮真实测试。</span><a className="text-button" href="/learn">开始</a></div><div className="list-row"><span>3. 导入诗词后，每背一次就在“诗词背诵”打一次卡。</span><Link className="text-button" href="/poems">去背诵</Link></div><div className="list-row"><span>4. 创建歌曲、辨音和节奏练习，并上传 MP3 与琴谱。</span><Link className="text-button" href="/music/manage">管理音乐</Link></div><div className="list-row"><span>5. 导入儿童信仰问答，开始中英双语记忆。</span><Link className="text-button" href="/catechism/manage">管理问答</Link></div></div>
+        <div className="list"><div className="list-row"><span>1. 下载样例 CSV，先导入 30 个字。</span><a className="text-button" href="/samples/characters-sample.csv" download>下载</a></div><div className="list-row"><span>2. 在 iPhone 打开“学一学”，完成一轮真实测试。</span><a className="text-button" href="/learn">开始</a></div><div className="list-row"><span>3. 导入诗词后，每背一次就在“诗词背诵”打一次卡。</span><Link className="text-button" href="/poems">去背诵</Link></div><div className="list-row"><span>4. 创建歌曲、辨音和节奏练习，并上传 MP3 与琴谱。</span><Link className="text-button" href="/music/manage">管理音乐</Link></div><div className="list-row"><span>5. 导入儿童信仰问答，开始中英双语记忆。</span><Link className="text-button" href="/catechism/manage">管理问答</Link></div><div className="list-row"><span>6. 加入第一份礼物，并测试贴纸获得、兑换和撤销。</span><Link className="text-button" href="/rewards/manage">管理奖励</Link></div></div>
         <form action={signOut} style={{ marginTop: 18 }}><button className="text-button danger" type="submit">退出家长账号</button></form>
       </section>
     </div>
