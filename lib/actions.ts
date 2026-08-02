@@ -17,7 +17,7 @@ export type QueueItem = {
   session_item_id: string;
   session_id: string;
   queue_position: number;
-  queue_kind: "new" | "review" | "carry" | "new_reinforcement" | "error_reinforcement";
+  queue_kind: "new" | "review" | "carry" | "new_reinforcement" | "error_reinforcement" | "same_day_retry";
   character_id: string;
   hanzi: string;
   pinyin_marked: string;
@@ -27,7 +27,33 @@ export type QueueItem = {
   example_sentence: string | null;
   stage: number;
   due_at: string | null;
+  attempt_count: number;
+  again_count: number;
+  clean_streak: number;
+  failed_streak: number;
+  required_confirmations: 1 | 2;
+  today_total: number;
+  today_passed: number;
+  today_remaining: number;
 };
+
+export type QueueLoadResult = {
+  items: QueueItem[];
+  error: string | null;
+};
+
+function queueLoadMessage(message: string) {
+  if (message.includes('column reference "session_id" is ambiguous')) {
+    return "今日学习队列需要更新。请家长运行 supabase/013_fix_get_today_queue_session_id_ambiguity.sql 后重新加载。";
+  }
+  if (message.includes("get_today_queue") && (message.includes("schema cache") || message.includes("Could not find"))) {
+    return "没有找到新版今日队列函数。请家长确认数据库脚本已经按 001–014 顺序运行。";
+  }
+  if (message.includes("JWT") || message.includes("Refresh Token") || message.includes("登录")) {
+    return "登录状态已经失效，请重新登录后继续学习。";
+  }
+  return "今日任务暂时没有准备好，请稍后重新加载；若仍失败，请家长查看 Vercel 服务端日志。";
+}
 
 async function authenticatedClient() {
   const supabase = await createClient();
@@ -51,11 +77,33 @@ function normalizeCatechismReviewLimit(value: FormDataEntryValue | null) {
   return Number.isFinite(parsed) ? Math.max(1, Math.min(50, Math.floor(parsed))) : 10;
 }
 
-export async function loadTodayQueue(learnerId: string): Promise<QueueItem[]> {
-  const { supabase } = await authenticatedClient();
-  const { data, error } = await supabase.rpc("get_today_queue", { p_learner_id: learnerId });
-  if (error) throw new Error(error.message);
-  return (data ?? []) as QueueItem[];
+export async function loadTodayQueue(learnerId: string): Promise<QueueLoadResult> {
+  try {
+    const { supabase } = await authenticatedClient();
+    const { data, error } = await supabase.rpc("get_today_queue", { p_learner_id: learnerId });
+    if (error) {
+      console.error("[learn/queue] get_today_queue failed", {
+        learnerId,
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      });
+      return { items: [], error: queueLoadMessage(error.message) };
+    }
+    const items = (data ?? []) as QueueItem[];
+    if (items[0] && typeof items[0].today_total !== "number") {
+      return {
+        items: [],
+        error: "学习规则需要升级。请家长先运行 supabase/014_dynamic_double_confirmation.sql，再重新加载页面。",
+      };
+    }
+    return { items, error: null };
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    console.error("[learn/queue] unexpected failure", { learnerId, message });
+    return { items: [], error: queueLoadMessage(message) };
+  }
 }
 
 export async function answerQueueItem(input: {
@@ -63,6 +111,7 @@ export async function answerQueueItem(input: {
   sessionItemId: string;
   result: "known" | "again";
   requestId: string;
+  assisted: boolean;
 }) {
   const { supabase } = await authenticatedClient();
   const { data, error } = await supabase.rpc("answer_queue_item", {
@@ -70,16 +119,36 @@ export async function answerQueueItem(input: {
     p_session_item_id: input.sessionItemId,
     p_result: input.result,
     p_request_id: input.requestId,
+    p_assisted: input.assisted,
   });
-  if (error) throw new Error(error.message);
+  if (error) {
+    if (
+      error.message.includes("answer_queue_item")
+      && (error.message.includes("schema cache") || error.message.includes("Could not find"))
+    ) {
+      throw new Error("学习规则需要升级。请家长先运行 supabase/014_dynamic_double_confirmation.sql，再重新加载页面。");
+    }
+    throw new Error(error.message);
+  }
   const saved = data as {
     next_stage?: number;
     next_due_at?: string;
     reinforcement_added?: boolean;
+    retry_added?: boolean;
     pending_count?: number;
+    attempt_number?: number;
+    clean_streak?: number;
+    failed_streak?: number;
+    required_confirmations?: 1 | 2;
+    daily_passed?: boolean;
+    assisted?: boolean;
+    stage_adjusted_today?: boolean;
+    today_total?: number;
+    today_passed?: number;
+    today_remaining?: number;
     idempotent?: boolean;
   };
-  const reward = saved.pending_count === 0
+  const reward = saved.today_remaining === 0
     ? await claimHanziCompletionReward(supabase, input.learnerId)
     : null;
   return { ...saved, reward };

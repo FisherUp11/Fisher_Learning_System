@@ -66,6 +66,8 @@ flowchart TB
 | `supabase/010_catechism_learning_mvp.sql` | 信仰问答表、孩子设置、RLS、索引与练习 RPC | 不修改旧模块历史；必须整段运行。 |
 | `supabase/011_priority_character_learning.sql` | 孩子级重点字、RLS、批量保存和汉字队列/字库查询升级 | 不得修改 `answer_queue_item` 真值表。 |
 | `supabase/012_reward_sticker_module.sql` | 奖励账户、不可变流水、成长星、礼物、兑换与五个 RPC | 不修改任何学习阶段；必须整段运行。 |
+| `supabase/013_fix_get_today_queue_session_id_ambiguity.sql` | 修复旧日待答卡带入时 `ON CONFLICT` 与返回列 `session_id` 同名歧义 | 只替换 `get_today_queue`，保持 011 的重点字顺序。 |
+| `supabase/014_dynamic_double_confirmation.sql` | 每日单字确认进度、无限次队尾重试、柔和降级与新版队列/回答 RPC | 保留全部旧历史；今日通过与跨天 stage 必须分开。 |
 | `samples/characters-sample.csv` | 30 字真实试跑内容 | 修改后需重新人工检查拼音/例句。 |
 
 ## 3. 数据模型与归属
@@ -83,6 +85,8 @@ erDiagram
   CHARACTERS ||--o{ LEARNER_CHARACTER_PRIORITIES : prioritizes
   LEARNER_PROFILES ||--o{ DAILY_SESSIONS : starts
   DAILY_SESSIONS ||--o{ DAILY_SESSION_ITEMS : queues
+  DAILY_SESSIONS ||--o{ DAILY_CHARACTER_PROGRESS : summarizes
+  CHARACTERS ||--o{ DAILY_CHARACTER_PROGRESS : confirms
   LEARNING_STATES ||--o{ LEARNING_ATTEMPTS : records
   DAILY_SESSION_ITEMS ||--|| LEARNING_ATTEMPTS : answers_once
   AUTH_USERS ||--o{ POEM_COLLECTIONS : creates
@@ -128,8 +132,9 @@ erDiagram
 | `learner_profiles` | 孩子昵称、每日新字数、当前字册 | 不是可登录的 Auth 用户。 |
 | `learning_states` | 一个孩子对一个字当前的阶段/到期日 | 不可代替历史记录。 |
 | `daily_sessions` | 孩子本地日期的一次今日任务容器 | 不代表每次点击。 |
-| `daily_session_items` | 今日/补带/强化卡的固定队列 | 每张项只允许回答一次。 |
-| `learning_attempts` | 每一次 `known/again` 的不可变事实 | 不更新、不覆盖。 |
+| `daily_session_items` | 今日/补带/重试卡队列，`retry_no` 区分同字多次出现 | 每张项只允许回答一次。 |
+| `daily_character_progress` | 一天一个字的确认要求、连续独立认出次数、是否降级与通过时间 | 不代替跨天 `learning_states`。 |
+| `learning_attempts` | 每一次 `known/again`、是否辅助、当日第几次和确认结果的不可变事实 | 不更新、不覆盖。 |
 | `poem_collections` | 一次 CSV 导入形成的一份诗词册 | 不存孩子的背诵次数。 |
 | `poems` | 家长私有的诗词正文与作者信息，由 `poem_key` 稳定识别 | 不存某个孩子的评分。 |
 | `learner_poem_collections` | 诗词册与孩子的长期关联 | 新导入必须追加，不能覆盖旧关联。 |
@@ -154,15 +159,16 @@ erDiagram
 
 阶段间隔：stage 1/2/3/4/5/6/7 分别对应 1/3/7/14/30/60/90 天；stage 7 再答对进入 180 天长期维护。
 
-### 标准复习
+### 动态双确认
 
-| 当前 | 答对 | 答错 |
+| 当前 | 今日通过标准 | 没有独立认出 |
 | --- | --- | --- |
-| 新字 | 留在 stage 0，安排当天 `new_reinforcement` | 同左 |
-| `new_reinforcement` | stage 1，1 天后 | stage 0，次日优先 |
-| stage 1–6 | 上升一级，按新阶段间隔 | 降两级，添加当天 `error_reinforcement` |
-| stage 7 | 留在 stage 7，180 天后，写入 `mastered_at` | 降到 stage 5，清除 `mastered_at`，添加强化 |
-| `error_reinforcement` | **保持已降级阶段**，次日优先 | **保持已降级阶段**，次日优先 |
+| 新字、stage 0–2 | 连续两次独立认出，完成后正常升一级 | 清空确认、柔和降级一次、追加 `same_day_retry` |
+| stage 3–6 | 第一次独立认出即正常升一级 | 柔和降级一次，之后改为连续两次确认 |
+| stage 7 | 第一次独立认出即保持 stage 7，180 天维护 | 降到 stage 5、清除 `mastered_at`，之后双确认 |
+| 当日已经失败的重试 | 连续两次独立认出后今日通过，但不恢复阶段 | 只清空确认并继续重试，不再次降级 |
+
+柔和降级：`0→0、1→0、2→1、3→1、4→2、5→3、6→4、7→5`。听朗读、展开答案/拼音/词句、查看联想图或得到口头提示后，本轮不算独立认出。详细规则以 [14_汉字动态双确认规则说明.md](./14_汉字动态双确认规则说明.md) 为准。
 
 ### 今日队列与重点字
 
@@ -173,20 +179,20 @@ erDiagram
 3. 到期普通字（与 carry 合计补到原有 15 个复习容量；carry 本身可超过 15）；
 4. 跨全部已关联、已发布字册的未学重点字；
 5. 当前 `active_package_id` 中按 CSV sequence 排列的普通新字；
-6. 回答后需要时追加的 `new_reinforcement / error_reinforcement`。
+6. 未达到今日确认标准时追加的 `same_day_retry`。
 
 重点仅参与排序：必须仍满足 `due_at <= now()` 才能成为复习候选；未学重点字占用 `daily_new_limit`，不能扩大当天新字量。当天队列一旦建立便不因家长中途更改重点而重排，避免孩子学习到一半出现顺序漂移。漏学不会自动降级，过期项继续保持到期，阶段只由 `answer_queue_item` 根据真实回答改变。
 
-### 为什么 `error_reinforcement` 不升级
+### 为什么同日重试不恢复阶段
 
-若 stage 5 字答错后降到 stage 3，却在 5 分钟后强化答对，说明它刚被提醒过，不能当成真正稳定的记忆。因此答对后仍保持 stage 3，翌日再验证。这个规则直接实现了用户确认的“答错降级”要求。
+若 stage 5 字没认出后降到 stage 3，却在几分钟后连续认出，仍可能是短时记忆。因此当天只标记“今日通过”，保持 stage 3 和次日到期；翌日独立认出后才正常升到 stage 4。
 
 ### 更新算法的硬规则
 
 若要调间隔/增加评级，必须同一 PR 同时修改：
 
 1. `01_产品方案与MVP.md` 的真值表；
-2. `supabase/001_hanzi_mvp.sql` 中 `answer_queue_item`；
+2. 当前最新升级脚本中的 `answer_queue_item`（现为 `014`）；
 3. `ARCHITECTURE.md` 本节；
 4. SQL 函数测试用例（未来加入）；
 5. 学习页的提示文案（不要向孩子显示“失败/降级”）。
@@ -200,14 +206,14 @@ sequenceDiagram
   participant K as 学习卡
   participant A as Server Action
   participant DB as answer_queue_item RPC
-  K->>A: known/again + session_item_id + request_id
+  K->>A: known/again + assisted + session_item_id + request_id
   A->>A: 验证家长会话
   A->>DB: RPC
   DB->>DB: 验证孩子归属、锁定队列项/学习状态
-  DB->>DB: 计算降级/升级、必要时追加强化卡
-  DB->>DB: 写 learning_attempts + 更新 state + 标记队列项 answered
-  DB-->>A: 新阶段、下次日期、是否追加强化、真实待答次数
-  A->>DB: 若待答数为 0，幂等领取当日汉字贴纸
+  DB->>DB: 锁定今日单字进度，计算确认/每日一次降级
+  DB->>DB: 写 learning_attempts + 更新 state + 必要时追加同日重试
+  DB-->>A: 新阶段、确认进度、今日已认出/剩余字数
+  A->>DB: 若 today_remaining 为 0，幂等领取当日汉字贴纸
   A-->>K: 后台刷新今日 pending 队列
 ```
 
@@ -239,11 +245,13 @@ sequenceDiagram
 
 `set_character_priorities` 采用 `SECURITY INVOKER`，在家长自身 RLS 权限下批量保存当前页选择；函数仍显式验证孩子归属、字库成员关系和单次最多 100 个字。`learner_character_priorities` 的主键 `(learner_id, character_id)` 确保不同孩子可有不同重点，同一字跨多个 CSV 只保留一个重点标记。
 
+`daily_character_progress` 只向所属家长开放读取，写入只能通过受限的 `answer_queue_item`。RPC 使用空 `search_path`、全限定表名、`auth.uid()` 归属验证和 session 行锁，在一个事务中完成确认进度、阶段、历史和新重试卡，避免双击或并发回答造成两个相同队列位置。
+
 奖励模块的五个函数采用受限的 `SECURITY DEFINER`，负责跨表核验真实练习、锁定奖励账户、去重与追加流水；奖励账户、流水、成长星和兑换表只给普通登录用户读取权限，不能绕过 RPC 直接写。`claim_hanzi_daily_reward` 只有在当天会话有已答卡且没有待答卡时才发放；`register_reward_activity` 从诗词/音乐历史反查项目、结果和孩子本地日期，不接受客户端自行声明“已完成”。函数保持空 `search_path`、全限定表名，只向 `authenticated` 开放并再次核验孩子归属。同一业务日期、项目或请求都有唯一键，重试不会重复记账。
 
 ### 迁移纪律
 
-- 已部署环境的真实结构是 `001` 加后续适用的 `002`–`012` 累计结果，不要回头改已经在线执行过的旧脚本来“假装升级”。
+- 已部署环境的真实结构是 `001` 加后续适用的 `002`–`014` 累计结果，不要回头改已经在线执行过的旧脚本来“假装升级”。
 - 新的数据库变化应新增下一个编号脚本，并在执行前备份相关内容表、状态表和历史表。
 - SQL 文件要尽量可重复运行；函数签名变化时同时清理旧签名权限，外键和 RLS 变更要验证已有数据能安全通过。
 - 内容只有错字/标点修正可原地更新；答案含义、授权文本版本或译本变化必须创建新问答册。
@@ -286,7 +294,7 @@ sequenceDiagram
 
 - 它是帮助孩子记忆字义的**联想**，不是任何汉字的字源考据结论；界面和提示词均不得把它表述为“真实造字来历”。
 - 只在家长已登录、该字确实属于所选孩子字库时才能调用；浏览器只持有一次生成后的临时图片，收起或换卡不改变数据库内容。
-- 图片模型不可用、被安全过滤或网络失败时，只显示失败提示，不能影响“我认识 / 再学一次”与复习记录。
+- 图片模型不可用、被安全过滤或网络失败时，只显示失败提示，不能影响“我自己认出来了 / 还要再学一次”与复习记录；只要孩子点击过联想图，本轮必须标为得到帮助。
 
 ### 诗词背诵记录（当前已实现）
 
@@ -332,9 +340,9 @@ sequenceDiagram
 在让新的 AI Agent 修改项目时，先把下面内容给它：
 
 ```text
-请先阅读 ARCHITECTURE.md、DEPLOYMENT.md、01_产品方案与MVP.md、09_诗词背诵模块说明.md、10_Cloudflare_R2保姆级配置教程.md、11_儿童信仰问答模块说明.md、12_汉字重点字功能说明.md、13_奖励贴纸模块说明.md、supabase/001_hanzi_mvp.sql、supabase/009_music_learning_mvp.sql、supabase/010_catechism_learning_mvp.sql、supabase/011_priority_character_learning.sql 和 supabase/012_reward_sticker_module.sql。
+请先阅读 ARCHITECTURE.md、DEPLOYMENT.md、01_产品方案与MVP.md、09_诗词背诵模块说明.md、10_Cloudflare_R2保姆级配置教程.md、11_儿童信仰问答模块说明.md、12_汉字重点字功能说明.md、13_奖励贴纸模块说明.md、14_汉字动态双确认规则说明.md、supabase/001_hanzi_mvp.sql、supabase/009_music_learning_mvp.sql、supabase/010_catechism_learning_mvp.sql、supabase/011_priority_character_learning.sql、supabase/012_reward_sticker_module.sql、supabase/013_fix_get_today_queue_session_id_ambiguity.sql 和 supabase/014_dynamic_double_confirmation.sql。
 这是一个 Next.js + Supabase SSR + 私有 Cloudflare R2 的儿童家庭学习 PWA，包含汉字、诗词、音乐、儿童信仰问答和小芽贴纸奖励。
-不要在前端计算复习阶段；不要暴露 Azure、R2 或 Supabase service key；汉字回答必须追加 learning_attempts，诗词打卡必须追加 poem_recitation_attempts，音乐练习必须通过 record_music_practice 追加 music_practice_attempts，信仰问答必须通过 record_catechism_attempt 追加 catechism_attempts；重点字只能影响候选排序，不得提前于 due_at 或改变 answer_queue_item；奖励余额只能来自 reward_ledger 的流水求和，兑换与撤销都不删除历史，奖励失败不得阻断学习记录；获授权问答不得由 AI 自动改写；修改复习或奖励规则时同步修改 SQL、文档和测试。
+不要在前端计算复习阶段；不要暴露 Azure、R2 或 Supabase service key；汉字回答必须追加 learning_attempts，动态双确认以 daily_character_progress 为准且每字每天最多降级一次；诗词打卡必须追加 poem_recitation_attempts，音乐练习必须通过 record_music_practice 追加 music_practice_attempts，信仰问答必须通过 record_catechism_attempt 追加 catechism_attempts；重点字只能影响候选排序，不得提前于 due_at；奖励余额只能来自 reward_ledger 的流水求和，兑换与撤销都不删除历史，奖励失败不得阻断学习记录；获授权问答不得由 AI 自动改写；修改复习或奖励规则时同步修改 SQL、文档和测试。
 ```
 
 并要求 Agent 完成真实检查：`npm run lint`、`npm run build`、移动端浏览器验收；若修改 SQL，使用两个测试家长账号验证跨家庭 RLS。

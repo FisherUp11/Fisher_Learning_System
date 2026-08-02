@@ -74,13 +74,19 @@ h1 { margin:0; font-size: clamp(32px, 8vw, 58px); line-height:1.05; letter-spaci
 .text-button { border:0; padding:6px 0; background:transparent; color:var(--leaf); font-weight:800; }
 
 .learning-wrap { min-height: calc(100vh - 180px); display:grid; align-content:center; gap:16px; }
-.progress-head { display:flex; justify-content:space-between; align-items:center; color:var(--muted); font:700 13px/1 ui-sans-serif, system-ui, sans-serif; }
+.progress-head { display:flex; justify-content:space-between; align-items:center; gap:12px; color:var(--muted); font:700 13px/1.25 ui-sans-serif, system-ui, sans-serif; }
 .progress-line { height:6px; border-radius:9px; overflow:hidden; background:var(--paper-deep); }
 .progress-line > span { display:block; height:100%; border-radius:inherit; background:var(--sun); transition: width .25s ease; }
-.character-card { position:relative; min-height: 510px; padding: 24px 24px 18px; overflow:hidden; display:grid; grid-template-rows:auto 1fr auto; border:1px solid var(--line); border-radius:32px; background: rgba(255,253,248,.92); box-shadow: var(--card-shadow); }
+.character-card { position:relative; min-height: 510px; padding: 24px 24px 18px; overflow:hidden; display:grid; grid-template-rows:auto auto minmax(210px,1fr) auto; border:1px solid var(--line); border-radius:32px; background: rgba(255,253,248,.92); box-shadow: var(--card-shadow); }
 .character-card::after { content:""; position:absolute; inset:auto -90px -110px auto; width:260px; height:260px; border-radius:50%; background:var(--leaf-soft); opacity:.6; }
+.card-status-row { position:relative; z-index:1; display:flex; align-items:center; justify-content:space-between; gap:10px; }
 .card-kind { position:relative; z-index:1; display:inline-flex; align-items:center; width:max-content; padding:7px 10px; border-radius:99px; color:var(--leaf); background:var(--leaf-soft); font:700 12px/1 ui-sans-serif, system-ui, sans-serif; }
 .card-kind.review { color:#955b22; background:var(--sun-soft); }
+.attempt-badge { padding:6px 10px; border:1px solid var(--line); border-radius:99px; color:var(--muted); background:rgba(255,253,248,.8); font:700 12px/1 ui-sans-serif,system-ui,sans-serif; }
+.confirmation-strip { position:relative; z-index:1; display:flex; align-items:center; justify-content:center; gap:8px; width:max-content; margin:10px auto 0; padding:7px 12px; border:1px solid #dce8d9; border-radius:99px; color:var(--leaf); background:#f7fbf4; font:800 12px/1 ui-sans-serif,system-ui,sans-serif; }
+.confirmation-strip span:not(:first-child) { opacity:.22; filter:grayscale(1); transform:scale(.88); transition:opacity .2s ease,transform .2s ease,filter .2s ease; }
+.confirmation-strip span.confirmed { opacity:1; filter:none; transform:scale(1); }
+.guided-assistance-note { position:relative; z-index:1; width:min(100%,460px); margin:10px auto 0; padding:9px 12px; border-radius:14px; color:#805525; background:var(--sun-soft); text-align:center; font-size:13px; line-height:1.45; }
 .character { position:relative; z-index:1; align-self:center; text-align:center; font-size: clamp(178px, 55vw, 310px); line-height:.95; letter-spacing: -.08em; font-family: "Kaiti SC", "STKaiti", "KaiTi", serif; text-shadow: 0 6px 0 rgba(53,93,69,.05); }
 .answer-panel { position:relative; z-index:1; margin-top:8px; padding: 16px; border-radius:19px; background:var(--paper-deep); animation: rise .22s ease-out; }
 .pinyin { margin:0; color:var(--leaf); font: 800 clamp(29px,8vw,40px)/1.2 ui-sans-serif, system-ui, sans-serif; }
@@ -101,6 +107,12 @@ h1 { margin:0; font-size: clamp(32px, 8vw, 58px); line-height:1.05; letter-spaci
 .answers { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top: 0; }
 .answer-known { color:#fff; background:var(--leaf); }
 .answer-again { color:#9d4e2e; background:#fce8dc; }
+.assisted-finish { min-height:58px; font-size:17px; }
+.assisted-hint { color:#806b53; }
+.parent-learning-options { justify-self:center; width:min(100%,520px); color:var(--muted); text-align:center; font-size:13px; }
+.parent-learning-options summary { width:max-content; margin:0 auto; padding:5px 8px; cursor:pointer; list-style:none; color:var(--muted); font-weight:700; }
+.parent-learning-options summary::-webkit-details-marker { display:none; }
+.parent-learning-options p { margin:8px 0 5px; line-height:1.55; }
 .hint { margin:0; text-align:center; color:var(--muted); font-size:14px; }
 .answer-notice { margin:0; padding:10px 12px; border-radius:13px; color:var(--leaf); background:var(--leaf-soft); text-align:center; font-size:14px; line-height:1.45; }
 
