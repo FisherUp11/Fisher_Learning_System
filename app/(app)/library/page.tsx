@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { LibraryControls, LibraryPagination, type LibraryPackageChoice } from "@/components/library-controls";
 import { LibraryPriorityManager, type LibraryRowView } from "@/components/library-priority-manager";
+import { loadAccessContext } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -37,6 +38,8 @@ function safePage(value: string | undefined) {
 export default async function LibraryPage({ searchParams }: { searchParams: SearchParams }) {
   const supabase = await createClient();
   const params = await searchParams;
+  const { data: { user } } = await supabase.auth.getUser();
+  const access = user ? await loadAccessContext(supabase, user.id) : null;
   const query = (params.q ?? "").trim().slice(0, 60);
   const status = safeChoice(params.status, ["all", "unstarted", "learning", "learned", "stable", "mastered", "due"], "all");
   const attempts = safeChoice(params.attempts, ["all", "never", "1-2", "3-5", "6+"], "all");
@@ -55,6 +58,7 @@ export default async function LibraryPage({ searchParams }: { searchParams: Sear
     .from("learner_content_packages")
     .select("package_id,linked_at")
     .eq("learner_id", learner.id)
+    .eq("assignment_status", "active")
     .order("linked_at");
   if (linksError) return <section className="panel"><h1>还差最后一步</h1><p className="lede">请先在 Supabase SQL Editor 运行多字册修复脚本，之后刷新本页即可。</p><p className="notice">脚本位置：<code>supabase/006_multi_package_library.sql</code></p><p className="error">{linksError.message}</p></section>;
   const packageIds = (packageLinks ?? []).map((link) => link.package_id);
@@ -80,7 +84,7 @@ export default async function LibraryPage({ searchParams }: { searchParams: Sear
     p_page: page,
     p_page_size: PAGE_SIZE,
   });
-  if (rowsError) return <section className="panel"><h1>重点字功能还没有准备好</h1><p className="error">{rowsError.message}</p><p className="notice">请在 Supabase SQL Editor 完整运行 <code>supabase/011_priority_character_learning.sql</code>，然后刷新本页。</p></section>;
+  if (rowsError) return <section className="panel"><h1>字库查询规则还没有准备好</h1><p className="error">{rowsError.message}</p><p className="notice">请在 Supabase SQL Editor 确认已按顺序运行到 <code>supabase/016_adaptive_queue_and_shared_content_rpcs.sql</code>，然后刷新本页。</p></section>;
 
   const rows = (resultRows ?? []) as LibraryRow[];
   const { data: overviewRows, error: overviewError } = rows.length === 0
@@ -133,7 +137,7 @@ export default async function LibraryPage({ searchParams }: { searchParams: Sear
 
       <section className="panel">
         <div className="library-header"><div><h2>{learner.display_name} 的全部字库</h2><p className="library-meta">{overviewTitle} · 共 {totalCount} 个不同汉字 · 筛选到 {filteredCount} 个 · 每页 {PAGE_SIZE} 个</p></div></div>
-        {rows.length === 0 ? <p className="notice">没有找到符合条件的汉字。可以清除筛选条件，或先从全部字库勾选重点字。</p> : <LibraryPriorityManager key={rows.map((row) => `${row.character_id}:${row.is_priority ? 1 : 0}`).join("|")} rows={rows} learnerId={learner.id} selectedPackage={selectedPackage} totalPriorityCount={priorityCount} />}
+        {rows.length === 0 ? <p className="notice">没有找到符合条件的汉字。可以清除筛选条件，或先从全部字库勾选重点字。</p> : <LibraryPriorityManager key={rows.map((row) => `${row.character_id}:${row.is_priority ? 1 : 0}`).join("|")} rows={rows} learnerId={learner.id} selectedPackage={selectedPackage} totalPriorityCount={priorityCount} canManageContent={Boolean(access?.isAdmin)} />}
         <LibraryPagination learnerId={learner.id} query={query} status={status} attempts={attempts} priority={priority} packageId={packageId} page={currentPage} pageCount={pageCount} />
       </section>
       <section className="panel"><h2>如何理解这些状态？</h2><p className="small muted">“还没学”表示还未记录过回答；“复习中”表示正在建立记忆；阶段 5–6 是稳定认识；阶段 7 是熟练掌握。不同字册中重复出现的同一个字会共享同一份学习记录和重点标记，但来源会全部标注。当天已经生成的学习队列不会中途重排，新保存的重点设置从后续尚未生成的队列开始生效。</p></section>

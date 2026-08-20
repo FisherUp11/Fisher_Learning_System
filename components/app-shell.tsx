@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 const hanziLinks = [
@@ -16,10 +16,24 @@ const catechismLinks = [
   { href: "/catechism/manage", label: "家长", icon: "家" },
 ];
 
+const familyCatechismLinks = [
+  { href: "/catechism/study", label: "问一问", icon: "问" },
+  { href: "/catechism", label: "问答册", icon: "册" },
+  { href: "/parent", label: "家长", icon: "家" },
+];
+
 const rewardLinks = [
   { href: "/rewards", label: "贴纸册", icon: "贴" },
   { href: "/rewards/manage", label: "奖励管理", icon: "礼" },
   { href: "/parent", label: "家长", icon: "家" },
+];
+
+const adminLinks = [
+  { href: "/admin", label: "概览", icon: "总" },
+  { href: "/admin/resources", label: "资源", icon: "库" },
+  { href: "/admin/assignments", label: "分配", icon: "配" },
+  { href: "/admin/members", label: "邀请", icon: "邀", ownerOnly: true },
+  { href: "/admin/users", label: "用户", icon: "人", ownerOnly: true },
 ];
 
 const moduleLinks = [
@@ -30,22 +44,27 @@ const moduleLinks = [
   { href: "/rewards", label: "小芽贴纸册", description: "认真完成，积累贴纸兑换礼物", mark: "贴" },
 ];
 
-export function AppShell({ email, children }: { email: string; children: React.ReactNode }) {
+export function AppShell({ email, isAdmin, isOwner, children }: { email: string; isAdmin: boolean; isOwner: boolean; children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
-  const navigationLinks = pathname.startsWith("/catechism")
-    ? catechismLinks
-    : pathname.startsWith("/rewards")
-      ? rewardLinks
-      : hanziLinks;
+  const navigationLinks = useMemo(() => pathname.startsWith("/admin")
+    ? adminLinks.filter((link) => !link.ownerOnly || isOwner)
+    : pathname.startsWith("/catechism")
+      ? (isAdmin ? catechismLinks : familyCatechismLinks)
+      : pathname.startsWith("/rewards")
+        ? rewardLinks
+        : hanziLinks, [isAdmin, isOwner, pathname]);
+  const availableModules = useMemo(() => isAdmin
+    ? [...moduleLinks, { href: "/admin", label: "管理中心", description: "家庭、内容审核和孩子分配", mark: "管" }]
+    : moduleLinks, [isAdmin]);
 
   // 这三个页面是家庭内的高频切换页。进入应用后轻量预取一次，iPhone 上点“芽/册/家”时无需再等路由代码和首个 RSC 请求开始。
   useEffect(() => {
-    for (const link of [...navigationLinks, ...moduleLinks]) {
+    for (const link of [...navigationLinks, ...availableModules]) {
       if (link.href !== pathname) router.prefetch(link.href);
     }
-  }, [navigationLinks, pathname, router]);
+  }, [availableModules, navigationLinks, pathname, router]);
 
   return (
     <main className="shell">
@@ -58,7 +77,7 @@ export function AppShell({ email, children }: { email: string; children: React.R
           <button className="module-trigger" type="button" aria-expanded={menuOpen} aria-controls="learning-modules" onClick={() => setMenuOpen((open) => !open)}>学习模块 <span aria-hidden="true">{menuOpen ? "⌃" : "⌄"}</span></button>
           {menuOpen && <div className="module-menu" id="learning-modules">
             <p>选择学习内容</p>
-            {moduleLinks.map((link) => <Link key={link.href} href={link.href} className={pathname.startsWith(link.href) ? "active" : ""} onClick={() => setMenuOpen(false)}><span>{link.mark}</span><strong>{link.label}<small>{link.description}</small></strong></Link>)}
+            {availableModules.map((link) => <Link key={link.href} href={link.href} className={pathname.startsWith(link.href) ? "active" : ""} onClick={() => setMenuOpen(false)}><span>{link.mark}</span><strong>{link.label}<small>{link.description}</small></strong></Link>)}
           </div>}
         </div>
         <span className="account">{email}</span>

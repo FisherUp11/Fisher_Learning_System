@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { buildCatechismQueue, catechismStageLabel, catechismStatus, formatCatechismDate, loadCatechismProgress, localDateInTimezone, type CatechismProgress } from "@/lib/catechism";
 import { createClient } from "@/lib/supabase/server";
+import { loadAccessContext } from "@/lib/access";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +35,8 @@ function matchesFilter(item: CatechismProgress, filter: string, today: string) {
 export default async function CatechismPage({ searchParams }: { searchParams: SearchParams }) {
   const params = await searchParams;
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  const access = user ? await loadAccessContext(supabase, user.id) : null;
   const { data: learners, error: learnerError } = await supabase.from("learner_profiles").select("id,display_name,timezone,catechism_daily_new_limit,catechism_review_limit").order("created_at");
   if (learnerError) return <section className="panel"><h1>儿童信仰问答还差最后一步</h1><p className="lede">请先在 Supabase SQL Editor 运行数据库脚本，再刷新页面。</p><p className="notice"><code>supabase/010_catechism_learning_mvp.sql</code></p><p className="error">{learnerError.message}</p></section>;
   const learner = learners?.find((row) => row.id === params.learner) ?? learners?.[0];
@@ -46,7 +49,7 @@ export default async function CatechismPage({ searchParams }: { searchParams: Se
     return <section className="panel"><h1>问答模块暂时打不开</h1><p className="notice">请确认已经整段运行 <code>supabase/010_catechism_learning_mvp.sql</code>。</p><p className="error">{error instanceof Error ? error.message : "读取失败"}</p></section>;
   }
   const { collections, items } = loaded;
-  if (!collections.length) return <section className="empty panel"><span className="empty-mark">问</span><h1>{learner.display_name} 还没有问答册</h1><p className="lede">先下载 CSV 模板并导入“儿童信仰问答”。</p><Link className="primary" href="/catechism/manage">去导入问答册</Link></section>;
+  if (!collections.length) return <section className="empty panel"><span className="empty-mark">问</span><h1>{learner.display_name} 还没有问答册</h1><p className="lede">管理员分配已发布的问答册后，就可以开始学习。</p>{access?.isAdmin && <Link className="primary" href="/catechism/manage">去管理问答册</Link>}</section>;
 
   const today = localDateInTimezone(learner.timezone);
   const queue = buildCatechismQueue(items, today, learner.catechism_daily_new_limit, learner.catechism_review_limit);
@@ -75,7 +78,7 @@ export default async function CatechismPage({ searchParams }: { searchParams: Se
       <p className="small muted">每天默认 {learner.catechism_daily_new_limit} 个新问题、最多 {learner.catechism_review_limit} 个到期复习；家长可在“家长”页调整。</p>
     </section>
     <section className="panel catechism-library">
-      <div className="library-header"><div><h2>{learner.display_name} 的问答册</h2><p className="library-meta">共 {items.length} 问 · 筛选到 {filtered.length} 问 · 每页 {PAGE_SIZE} 问{selectedCollection ? ` · ${selectedCollection.title}` : ""}</p></div><Link className="text-button" href="/catechism/manage">导入 / 修正内容</Link></div>
+      <div className="library-header"><div><h2>{learner.display_name} 的问答册</h2><p className="library-meta">共 {items.length} 问 · 筛选到 {filtered.length} 问 · 每页 {PAGE_SIZE} 问{selectedCollection ? ` · ${selectedCollection.title}` : ""}</p></div>{access?.isAdmin && <Link className="text-button" href="/catechism/manage">导入 / 修正内容</Link>}</div>
       <form action="/catechism" method="get" className="catechism-filters">
         <input type="hidden" name="learner" value={learner.id} />
         <label>搜索<input name="q" defaultValue={query} placeholder="问题、答案、英文或经文出处" /></label>

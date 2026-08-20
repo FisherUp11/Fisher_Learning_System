@@ -1,9 +1,11 @@
 "use server";
 
+import { createHash } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { localDateInTimezone, type CatechismAttemptResult } from "@/lib/catechism";
 import type { CatechismFormState } from "@/lib/catechism-form-state";
+import { assertAdmin, loadAccessContext } from "@/lib/access";
 
 async function authenticatedClient() {
   const supabase = await createClient();
@@ -54,12 +56,15 @@ function failure(error: unknown): CatechismFormState {
 export async function importCatechismCollection(_previousState: CatechismFormState, formData: FormData): Promise<CatechismFormState> {
   try {
     const { supabase, user } = await authenticatedClient();
+    const access = await loadAccessContext(supabase, user.id);
+    if (!access) throw new Error("当前账号还没有学习空间");
     const learnerIds = [...new Set(formData.getAll("learner_ids").map(String).filter(Boolean))];
     const title = String(formData.get("collection_title") ?? "儿童信仰问答").trim().slice(0, 120);
     const englishTitle = cleanOptional(formData.get("english_title"), 180);
     const sourceNote = cleanOptional(formData.get("source_note"), 500);
     const licenseNote = cleanOptional(formData.get("license_note"), 500);
     const publishNow = formData.get("publish_now") === "on";
+    const canPublishNow = access.isAdmin && publishNow;
     const file = formData.get("catechism_csv_file");
     if (!title) throw new Error("请填写问答册名称");
     if (!learnerIds.length) throw new Error("请至少选择一位孩子");
@@ -69,7 +74,6 @@ export async function importCatechismCollection(_previousState: CatechismFormSta
     const { data: ownedLearners, error: learnerError } = await supabase
       .from("learner_profiles")
       .select("id")
-      .eq("parent_user_id", user.id)
       .in("id", learnerIds);
     if (learnerError) throw new Error(learnerError.message);
     if ((ownedLearners?.length ?? 0) !== learnerIds.length) throw new Error("有孩子档案不属于当前家长账号");
@@ -111,30 +115,39 @@ export async function importCatechismCollection(_previousState: CatechismFormSta
       .from("catechism_collections")
       .insert({
         created_by: user.id,
+        workspace_id: access.workspaceId,
+        submitted_for_learner_id: learnerIds[0],
         code: `catechism-${crypto.randomUUID()}`,
         title,
         english_title: englishTitle,
         source_note: sourceNote,
         license_note: licenseNote,
-        status: "draft",
+        status: canPublishNow ? "published" : "draft",
+        review_status: access.isAdmin ? "approved" : "pending_review",
+        fingerprint: createHash("sha256").update(items.map((item) => [item.item_key, item.sort_order, item.section_title ?? "", item.question_zh, item.answer_zh, item.question_en, item.answer_en, item.scripture_reference ?? "", item.parent_note ?? ""].join("|")).join("\n")).digest("hex"),
+        approved_by: access.isAdmin ? user.id : null,
+        approved_at: access.isAdmin ? new Date().toISOString() : null,
       })
       .select("id")
       .single();
     if (collectionError || !collection) throw new Error(collectionError?.message ?? "创建问答册失败");
     const { error: itemError } = await supabase.from("catechism_items").insert(items.map((item) => ({ ...item, collection_id: collection.id })));
     if (itemError) throw new Error(itemError.message);
-    const { error: linkError } = await supabase.from("learner_catechism_collections").insert(learnerIds.map((learnerId) => ({ learner_id: learnerId, collection_id: collection.id })));
-    if (linkError) throw new Error(`问答册已创建，但关联孩子失败：${linkError.message}`);
-    if (publishNow) {
-      const { error: publishError } = await supabase.from("catechism_collections").update({ status: "published", updated_at: new Date().toISOString() }).eq("id", collection.id);
-      if (publishError) throw new Error(`内容已作为草稿导入，但发布失败：${publishError.message}`);
+    if (canPublishNow) {
+      const { error: linkError } = await supabase.from("learner_catechism_collections").insert(learnerIds.map((learnerId) => ({
+        learner_id: learnerId,
+        collection_id: collection.id,
+        assigned_by: user.id,
+        assignment_status: "active",
+      })));
+      if (linkError) throw new Error(`问答册已创建，但关联孩子失败：${linkError.message}`);
     }
 
     revalidatePath("/parent");
     revalidatePath("/catechism");
     revalidatePath("/catechism/study");
     revalidatePath("/catechism/manage");
-    return { status: "success", message: `已导入 ${items.length} 问，并关联到 ${learnerIds.length} 位孩子。`, savedAt: new Date().toISOString() };
+    return { status: "success", message: canPublishNow ? `已导入 ${items.length} 问，并关联到 ${learnerIds.length} 位孩子。` : access.isAdmin ? `已导入 ${items.length} 问为草稿；发布后再分配给孩子。` : `已提交 ${items.length} 问，等待管理员审核和分配。`, savedAt: new Date().toISOString() };
   } catch (error) {
     return failure(error);
   }
@@ -147,12 +160,11 @@ export async function recordCatechismAttempt(input: {
   requestId: string;
   note?: string;
 }) {
-  const { supabase, user } = await authenticatedClient();
+  const { supabase } = await authenticatedClient();
   const { data: learner, error: learnerError } = await supabase
     .from("learner_profiles")
     .select("id,timezone")
     .eq("id", input.learnerId)
-    .eq("parent_user_id", user.id)
     .single();
   if (learnerError || !learner) throw new Error("找不到这个孩子档案");
   if (!/^[0-9a-f-]{36}$/i.test(input.requestId)) throw new Error("本次练习编号无效");
@@ -210,6 +222,8 @@ export async function updateCatechismItem(_previousState: CatechismFormState, fo
 export async function updateCatechismCollection(_previousState: CatechismFormState, formData: FormData): Promise<CatechismFormState> {
   try {
     const { supabase, user } = await authenticatedClient();
+    const access = await loadAccessContext(supabase, user.id);
+    assertAdmin(access);
     const collectionId = String(formData.get("collection_id") ?? "");
     const title = String(formData.get("title") ?? "").trim().slice(0, 120);
     const status = String(formData.get("status") ?? "published");
@@ -217,7 +231,7 @@ export async function updateCatechismCollection(_previousState: CatechismFormSta
     if (!["draft", "published", "archived"].includes(status)) throw new Error("发布状态无效");
     const learnerIds = [...new Set(formData.getAll("learner_ids").map(String).filter(Boolean))];
     if (learnerIds.length) {
-      const { data: ownedLearners, error: learnerError } = await supabase.from("learner_profiles").select("id").eq("parent_user_id", user.id).in("id", learnerIds);
+      const { data: ownedLearners, error: learnerError } = await supabase.from("learner_profiles").select("id").in("id", learnerIds);
       if (learnerError) throw new Error(learnerError.message);
       if ((ownedLearners?.length ?? 0) !== learnerIds.length) throw new Error("有孩子档案不属于当前账号");
     }
@@ -228,19 +242,20 @@ export async function updateCatechismCollection(_previousState: CatechismFormSta
       license_note: cleanOptional(formData.get("license_note"), 500),
       status,
       updated_at: new Date().toISOString(),
-    }).eq("id", collectionId).eq("created_by", user.id).select("id").single();
+    }).eq("id", collectionId).eq("workspace_id", access.workspaceId).select("id").single();
     if (error || !updatedCollection) throw new Error(error?.message ?? "找不到这份问答册或没有修改权限");
-    const { data: existingLinks, error: existingError } = await supabase.from("learner_catechism_collections").select("learner_id").eq("collection_id", collectionId);
+    const { data: existingLinks, error: existingError } = await supabase.from("learner_catechism_collections").select("learner_id,assignment_status").eq("collection_id", collectionId);
     if (existingError) throw new Error(existingError.message);
-    const existingIds = new Set((existingLinks ?? []).map((row) => row.learner_id));
+    const existingIds = new Set((existingLinks ?? []).filter((row: { assignment_status?: string }) => row.assignment_status !== "inactive").map((row) => row.learner_id));
     const toAdd = learnerIds.filter((id) => !existingIds.has(id));
     const toRemove = [...existingIds].filter((id) => !learnerIds.includes(id));
     if (toAdd.length) {
-      const { error: addError } = await supabase.from("learner_catechism_collections").insert(toAdd.map((learnerId) => ({ learner_id: learnerId, collection_id: collectionId })));
+      if (status !== "published") throw new Error("请先发布问答册，再分配给孩子");
+      const { error: addError } = await supabase.from("learner_catechism_collections").upsert(toAdd.map((learnerId) => ({ learner_id: learnerId, collection_id: collectionId, assigned_by: user.id, assignment_status: "active", unassigned_at: null })));
       if (addError) throw new Error(addError.message);
     }
     if (toRemove.length) {
-      const { error: removeError } = await supabase.from("learner_catechism_collections").delete().eq("collection_id", collectionId).in("learner_id", toRemove);
+      const { error: removeError } = await supabase.from("learner_catechism_collections").update({ assignment_status: "inactive", unassigned_at: new Date().toISOString() }).eq("collection_id", collectionId).in("learner_id", toRemove);
       if (removeError) throw new Error(removeError.message);
     }
     revalidatePath("/catechism");

@@ -288,6 +288,7 @@ export function LearningExperience({ learner }: { learner: Learner }) {
         <span aria-live="polite">今日已认出 {todayProgress.passed} / {todayProgress.total} 个字</span>
       </div>
       <div className="progress-line"><span style={{ width: `${percentage}%` }} /></div>
+      <p className="adaptive-plan-note">{current.review_mode === "adaptive" ? "智能复习" : "固定复习"} · 今日计划复习最多 {current.planned_review_limit} 个、新字 {current.planned_new_limit} 个{current.due_backlog > current.planned_review_limit ? ` · 到期 ${current.due_backlog} 个，将分日消化` : ""}</p>
       <article className="character-card">
         <div className="card-status-row">
           <span className={`card-kind ${current.queue_kind === "review" || current.queue_kind === "carry" ? "review" : ""}`}>{kindLabel(current.queue_kind)}</span>

@@ -7,6 +7,8 @@ import { deleteMusicAsset, type MusicItemStatus, type MusicItemType } from "@/li
 import { musicTypeMeta } from "@/lib/music";
 import { createR2ReadUrl, isR2Configured } from "@/lib/r2";
 import { createClient } from "@/lib/supabase/server";
+import { loadAccessContext } from "@/lib/access";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -18,13 +20,21 @@ const assetNames: Record<string, string> = { audio: "主音频", cover: "封面"
 export default async function MusicItemManagePage({ params }: PageProps) {
   const { itemId } = await params;
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+  const access = await loadAccessContext(supabase, user.id);
+  if (!access) redirect("/join");
   const [{ data: item, error }, { data: learners }, { data: assignments }, { data: assets }] = await Promise.all([
-    supabase.from("music_items").select("id,item_type,title,category,description,lyrics,correct_answer,instructions,difficulty,status").eq("id", itemId).single(),
+    supabase.from("music_items").select("id,created_by,item_type,title,category,description,lyrics,correct_answer,instructions,difficulty,status,review_status").eq("id", itemId).single(),
     supabase.from("learner_profiles").select("id,display_name").order("created_at"),
-    supabase.from("learner_music_items").select("learner_id").eq("item_id", itemId),
+    supabase.from("learner_music_items").select("learner_id").eq("item_id", itemId).eq("assignment_status", "active"),
     supabase.from("music_assets").select("id,asset_type,object_key,original_name,content_type,byte_size,label,sequence").eq("item_id", itemId).order("asset_type").order("sequence"),
   ]);
   if (error || !item) return <section className="empty panel"><h1>找不到这条音乐内容</h1><Link className="secondary" href="/music/manage">返回音乐管理</Link></section>;
+  if (!access.isAdmin && item.created_by !== user.id) redirect("/music");
+  const canEdit = access.isAdmin || (item.status === "draft" && ["draft", "pending_review", "rejected"].includes(item.review_status));
+  const canEditMedia = access.isAdmin || (item.status === "draft" && ["draft", "pending_review"].includes(item.review_status));
+  const canDelete = access.isOwner || (!access.isAdmin && item.status === "draft" && ["draft", "pending_review", "rejected"].includes(item.review_status));
   const itemType = item.item_type as MusicItemType;
   const meta = musicTypeMeta[itemType];
   const assigned = new Set((assignments ?? []).map((assignment) => assignment.learner_id));
@@ -32,11 +42,11 @@ export default async function MusicItemManagePage({ params }: PageProps) {
   const assetViews = await Promise.all(((assets ?? []) as AssetRow[]).map(async (asset) => ({ ...asset, url: r2Configured ? await createR2ReadUrl(asset.object_key).catch(() => null) : null })));
   return <div className="music-editor-page">
     <Link className="back-link" href="/music/manage">← 返回音乐内容工作台</Link>
-    <header className="hero"><p className="eyebrow">{meta.action}</p><h1>{item.title}</h1><p className="lede">维护文字、孩子分配和 R2 媒体。保存为“已发布”后才会出现在孩子的音乐页面。</p></header>
-    <section className="panel"><h2>内容资料</h2><MusicItemForm item={{ id: item.id, itemType, title: item.title, category: item.category, description: item.description, lyrics: item.lyrics, correctAnswer: item.correct_answer, instructions: item.instructions, difficulty: item.difficulty, status: item.status as MusicItemStatus }} learners={(learners ?? []).map((learner) => ({ id: learner.id, displayName: learner.display_name }))} assignedLearnerIds={[...assigned]} /></section>
-    <section className="panel"><h2>MP3、图片与琴谱</h2><p className="library-meta">文件直接从浏览器上传到私有 Cloudflare R2；封面、琴谱和节奏谱都可以留空。</p><MusicUploadManager itemId={item.id} itemType={itemType} r2Configured={r2Configured} />
-      <div className="music-asset-list">{assetViews.length === 0 ? <p className="notice">还没有上传媒体。歌曲至少需要主音频；辨声音至少需要一段音频。</p> : assetViews.map((asset) => <article className="music-asset-row" key={asset.id}><div className="music-asset-preview">{asset.content_type.startsWith("image/") && asset.url ? <img src={asset.url} alt={asset.label ?? asset.original_name} /> : asset.content_type.startsWith("audio/") && asset.url ? <audio controls loop preload="metadata" src={asset.url} /> : <span>{assetNames[asset.asset_type] ?? "文件"}</span>}</div><div className="music-asset-info"><strong>{asset.label || assetNames[asset.asset_type] || asset.original_name}</strong><span>{asset.original_name} · {(asset.byte_size / 1024 / 1024).toFixed(1)} MB</span></div><form action={deleteMusicAsset}><input type="hidden" name="asset_id" value={asset.id} /><input type="hidden" name="item_id" value={item.id} /><button className="text-button danger" type="submit">删除</button></form></article>)}</div>
+    <header className="hero"><p className="eyebrow">{meta.action}</p><h1>{item.title}</h1><p className="lede">{canEdit ? "维护文字、孩子分配和 R2 媒体。管理员发布后才会出现在孩子的音乐页面。" : "这份内容已由管理员审核发布，为了不影响其他孩子，当前以只读方式显示。"}</p></header>
+    <section className="panel"><h2>内容资料</h2>{canEdit ? <MusicItemForm item={{ id: item.id, itemType, title: item.title, category: item.category, description: item.description, lyrics: item.lyrics, correctAnswer: item.correct_answer, instructions: item.instructions, difficulty: item.difficulty, status: item.status as MusicItemStatus }} learners={(learners ?? []).map((learner) => ({ id: learner.id, displayName: learner.display_name }))} assignedLearnerIds={[...assigned]} isAdmin={access.isAdmin} /> : <div className="learning-record"><div><span>类型</span><strong>{meta.label}</strong></div><div><span>分类</span><strong>{item.category || "未填写"}</strong></div><div><span>状态</span><strong>已审核发布</strong></div><div><span>分配</span><strong>{assigned.size} 位孩子</strong></div></div>}</section>
+    <section className="panel"><h2>MP3、图片与琴谱</h2><p className="library-meta">文件直接从浏览器上传到私有 Cloudflare R2；封面、琴谱和节奏谱都可以留空。</p>{canEditMedia ? <MusicUploadManager itemId={item.id} itemType={itemType} r2Configured={r2Configured} /> : canEdit ? <p className="notice">这份内容曾被退回。请先保存上方文字资料重新提交，再修改媒体。</p> : null}
+      <div className="music-asset-list">{assetViews.length === 0 ? <p className="notice">还没有上传媒体。歌曲至少需要主音频；辨声音至少需要一段音频。</p> : assetViews.map((asset) => <article className="music-asset-row" key={asset.id}><div className="music-asset-preview">{asset.content_type.startsWith("image/") && asset.url ? <img src={asset.url} alt={asset.label ?? asset.original_name} /> : asset.content_type.startsWith("audio/") && asset.url ? <audio controls loop preload="metadata" src={asset.url} /> : <span>{assetNames[asset.asset_type] ?? "文件"}</span>}</div><div className="music-asset-info"><strong>{asset.label || assetNames[asset.asset_type] || asset.original_name}</strong><span>{asset.original_name} · {(asset.byte_size / 1024 / 1024).toFixed(1)} MB</span></div>{canEditMedia && <form action={deleteMusicAsset}><input type="hidden" name="asset_id" value={asset.id} /><input type="hidden" name="item_id" value={item.id} /><button className="text-button danger" type="submit">删除</button></form>}</article>)}</div>
     </section>
-    <section className="panel danger-zone"><h2>危险操作</h2><DeleteMusicItemForm itemId={item.id} title={item.title} /></section>
+    {canDelete && <section className="panel danger-zone"><h2>危险操作</h2><DeleteMusicItemForm itemId={item.id} title={item.title} /></section>}
   </div>;
 }

@@ -111,6 +111,7 @@ export async function loadCatechismProgress(supabase: SupabaseClient, learnerId:
     .from("learner_catechism_collections")
     .select("collection_id,linked_at")
     .eq("learner_id", learnerId)
+    .eq("assignment_status", "active")
     .order("linked_at") as { data: LinkRow[] | null; error: { message?: string } | null };
   if (linkError) throw new Error(message(linkError, "无法读取孩子的问答册"));
   const links = linkRows ?? [];

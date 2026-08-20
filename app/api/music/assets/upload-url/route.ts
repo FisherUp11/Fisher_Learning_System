@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createR2UploadUrl, safeR2FileName } from "@/lib/r2";
 import { createClient } from "@/lib/supabase/server";
+import { loadAccessContext } from "@/lib/access";
 
 export const runtime = "nodejs";
 
@@ -20,6 +21,8 @@ export async function POST(request: Request) {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: "请先登录" }, { status: 401 });
+    const access = await loadAccessContext(supabase, user.id);
+    if (!access) return NextResponse.json({ error: "尚未加入学习空间" }, { status: 403 });
     const body = await request.json() as { itemId?: string; assetType?: string; fileName?: string; contentType?: string; byteSize?: number };
     const itemId = String(body.itemId ?? "");
     const assetType = String(body.assetType ?? "");
@@ -31,8 +34,10 @@ export async function POST(request: Request) {
     if ((isAudio && !audioTypes.has(contentType)) || (!isAudio && !imageTypes.has(contentType))) return NextResponse.json({ error: isAudio ? "请上传 MP3、M4A、AAC 或 WAV 音频" : "请上传 JPG、PNG 或 WebP 图片" }, { status: 400 });
     const maxSize = isAudio ? 100 * 1024 * 1024 : 10 * 1024 * 1024;
     if (!Number.isFinite(byteSize) || byteSize <= 0 || byteSize > maxSize) return NextResponse.json({ error: isAudio ? "音频请控制在 100MB 内" : "图片请控制在 10MB 内" }, { status: 400 });
-    const { data: item, error } = await supabase.from("music_items").select("id,item_type").eq("id", itemId).eq("created_by", user.id).single();
+    const { data: item, error } = await supabase.from("music_items").select("id,item_type,created_by,status,review_status").eq("id", itemId).eq("workspace_id", access.workspaceId).single();
     if (error || !item) return NextResponse.json({ error: "无权管理这条音乐内容" }, { status: 403 });
+    if (!access.isAdmin && item.created_by !== user.id) return NextResponse.json({ error: "只能上传到自己提交的内容" }, { status: 403 });
+    if (!access.isAdmin && !(item.status === "draft" && ["draft", "pending_review"].includes(item.review_status))) return NextResponse.json({ error: "这份内容已锁定，请先重新提交审核" }, { status: 403 });
     if (!assetsByItemType[item.item_type]?.has(assetType)) return NextResponse.json({ error: "这种媒体不属于当前内容类型" }, { status: 400 });
     const { data: existing, error: existingError } = await supabase.from("music_assets").select("asset_type").eq("item_id", itemId);
     if (existingError) return NextResponse.json({ error: existingError.message }, { status: 500 });

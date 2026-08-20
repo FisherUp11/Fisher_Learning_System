@@ -12,7 +12,7 @@ function ImportButton() {
   return <button className="primary full" type="submit" disabled={pending}>{pending ? "正在校验并导入…" : "校验并导入问答册"}</button>;
 }
 
-export function CatechismImportForm({ learners }: { learners: LearnerChoice[] }) {
+export function CatechismImportForm({ learners, isAdmin = false }: { learners: LearnerChoice[]; isAdmin?: boolean }) {
   const [state, action] = useActionState(importCatechismCollection, initialCatechismFormState);
   const formRef = useRef<HTMLFormElement>(null);
   useEffect(() => {
@@ -27,11 +27,11 @@ export function CatechismImportForm({ learners }: { learners: LearnerChoice[] })
       <label>授权说明<input name="license_note" defaultValue="已获得应用内家庭学习使用授权" maxLength={500} /></label>
     </div>
     <fieldset className="learner-assignment">
-      <legend>这份问答册导入给哪些孩子？</legend>
-      {learners.map((learner, index) => <label className="checkbox-label" key={learner.id}><input type="checkbox" name="learner_ids" value={learner.id} defaultChecked={index === 0} />{learner.display_name}</label>)}
+      <legend>{isAdmin ? "这份问答册导入给哪些孩子？" : "建议管理员审核后分配给哪位孩子？"}</legend>
+      {learners.map((learner, index) => <label className="checkbox-label" key={learner.id}><input type={isAdmin ? "checkbox" : "radio"} name="learner_ids" value={learner.id} defaultChecked={index === 0} />{learner.display_name}</label>)}
     </fieldset>
     <label>CSV 文件<input name="catechism_csv_file" type="file" accept=".csv,text/csv" required /></label>
-    <label className="checkbox-label catechism-publish-check"><input type="checkbox" name="publish_now" defaultChecked />导入后立即发布给所选孩子</label>
+    {isAdmin && <label className="checkbox-label catechism-publish-check"><input type="checkbox" name="publish_now" defaultChecked />导入后立即发布给所选孩子</label>}
     <p className="field-note">每次导入会建立一份独立问答册，不会覆盖以前的问答和练习历史。建议先检查问题编号、中英文标点与授权版本。</p>
     <ImportButton />
     {state.message && <p className={state.status === "success" ? "success catechism-form-message" : "error catechism-form-message"} role="status">{state.message}</p>}

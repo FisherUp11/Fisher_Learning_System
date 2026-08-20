@@ -8,7 +8,10 @@
 flowchart TB
   Kid[孩子：iPhone / iPad] --> UI[Next.js App Router\n学习卡与家长页面]
   Parent[家长] --> UI
+  Admin[空间管理员] --> UI
+  Owner[空间所有者 owner] --> UI
   UI --> Auth[Supabase Auth\n仅家长会话]
+  Auth --> Mail[Resend Custom SMTP\n确认邮箱与密码恢复]
   UI --> DB[(Supabase Postgres\n内容、状态、尝试历史)]
   UI --> Speech[Next Route Handler\nAzure Speech / 浏览器回退]
   UI --> Image[受保护的临时联想图 Route\nAzure gpt-image-1-mini]
@@ -28,6 +31,7 @@ flowchart TB
 4. **AI / Azure 不可用不能阻塞学习。** 它们是内容与朗读增强，不是系统事实来源。
 5. **任何跨家庭读取都必须失败。** 前端隐藏、页面跳转不是权限控制，RLS 和函数内验证才是。
 6. **奖励只能引用真实学习记录，且不能反向改变学习历史。** 贴纸余额由不可变流水求和；奖励失败时原学习记录仍然成功。
+7. **owner 是 admin 的严格超集。** admin 审核/分配，owner 额外管理用户、邀请、临时密码和永久清理；破坏性操作默认归档，必须证明历史安全才删除。
 
 ## 2. 目录与责任地图
 
@@ -38,6 +42,15 @@ flowchart TB
 | `app/(app)/library/page.tsx` | 全字册掌握统计、服务端筛选与分页 | `get_library_rows` 的参数/返回字段必须与最新 SQL 同步。 |
 | `components/library-priority-manager.tsx` | 本页重点字勾选、批量保存反馈与字卡详情 | 只提交选择，不计算复习日或阶段。 |
 | `app/(app)/parent/page.tsx` | 家长档案、导入、基础进度 | 所有写入走 `lib/actions.ts`。 |
+| `app/(app)/admin/*` | 空间看板、资源审核、按孩子分配；`users/members` 为 owner 专属 | 页面、Action、RLS/RPC 都要验证角色，不只隐藏入口。 |
+| `app/account/change-password/page.tsx` | 临时密码首次登录后的强制改密 | 成功修改 Auth 密码后才清除 `must_change_password`。 |
+| `app/forgot-password/page.tsx` / `components/forgot-password-form.tsx` | 公开的密码恢复申请与 60 秒防重复提交 | 统一返回结果，不查询或泄露邮箱是否已注册。 |
+| `app/auth/recovery/route.ts` / `app/reset-password/page.tsx` | 验证一次性 recovery token、建立恢复会话和设置新密码 | 只接受 `recovery` token 或 PKCE code；成功后退出全部旧会话。 |
+| `app/join/page.tsx` | 受邀家长接受一次性链接 | 明文 token 不入库；当前一个账号只加入一个空间。 |
+| `lib/access.ts` / `lib/admin-actions.ts` | 服务端角色上下文和管理员写入边界 | 最终授权仍由 Supabase RLS/函数完成。 |
+| `lib/user-management-actions.ts` | owner 创建账号、改角色/家庭、停用、重置密码 | 临时密码只返回一次，不写数据库/审计/日志。 |
+| `lib/supabase/admin.ts` | server-only Auth Admin client | 只读 `SUPABASE_SECRET_KEY` 或旧 service_role；绝不从客户端导入。 |
+| `lib/dashboard.ts` | 只聚合当前活跃分配的学习概况 | 7 天首答率只统计首次独立回答。 |
 | `app/(app)/poems/page.tsx` | 诗词背诵概览、筛选、推荐、分页 | 只展示记录与建议，不运行汉字复习算法。 |
 | `app/(app)/poems/[poemId]/page.tsx` | 单首诗正文、打卡历史、评分概况 | 每条记录必须来自 `poem_recitation_attempts`。 |
 | `components/poem-recitation-form.tsx` | “今天背过一次”可重复打卡表单 | 不在客户端合并同日点击。 |
@@ -68,12 +81,27 @@ flowchart TB
 | `supabase/012_reward_sticker_module.sql` | 奖励账户、不可变流水、成长星、礼物、兑换与五个 RPC | 不修改任何学习阶段；必须整段运行。 |
 | `supabase/013_fix_get_today_queue_session_id_ambiguity.sql` | 修复旧日待答卡带入时 `ON CONFLICT` 与返回列 `session_id` 同名歧义 | 只替换 `get_today_queue`，保持 011 的重点字顺序。 |
 | `supabase/014_dynamic_double_confirmation.sql` | 每日单字确认进度、无限次队尾重试、柔和降级与新版队列/回答 RPC | 保留全部旧历史；今日通过与跨天 stage 必须分开。 |
+| `supabase/015_multi_family_admin.sql` | 空间/家庭/角色、公共资源审核、可恢复分配、邀请和 RLS 升级 | 先回填旧数据，不删除孩子或历史。 |
+| `supabase/016_adaptive_queue_and_shared_content_rpcs.sql` | 新权限边界下的学习 RPC、字库查询与有界自适应队列 | 保持 014 真值表不变，只调整每日取题数。 |
+| `supabase/017_owner_user_management_and_duplicate_cleanup.sql` | owner 用户目录、首次改密、邀请升级和重复资源安全合并 | 不修改旧密码；音乐/问答有历史时拒绝永久删除。 |
 | `samples/characters-sample.csv` | 30 字真实试跑内容 | 修改后需重新人工检查拼音/例句。 |
 
 ## 3. 数据模型与归属
 
 ```mermaid
 erDiagram
+  LEARNING_WORKSPACES ||--o{ WORKSPACE_MEMBERS : authorizes
+  LEARNING_WORKSPACES ||--o{ FAMILIES : contains
+  AUTH_USERS ||--o{ WORKSPACE_MEMBERS : joins
+  AUTH_USERS ||--o| WORKSPACE_USER_PROFILES : describes
+  LEARNING_WORKSPACES ||--o{ WORKSPACE_USER_PROFILES : contains
+  FAMILIES ||--o{ FAMILY_MEMBERS : authorizes
+  AUTH_USERS ||--o{ FAMILY_MEMBERS : belongs_to
+  FAMILIES ||--o{ LEARNER_PROFILES : owns
+  LEARNING_WORKSPACES ||--o{ CONTENT_PACKAGES : shares
+  LEARNING_WORKSPACES ||--o{ POEM_COLLECTIONS : shares
+  LEARNING_WORKSPACES ||--o{ MUSIC_ITEMS : shares
+  LEARNING_WORKSPACES ||--o{ CATECHISM_COLLECTIONS : shares
   AUTH_USERS ||--o{ LEARNER_PROFILES : owns
   AUTH_USERS ||--o{ CONTENT_PACKAGES : creates
   AUTH_USERS ||--o{ CHARACTERS : creates
@@ -125,28 +153,32 @@ erDiagram
 
 | 表 | 一句话定义 | 不能做什么 |
 | --- | --- | --- |
-| `content_packages` | 一批由某家长创建的字册 | 不存孩子进度。 |
-| `characters` | 家长私有的规范字、拼音、释义和基础例词 | 不直接存“孩子认识吗”。 |
+| `learning_workspaces` / `workspace_members` | 学习空间与 owner/admin/parent 角色 | 角色不存在 Auth metadata。 |
+| `families` / `family_members` | 家长可见孩子的隔离边界 | 普通家长不可跨家庭读取。 |
+| `workspace_invitations` / `workspace_audit_events` | 一次性邀请和管理操作追踪 | 不保存邀请 token 明文。 |
+| `workspace_user_profiles` | 账号称呼和首次改密标记 | 不保存明文/哈希密码，不作为角色授权来源。 |
+| `content_packages` | 空间内待审或已批准的字册 | 不存孩子进度。 |
+| `characters` | 空间内共用的规范字、拼音、释义和基础例词 | 不直接存“孩子认识吗”。 |
 | `package_characters` | 字册内的顺序 | 不存复习阶段。 |
 | `learner_character_priorities` | 某个孩子当前优先学习哪些字，跨全部关联字册生效 | 不存阶段、不复制历史、不自动视为已掌握。 |
-| `learner_profiles` | 孩子昵称、每日新字数、当前字册 | 不是可登录的 Auth 用户。 |
+| `learner_profiles` | 家庭下的孩子、每日新字和自适应复习设置 | 不是可登录的 Auth 用户。 |
 | `learning_states` | 一个孩子对一个字当前的阶段/到期日 | 不可代替历史记录。 |
 | `daily_sessions` | 孩子本地日期的一次今日任务容器 | 不代表每次点击。 |
 | `daily_session_items` | 今日/补带/重试卡队列，`retry_no` 区分同字多次出现 | 每张项只允许回答一次。 |
 | `daily_character_progress` | 一天一个字的确认要求、连续独立认出次数、是否降级与通过时间 | 不代替跨天 `learning_states`。 |
 | `learning_attempts` | 每一次 `known/again`、是否辅助、当日第几次和确认结果的不可变事实 | 不更新、不覆盖。 |
 | `poem_collections` | 一次 CSV 导入形成的一份诗词册 | 不存孩子的背诵次数。 |
-| `poems` | 家长私有的诗词正文与作者信息，由 `poem_key` 稳定识别 | 不存某个孩子的评分。 |
-| `learner_poem_collections` | 诗词册与孩子的长期关联 | 新导入必须追加，不能覆盖旧关联。 |
+| `poems` | 空间内由 `poem_key` 稳定识别的诗词正文与作者信息 | 家长重复导入不得自动覆盖公共正文。 |
+| `learner_poem_collections` | 诗词册与孩子的可启停分配 | 取消分配不能删除旧打卡。 |
 | `poem_recitation_attempts` | 每次“今天背过一次”的历史事实，含本地日期、可空评分与备注 | 不合并同一天的多次打卡。 |
 | `music_items` | 唱一唱、辨声音或打节奏的内容与发布状态 | 不存 MP3 二进制，不存孩子进度。 |
 | `music_assets` | R2 `object_key`、原文件名、MIME、大小、类型与顺序 | 不存公开 URL；读取 URL 必须临时签发。 |
-| `learner_music_items` | 内容与孩子的分配关系 | 未分配内容不能出现在孩子页。 |
+| `learner_music_items` | 内容与孩子的可启停分配关系 | 只有 active 且资源已批准/已发布才能进孩子页。 |
 | `music_learning_states` | 某孩子对某音乐项的阶段、到期日和最近结果 | 不可代替历史。 |
 | `music_practice_attempts` | 每一次听/唱/辨认/节奏结果，含孩子本地日期和可选猜测备注 | 不覆盖或合并；同日多次就是多行。 |
 | `catechism_collections` | 一次导入形成的一份有版本、来源与授权说明的问答册 | 不跨版本自动合并问题。 |
 | `catechism_items` | 某一版本内的中英文问题、答案、经文和稳定编号 | 不存孩子进度，不由 AI 自动改写。 |
-| `learner_catechism_collections` | 问答册与孩子的分配关系 | 取消分配不删除历史，重新分配后可恢复。 |
+| `learner_catechism_collections` | 问答册与孩子的可启停分配 | 取消分配不删除历史，重新分配后可恢复。 |
 | `catechism_learning_states` | 某孩子对某问题的当前阶段、次数和到期日 | 不可代替不可变历史。 |
 | `catechism_attempts` | 每次 `recited/again` 的事实、前后阶段、本地日期与幂等键 | 同日多次不合并，不更新覆盖。 |
 | `reward_accounts` | 每个孩子的贴纸目标、成长星门槛/日上限和当前未兑换星数 | 不作为贴纸余额来源。 |
@@ -172,16 +204,18 @@ erDiagram
 
 ### 今日队列与重点字
 
-`get_today_queue` 负责创建孩子本地日期的固定任务。`011` 之后的候选顺序是：
+`get_today_queue` 负责创建孩子本地日期的固定任务。`016` 之后的候选顺序是：
 
-1. 以前未答完的 `pending` 项全部转成今日 `carry`；
+1. 以前未答完且已开始的字优先转成今日 `carry`，但不突破当天复习安全上限；
 2. 到期重点字；
-3. 到期普通字（与 carry 合计补到原有 15 个复习容量；carry 本身可超过 15）；
-4. 跨全部已关联、已发布字册的未学重点字；
-5. 当前 `active_package_id` 中按 CSV sequence 排列的普通新字；
+3. 到期普通字，按最久逾期、低阶段优先，补到当天计划复习量；
+4. 跨全部已分配、已审核且已发布字册的未学重点字；
+5. 按“字册分配顺序 + CSV sequence”排列的普通新字，同字跨字册只进一次；
 6. 未达到今日确认标准时追加的 `same_day_retry`。
 
-重点仅参与排序：必须仍满足 `due_at <= now()` 才能成为复习候选；未学重点字占用 `daily_new_limit`，不能扩大当天新字量。当天队列一旦建立便不因家长中途更改重点而重排，避免孩子学习到一半出现顺序漂移。漏学不会自动降级，过期项继续保持到期，阶段只由 `answer_queue_item` 根据真实回答改变。
+重点仅参与排序：必须仍满足 `due_at <= now()` 才能成为复习候选；未学重点字占用当天新字名额。自适应量参考到期积压和近 7 天首答独立认出率：积压 31–60 时用复习安全上限且新字最多 2 个，积压超过 60 或有足够样本且首答率低于 60% 时暂停新字。完整阈值见 [15 号说明](./15_多家庭管理员与智能复习说明.md)。
+
+队列计划在当天第一次打开时快照到 `daily_sessions`。当天修改设置不重排，孩子时区的第二天才生效。漏学不会自动降级，阶段只由 `answer_queue_item` 根据真实回答改变。
 
 ### 为什么同日重试不恢复阶段
 
@@ -192,7 +226,7 @@ erDiagram
 若要调间隔/增加评级，必须同一 PR 同时修改：
 
 1. `01_产品方案与MVP.md` 的真值表；
-2. 当前最新升级脚本中的 `answer_queue_item`（现为 `014`）；
+2. 当前最新升级脚本中的 `answer_queue_item`（现为 `016`，真值表继承 `014`）；
 3. `ARCHITECTURE.md` 本节；
 4. SQL 函数测试用例（未来加入）；
 5. 学习页的提示文案（不要向孩子显示“失败/降级”）。
@@ -224,9 +258,10 @@ sequenceDiagram
 ### RLS
 
 - 每张 `public` 表显式启用 RLS。
-- 家长归属来自 `auth.uid()` 与 `learner_profiles.parent_user_id` 的关系，不读取 `user_metadata` 做授权。
-- 所有派生表都通过 `exists (...) learner_profiles ... parent_user_id = auth.uid()` 判断归属。
-- 导入的字册与汉字也按 `created_by = auth.uid()` 私有隔离；本 MVP 没有跨家庭公开内容库。
+- 角色来自 `workspace_members`，家庭可见范围来自 `family_members`，不读取 `user_metadata` 做授权。
+- `private.can_access_learner` 统一判断主家长、同家庭监护人和空间 owner/admin；`private.is_workspace_admin` 统一判断审核/分配权。
+- 普通家长可读空间已批准资源与自己的待审提交，但只能读自己家庭的孩子和派生学习表。
+- 孩子队列必须同时满足资源 `approved + published` 和分配 `active`。
 
 ### 为什么使用 `SECURITY DEFINER` RPC
 
@@ -234,24 +269,24 @@ sequenceDiagram
 
 - 函数 `set search_path = ''`，所有 relation 显式写 `public.`。
 - 默认 `PUBLIC`/`anon` 执行权被收回，只 `grant execute` 给 `authenticated`。
-- 每次调用先查 `parent_user_id = auth.uid()`，没有归属即抛错。
+- 每次调用先查 `private.can_access_learner(...)`，没有家庭或管理员权限即抛错。
 - 函数不接受 SQL 字符串、表名、其他家长 ID 或服务角色 key。
 
 以后如改函数签名，必须相应更新最后的 `revoke/grant execute`；否则旧函数可能仍默认对 `PUBLIC` 可执行。
 
-`record_music_practice` 采用 `SECURITY INVOKER`：它在调用家长的 RLS 权限下运行，仍会显式检查孩子归属、内容归属、已分配和已发布状态。`request_id` 唯一，同一次点击即使网络重试也只记一次。
+`record_music_practice` 在 `016` 中改为受限 `SECURITY DEFINER`：它先用 `private.can_access_learner` 验证家庭/管理员边界，再检查资源已审核、已发布且已活跃分配。`request_id` 唯一，同一次点击网络重试也只记一次。
 
 `record_catechism_attempt` 采用受限的 `SECURITY DEFINER`，因为 `catechism_learning_states` 和 `catechism_attempts` 对普通登录用户只开放读取，所有写入必须经过同一事务。函数必须保持空 `search_path`、全限定表名、显式 `auth.uid()` 归属检查，并只向 `authenticated` 授予执行权。问答历史不允许前端直接更新或删除。
 
-`set_character_priorities` 采用 `SECURITY INVOKER`，在家长自身 RLS 权限下批量保存当前页选择；函数仍显式验证孩子归属、字库成员关系和单次最多 100 个字。`learner_character_priorities` 的主键 `(learner_id, character_id)` 确保不同孩子可有不同重点，同一字跨多个 CSV 只保留一个重点标记。
+`set_character_priorities` 仍是原子批量保存，`016` 后用 `private.can_access_learner` 和已分配公共字册验证候选。`learner_character_priorities` 的主键 `(learner_id, character_id)` 确保不同孩子可有不同重点，同一字跨多个 CSV 只保留一个重点标记。
 
-`daily_character_progress` 只向所属家长开放读取，写入只能通过受限的 `answer_queue_item`。RPC 使用空 `search_path`、全限定表名、`auth.uid()` 归属验证和 session 行锁，在一个事务中完成确认进度、阶段、历史和新重试卡，避免双击或并发回答造成两个相同队列位置。
+`daily_character_progress` 只向孩子所属家庭和空间管理员开放读取，写入只能通过受限的 `answer_queue_item`。RPC 使用空 `search_path`、全限定表名、权限验证和 session 行锁，在一个事务中完成确认进度、阶段、历史和新重试卡。
 
 奖励模块的五个函数采用受限的 `SECURITY DEFINER`，负责跨表核验真实练习、锁定奖励账户、去重与追加流水；奖励账户、流水、成长星和兑换表只给普通登录用户读取权限，不能绕过 RPC 直接写。`claim_hanzi_daily_reward` 只有在当天会话有已答卡且没有待答卡时才发放；`register_reward_activity` 从诗词/音乐历史反查项目、结果和孩子本地日期，不接受客户端自行声明“已完成”。函数保持空 `search_path`、全限定表名，只向 `authenticated` 开放并再次核验孩子归属。同一业务日期、项目或请求都有唯一键，重试不会重复记账。
 
 ### 迁移纪律
 
-- 已部署环境的真实结构是 `001` 加后续适用的 `002`–`014` 累计结果，不要回头改已经在线执行过的旧脚本来“假装升级”。
+- 已部署环境的真实结构是 `001` 加后续适用的 `002`–`017` 累计结果，不要回头改已经在线执行过的旧脚本来“假装升级”。
 - 新的数据库变化应新增下一个编号脚本，并在执行前备份相关内容表、状态表和历史表。
 - SQL 文件要尽量可重复运行；函数签名变化时同时清理旧签名权限，外键和 RLS 变更要验证已有数据能安全通过。
 - 内容只有错字/标点修正可原地更新；答案含义、授权文本版本或译本变化必须创建新问答册。
@@ -260,8 +295,12 @@ sequenceDiagram
 
 - Server Component 默认读取数据；页面在 `(app)` 路由组内，layout 用 `auth.getUser()` 拦截未登录访问。
 - `proxy.ts` 每个请求刷新 Supabase SSR cookie，会话响应强制 `Cache-Control: private, no-store`。
+- `/auth/callback` 服务于注册/邀请，并兼容旧版 recovery 模板；`/auth/recovery` 专门验证密码恢复。新版 Recovery 邮件模板使用 `SiteURL + /auth/recovery + TokenHash`，不把 token 写日志或数据库。
+- 忘记密码前端直接调用 Supabase `resetPasswordForEmail`，不传入当前浏览器的 `redirectTo`；邮件链接统一由模板从正式 `SiteURL` 构造。Supabase Auth 通过 Resend Custom SMTP 发信；前端、Vercel 和浏览器都不持有 Resend API Key。
+- 密码恢复对存在与不存在的邮箱显示相同结果；同一用户 60 秒内不能重复发送。设置成功后调用全局 sign-out，再要求用户用新密码登录。
 - Client Component 仅用于卡片点击、浏览器朗读和局部状态；不含任何管理员密钥。
 - `lib/actions.ts` 是 server-only 的写入边界。每一个 Action 都先获取用户再写入。
+- `lib/user-management-actions.ts` 先用普通 SSR 会话验证 owner，只有创建 Auth 用户/重置密码时才调用 server-only Admin client。service key 不能代替业务角色校验。
 - `/api/speech`、`/api/ai/*` 都先校验登录，并且只在服务器读取 Azure 变量。
 - `/api/music/assets/upload-url` 在 Node.js Route Handler 中校验登录、内容归属、MIME 与大小，再返回单个对象的短时 PUT URL。
 - R2 SDK 只在签名/删除时延迟初始化；因此未配置 R2 时仍可构建、登录并使用汉字/诗词模块。
@@ -272,13 +311,14 @@ sequenceDiagram
 | --- | --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL` | 可以 | Supabase 项目地址。 |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY`/`PUBLISHABLE_KEY` | 可以 | 受 RLS 保护的公开客户端 key。 |
+| `SUPABASE_SECRET_KEY` | 不可以 | 推荐的 `sb_secret_...`，仅 owner 创建 Auth 用户/重置密码。 |
+| `SUPABASE_SERVICE_ROLE_KEY` | 不可以 | 仅旧项目兼容；新项目优先 Secret key。 |
 | `AZURE_SPEECH_KEY` | 不可以 | Route Handler 调 Azure TTS。 |
 | `AZURE_OPENAI_API_KEY` | 不可以 | Route Handler 调 Azure OpenAI。 |
 | `AZURE_IMAGE_DEPLOYMENT` / `AZURE_IMAGE_API_VERSION` | 不可以 | Azure `gpt-image-1-mini` 的服务器端部署配置。 |
 | `R2_ACCOUNT_ID` | 不可以 | 生成 Cloudflare R2 S3 endpoint。 |
 | `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | 不可以 | 生成短时预签名 URL 与删除对象。 |
 | `R2_BUCKET_NAME` | 不可以 | 当前音乐私有 Bucket，默认 `fisher-learning-media`。 |
-| `SUPABASE_SERVICE_ROLE_KEY` | 不需要；禁止前端 | 本 MVP 没有理由使用。 |
 
 ## 9. 计划内扩展点
 
@@ -340,9 +380,9 @@ sequenceDiagram
 在让新的 AI Agent 修改项目时，先把下面内容给它：
 
 ```text
-请先阅读 ARCHITECTURE.md、DEPLOYMENT.md、01_产品方案与MVP.md、09_诗词背诵模块说明.md、10_Cloudflare_R2保姆级配置教程.md、11_儿童信仰问答模块说明.md、12_汉字重点字功能说明.md、13_奖励贴纸模块说明.md、14_汉字动态双确认规则说明.md、supabase/001_hanzi_mvp.sql、supabase/009_music_learning_mvp.sql、supabase/010_catechism_learning_mvp.sql、supabase/011_priority_character_learning.sql、supabase/012_reward_sticker_module.sql、supabase/013_fix_get_today_queue_session_id_ambiguity.sql 和 supabase/014_dynamic_double_confirmation.sql。
-这是一个 Next.js + Supabase SSR + 私有 Cloudflare R2 的儿童家庭学习 PWA，包含汉字、诗词、音乐、儿童信仰问答和小芽贴纸奖励。
-不要在前端计算复习阶段；不要暴露 Azure、R2 或 Supabase service key；汉字回答必须追加 learning_attempts，动态双确认以 daily_character_progress 为准且每字每天最多降级一次；诗词打卡必须追加 poem_recitation_attempts，音乐练习必须通过 record_music_practice 追加 music_practice_attempts，信仰问答必须通过 record_catechism_attempt 追加 catechism_attempts；重点字只能影响候选排序，不得提前于 due_at；奖励余额只能来自 reward_ledger 的流水求和，兑换与撤销都不删除历史，奖励失败不得阻断学习记录；获授权问答不得由 AI 自动改写；修改复习或奖励规则时同步修改 SQL、文档和测试。
+请先阅读 ARCHITECTURE.md、DEPLOYMENT.md、01_产品方案与MVP.md、14_汉字动态双确认规则说明.md、15_多家庭管理员与智能复习说明.md、16_用户家庭管理与资源安全清理说明.md、supabase/015_multi_family_admin.sql、supabase/016_adaptive_queue_and_shared_content_rpcs.sql 和 supabase/017_owner_user_management_and_duplicate_cleanup.sql；再按任务阅读 09–13 号模块文档及对应旧迁移。
+这是一个 Next.js + Supabase SSR + 私有 Cloudflare R2 的多家庭儿童学习 PWA。普通家长只能看本家庭，owner/admin 可看空间全部孩子并审核/分配公共资源。
+owner 是 admin 的严格超集；只有 owner 可管理账号、邀请和永久清理。不要在前端计算复习阶段；不要暴露 Azure、R2 或 Supabase service key；只有 approved + published + active assignment 可以进孩子队列；取消分配/归档不得删除学习历史；汉字动态双确认以 daily_character_progress 为准且每字每天最多降级一次；自适应队列只调节当天取题数，不改真值表；各模块每次学习必须追加不可变历史；奖励余额只能来自 reward_ledger 流水求和；修改权限、复习或奖励规则时同步修改 SQL、文档和测试。
 ```
 
 并要求 Agent 完成真实检查：`npm run lint`、`npm run build`、移动端浏览器验收；若修改 SQL，使用两个测试家长账号验证跨家庭 RLS。

@@ -1,8 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { createHash } from "node:crypto";
 import { createClient } from "@/lib/supabase/server";
 import { claimHanziCompletionReward, registerActivityReward } from "@/lib/reward-service";
+import { loadAccessContext } from "@/lib/access";
 
 export type Learner = {
   id: string;
@@ -10,6 +12,9 @@ export type Learner = {
   daily_new_limit: number;
   catechism_daily_new_limit?: number;
   catechism_review_limit?: number;
+  hanzi_review_mode?: "adaptive" | "fixed";
+  hanzi_base_review_limit?: number;
+  hanzi_max_review_limit?: number;
   active_package_id: string | null;
 };
 
@@ -35,6 +40,10 @@ export type QueueItem = {
   today_total: number;
   today_passed: number;
   today_remaining: number;
+  planned_review_limit: number;
+  planned_new_limit: number;
+  due_backlog: number;
+  review_mode: "adaptive" | "fixed";
 };
 
 export type QueueLoadResult = {
@@ -44,10 +53,10 @@ export type QueueLoadResult = {
 
 function queueLoadMessage(message: string) {
   if (message.includes('column reference "session_id" is ambiguous')) {
-    return "今日学习队列需要更新。请家长运行 supabase/013_fix_get_today_queue_session_id_ambiguity.sql 后重新加载。";
+    return "今日学习队列需要更新。请管理员确认已按顺序运行到 supabase/016_adaptive_queue_and_shared_content_rpcs.sql。";
   }
   if (message.includes("get_today_queue") && (message.includes("schema cache") || message.includes("Could not find"))) {
-    return "没有找到新版今日队列函数。请家长确认数据库脚本已经按 001–014 顺序运行。";
+    return "没有找到新版今日队列函数。请管理员确认数据库脚本已经按 001–016 顺序运行。";
   }
   if (message.includes("JWT") || message.includes("Refresh Token") || message.includes("登录")) {
     return "登录状态已经失效，请重新登录后继续学习。";
@@ -77,6 +86,11 @@ function normalizeCatechismReviewLimit(value: FormDataEntryValue | null) {
   return Number.isFinite(parsed) ? Math.max(1, Math.min(50, Math.floor(parsed))) : 10;
 }
 
+function normalizeReviewLimit(value: FormDataEntryValue | null, fallback: number, max: number) {
+  const parsed = Number(value ?? fallback);
+  return Number.isFinite(parsed) ? Math.max(5, Math.min(max, Math.floor(parsed))) : fallback;
+}
+
 export async function loadTodayQueue(learnerId: string): Promise<QueueLoadResult> {
   try {
     const { supabase } = await authenticatedClient();
@@ -95,7 +109,7 @@ export async function loadTodayQueue(learnerId: string): Promise<QueueLoadResult
     if (items[0] && typeof items[0].today_total !== "number") {
       return {
         items: [],
-        error: "学习规则需要升级。请家长先运行 supabase/014_dynamic_double_confirmation.sql，再重新加载页面。",
+        error: "学习规则需要升级。请管理员先运行 supabase/015 和 016 脚本，再重新加载页面。",
       };
     }
     return { items, error: null };
@@ -126,7 +140,7 @@ export async function answerQueueItem(input: {
       error.message.includes("answer_queue_item")
       && (error.message.includes("schema cache") || error.message.includes("Could not find"))
     ) {
-      throw new Error("学习规则需要升级。请家长先运行 supabase/014_dynamic_double_confirmation.sql，再重新加载页面。");
+      throw new Error("学习规则需要升级。请管理员先按顺序运行 supabase/015 和 016 脚本，再重新加载页面。");
     }
     throw new Error(error.message);
   }
@@ -156,6 +170,8 @@ export async function answerQueueItem(input: {
 
 export async function createLearner(formData: FormData) {
   const { supabase, user } = await authenticatedClient();
+  const access = await loadAccessContext(supabase, user.id);
+  if (!access?.familyId) throw new Error("当前账号还没有家庭，请通过管理员邀请加入");
   const displayName = String(formData.get("display_name") ?? "").trim().slice(0, 24);
   const dailyNewLimit = normalizeDailyNewLimit(formData.get("daily_new_limit"));
   const catechismDailyNewLimit = normalizeCatechismNewLimit(formData.get("catechism_daily_new_limit"));
@@ -164,6 +180,7 @@ export async function createLearner(formData: FormData) {
 
   const { error } = await supabase.from("learner_profiles").insert({
     parent_user_id: user.id,
+    family_id: access.familyId,
     display_name: displayName,
     daily_new_limit: dailyNewLimit,
     catechism_daily_new_limit: catechismDailyNewLimit,
@@ -177,12 +194,15 @@ export async function createLearner(formData: FormData) {
 }
 
 export async function updateLearnerSettings(formData: FormData) {
-  const { supabase, user } = await authenticatedClient();
+  const { supabase } = await authenticatedClient();
   const learnerId = String(formData.get("learner_id") ?? "");
   const displayName = String(formData.get("display_name") ?? "").trim().slice(0, 24);
   const dailyNewLimit = normalizeDailyNewLimit(formData.get("daily_new_limit"));
   const catechismDailyNewLimit = normalizeCatechismNewLimit(formData.get("catechism_daily_new_limit"));
   const catechismReviewLimit = normalizeCatechismReviewLimit(formData.get("catechism_review_limit"));
+  const reviewMode = formData.get("hanzi_review_mode") === "fixed" ? "fixed" : "adaptive";
+  const baseReviewLimit = normalizeReviewLimit(formData.get("hanzi_base_review_limit"), 15, 40);
+  const maxReviewLimit = Math.max(baseReviewLimit, normalizeReviewLimit(formData.get("hanzi_max_review_limit"), 25, 50));
   if (!learnerId || !displayName) throw new Error("孩子昵称不能为空");
 
   const { error } = await supabase
@@ -192,9 +212,11 @@ export async function updateLearnerSettings(formData: FormData) {
       daily_new_limit: dailyNewLimit,
       catechism_daily_new_limit: catechismDailyNewLimit,
       catechism_review_limit: catechismReviewLimit,
+      hanzi_review_mode: reviewMode,
+      hanzi_base_review_limit: baseReviewLimit,
+      hanzi_max_review_limit: maxReviewLimit,
     })
-    .eq("id", learnerId)
-    .eq("parent_user_id", user.id);
+    .eq("id", learnerId);
   if (error) throw new Error(error.message);
   revalidatePath("/learn");
   revalidatePath("/catechism");
@@ -209,64 +231,19 @@ export async function deleteLearnerAndCurrentLibrary(formData: FormData) {
 
   const { data: learner, error: learnerError } = await supabase
     .from("learner_profiles")
-    .select("id,display_name,active_package_id")
+    .select("id,display_name")
     .eq("id", learnerId)
     .eq("parent_user_id", user.id)
     .single();
   if (learnerError || !learner) throw new Error("找不到这个孩子档案");
 
-  const packageId = learner.active_package_id;
-  const { data: packageCharacters, error: charactersError } = packageId
-    ? await supabase.from("package_characters").select("character_id").eq("package_id", packageId)
-    : { data: [], error: null };
-  if (charactersError) throw new Error(charactersError.message);
-
-  const { data: otherPackageUsers, error: otherUsersError } = packageId
-    ? await supabase
-      .from("learner_profiles")
-      .select("id")
-      .eq("parent_user_id", user.id)
-      .eq("active_package_id", packageId)
-      .neq("id", learnerId)
-    : { data: [], error: null };
-  if (otherUsersError) throw new Error(otherUsersError.message);
-
-  // 先删孩子，让外键级联清除每日队列、学习状态和回答历史。
+  // 删除孩子会级联清除其学习事实；空间公共资源保留，避免影响其他家庭。
   const { error: deleteLearnerError } = await supabase
     .from("learner_profiles")
     .delete()
     .eq("id", learnerId)
     .eq("parent_user_id", user.id);
   if (deleteLearnerError) throw new Error(deleteLearnerError.message);
-
-  // 当前字册没有被其他孩子使用时，同时移除字册和其中已无引用的汉字内容。
-  if (packageId && (otherPackageUsers?.length ?? 0) === 0) {
-    const characterIds = (packageCharacters ?? []).map((item) => item.character_id);
-    const { error: deletePackageError } = await supabase
-      .from("content_packages")
-      .delete()
-      .eq("id", packageId)
-      .eq("created_by", user.id);
-    if (deletePackageError) throw new Error(deletePackageError.message);
-
-    if (characterIds.length > 0) {
-      const { data: stillUsed, error: stillUsedError } = await supabase
-        .from("package_characters")
-        .select("character_id")
-        .in("character_id", characterIds);
-      if (stillUsedError) throw new Error(stillUsedError.message);
-      const usedIds = new Set((stillUsed ?? []).map((item) => item.character_id));
-      const orphanIds = characterIds.filter((id) => !usedIds.has(id));
-      if (orphanIds.length > 0) {
-        const { error: deleteCharactersError } = await supabase
-          .from("characters")
-          .delete()
-          .eq("created_by", user.id)
-          .in("id", orphanIds);
-        if (deleteCharactersError) throw new Error(deleteCharactersError.message);
-      }
-    }
-  }
 
   revalidatePath("/learn");
   revalidatePath("/library");
@@ -281,7 +258,6 @@ async function getOwnedLearner(learnerId: string) {
     .from("learner_profiles")
     .select("id")
     .eq("id", learnerId)
-    .eq("parent_user_id", user.id)
     .single();
   if (error || !learner) throw new Error("找不到这个孩子档案");
   return { supabase, user };
@@ -291,7 +267,8 @@ async function assertCharacterInLearnerLibrary(supabase: Awaited<ReturnType<type
   const { data: links, error: linksError } = await supabase
     .from("learner_content_packages")
     .select("package_id")
-    .eq("learner_id", learnerId);
+    .eq("learner_id", learnerId)
+    .eq("assignment_status", "active");
   if (linksError || !links?.length) throw new Error("找不到这个孩子的字库归属，请先运行 006 数据库脚本");
   const allowedPackageIds = packageId ? [packageId] : links.map((link) => link.package_id);
   if (packageId && !links.some((link) => link.package_id === packageId)) throw new Error("这个字册不属于该孩子");
@@ -315,13 +292,14 @@ export async function updateCharacterContent(formData: FormData) {
   if (!characterId || !pinyinMarked || !meaning) throw new Error("拼音和释义不能为空");
 
   const { supabase, user } = await getOwnedLearner(learnerId);
+  const access = await loadAccessContext(supabase, user.id);
+  if (!access?.isAdmin) throw new Error("公共字库的文字内容只能由学习空间管理员修正");
   await assertCharacterInLearnerLibrary(supabase, learnerId, characterId);
 
   const { error } = await supabase
     .from("characters")
     .update({ pinyin_marked: pinyinMarked, meaning, word_one: wordOne, word_two: wordTwo, example_sentence: exampleSentence })
-    .eq("id", characterId)
-    .eq("created_by", user.id);
+    .eq("id", characterId);
   if (error) throw new Error(error.message);
   revalidatePath("/library");
   revalidatePath("/learn");
@@ -371,7 +349,9 @@ export async function removeCharacterFromCurrentPackage(formData: FormData) {
   const packageId = String(formData.get("package_id") ?? "");
   if (!characterId || !packageId) throw new Error("请先选择要管理的具体字册");
 
-  const { supabase } = await getOwnedLearner(learnerId);
+  const { supabase, user } = await getOwnedLearner(learnerId);
+  const access = await loadAccessContext(supabase, user.id);
+  if (!access?.isAdmin) throw new Error("只有学习空间管理员可以从公共字册移除汉字");
   await assertCharacterInLearnerLibrary(supabase, learnerId, characterId, packageId);
   const { data: sessions, error: sessionsError } = await supabase
     .from("daily_sessions")
@@ -450,6 +430,8 @@ function pick(record: Record<string, string>, key: string) {
 
 export async function importCharacters(formData: FormData) {
   const { supabase, user } = await authenticatedClient();
+  const access = await loadAccessContext(supabase, user.id);
+  if (!access) throw new Error("当前账号还没有学习空间");
   const learnerId = String(formData.get("learner_id") ?? "");
   const title = String(formData.get("package_title") ?? "学前识字包").trim().slice(0, 60);
   const file = formData.get("csv_file");
@@ -488,14 +470,27 @@ export async function importCharacters(formData: FormData) {
     .from("learner_profiles")
     .select("id")
     .eq("id", learnerId)
-    .eq("parent_user_id", user.id)
     .single();
   if (learnerError || !learner) throw new Error("找不到这个孩子档案");
 
   const code = `package-${Date.now()}`;
+  const fingerprint = createHash("sha256")
+    .update(characters.map((item) => [item.character, item.pinyin_marked, item.meaning, item.word_one ?? "", item.word_two ?? "", item.example_sentence ?? "", item.sequence].join("|")).join("\n"))
+    .digest("hex");
   const { data: packageRow, error: packageError } = await supabase
     .from("content_packages")
-    .insert({ created_by: user.id, code, title, status: "published" })
+    .insert({
+      created_by: user.id,
+      workspace_id: access.workspaceId,
+      submitted_for_learner_id: learnerId,
+      code,
+      title,
+      status: access.isAdmin ? "published" : "draft",
+      review_status: access.isAdmin ? "approved" : "pending_review",
+      fingerprint,
+      approved_by: access.isAdmin ? user.id : null,
+      approved_at: access.isAdmin ? new Date().toISOString() : null,
+    })
     .select("id")
     .single();
   if (packageError || !packageRow) throw new Error(packageError?.message ?? "创建学习包失败");
@@ -503,20 +498,30 @@ export async function importCharacters(formData: FormData) {
   const imported: Array<{ id: string; character: string }> = [];
   for (let index = 0; index < characters.length; index += 100) {
     const batch = characters.slice(index, index + 100);
-    const { data, error } = await supabase
+    const { data: existing, error: existingError } = await supabase
       .from("characters")
-      .upsert(batch.map((item) => ({
+      .select("id,character")
+      .eq("workspace_id", access.workspaceId)
+      .in("character", batch.map((item) => item.character));
+    if (existingError) throw new Error(existingError.message);
+    const existingInBatch = existing ?? [];
+    imported.push(...existingInBatch);
+    const existingCharacters = new Set(existingInBatch.map((item) => item.character));
+    const missing = batch.filter((item) => !existingCharacters.has(item.character));
+    if (missing.length) {
+      const { data, error } = await supabase.from("characters").insert(missing.map((item) => ({
         created_by: user.id,
+        workspace_id: access.workspaceId,
         character: item.character,
         pinyin_marked: item.pinyin_marked,
         meaning: item.meaning,
         word_one: item.word_one,
         word_two: item.word_two,
         example_sentence: item.example_sentence,
-      })), { onConflict: "created_by,character" })
-      .select("id,character");
-    if (error) throw new Error(error.message);
-    imported.push(...(data ?? []));
+      }))).select("id,character");
+      if (error) throw new Error(error.message);
+      imported.push(...(data ?? []));
+    }
   }
   const idsByCharacter = new Map(imported.map((item) => [item.character, item.id]));
   const joins = characters.map((item) => ({ package_id: packageRow.id, character_id: idsByCharacter.get(item.character), sequence: item.sequence }));
@@ -524,17 +529,14 @@ export async function importCharacters(formData: FormData) {
   const { error: joinError } = await supabase.from("package_characters").insert(joins);
   if (joinError) throw new Error(joinError.message);
 
-  const { error: packageLinkError } = await supabase
-    .from("learner_content_packages")
-    .insert({ learner_id: learnerId, package_id: packageRow.id });
-  if (packageLinkError) throw new Error(`字册已创建，但无法关联到孩子：${packageLinkError.message}`);
-
-  const { error: updateError } = await supabase
-    .from("learner_profiles")
-    .update({ active_package_id: packageRow.id })
-    .eq("id", learnerId)
-    .eq("parent_user_id", user.id);
-  if (updateError) throw new Error(updateError.message);
+  if (access.isAdmin) {
+    const { error: packageLinkError } = await supabase
+      .from("learner_content_packages")
+      .upsert({ learner_id: learnerId, package_id: packageRow.id, assigned_by: user.id, assignment_status: "active", unassigned_at: null });
+    if (packageLinkError) throw new Error(`字册已创建，但无法关联到孩子：${packageLinkError.message}`);
+    const { error: updateError } = await supabase.from("learner_profiles").update({ active_package_id: packageRow.id }).eq("id", learnerId);
+    if (updateError) throw new Error(updateError.message);
+  }
   revalidatePath("/learn");
   revalidatePath("/parent");
   revalidatePath("/library");
@@ -542,6 +544,8 @@ export async function importCharacters(formData: FormData) {
 
 export async function importPoems(formData: FormData) {
   const { supabase, user } = await authenticatedClient();
+  const access = await loadAccessContext(supabase, user.id);
+  if (!access) throw new Error("当前账号还没有学习空间");
   const learnerId = String(formData.get("learner_id") ?? "");
   const title = String(formData.get("poem_collection_title") ?? "第一批古诗词").trim().slice(0, 80);
   const file = formData.get("poem_csv_file");
@@ -584,13 +588,23 @@ export async function importPoems(formData: FormData) {
     .from("learner_profiles")
     .select("id")
     .eq("id", learnerId)
-    .eq("parent_user_id", user.id)
     .single();
   if (learnerError || !learner) throw new Error("找不到这个孩子档案");
 
   const { data: collection, error: collectionError } = await supabase
     .from("poem_collections")
-    .insert({ created_by: user.id, code: `poems-${Date.now()}`, title, status: "published" })
+    .insert({
+      created_by: user.id,
+      workspace_id: access.workspaceId,
+      submitted_for_learner_id: learnerId,
+      code: `poems-${Date.now()}`,
+      title,
+      status: access.isAdmin ? "published" : "draft",
+      review_status: access.isAdmin ? "approved" : "pending_review",
+      fingerprint: createHash("sha256").update(poems.map((poem) => [poem.poem_key, poem.title, poem.author, poem.dynasty ?? "", poem.content, poem.sequence].join("|")).join("\n")).digest("hex"),
+      approved_by: access.isAdmin ? user.id : null,
+      approved_at: access.isAdmin ? new Date().toISOString() : null,
+    })
     .select("id")
     .single();
   if (collectionError || !collection) throw new Error(collectionError?.message ?? "创建诗词册失败");
@@ -598,17 +612,29 @@ export async function importPoems(formData: FormData) {
   const imported: Array<{ id: string; poem_key: string }> = [];
   for (let index = 0; index < poems.length; index += 100) {
     const batch = poems.slice(index, index + 100);
+    const keys = batch.map((poem) => poem.poem_key);
+    const { data: existing, error: existingError } = await supabase
+      .from("poems")
+      .select("id,poem_key")
+      .eq("workspace_id", access.workspaceId)
+      .in("poem_key", keys);
+    if (existingError) throw new Error(existingError.message);
+    imported.push(...(existing ?? []));
+    const existingKeys = new Set((existing ?? []).map((poem) => poem.poem_key));
+    const missing = batch.filter((poem) => !existingKeys.has(poem.poem_key));
+    if (!missing.length) continue;
     const { data, error } = await supabase
       .from("poems")
-      .upsert(batch.map((poem) => ({
+      .insert(missing.map((poem) => ({
         created_by: user.id,
+        workspace_id: access.workspaceId,
         poem_key: poem.poem_key,
         title: poem.title,
         author: poem.author,
         dynasty: poem.dynasty,
         content: poem.content,
         updated_at: new Date().toISOString(),
-      })), { onConflict: "created_by,poem_key" })
+      })))
       .select("id,poem_key");
     if (error) throw new Error(error.message);
     imported.push(...(data ?? []));
@@ -619,10 +645,12 @@ export async function importPoems(formData: FormData) {
   const { error: itemError } = await supabase.from("poem_collection_items").insert(items);
   if (itemError) throw new Error(itemError.message);
 
-  const { error: linkError } = await supabase
-    .from("learner_poem_collections")
-    .insert({ learner_id: learnerId, collection_id: collection.id });
-  if (linkError) throw new Error(`诗词册已创建，但无法关联到孩子：${linkError.message}`);
+  if (access.isAdmin) {
+    const { error: linkError } = await supabase
+      .from("learner_poem_collections")
+      .upsert({ learner_id: learnerId, collection_id: collection.id, assigned_by: user.id, assignment_status: "active", unassigned_at: null });
+    if (linkError) throw new Error(`诗词册已创建，但无法关联到孩子：${linkError.message}`);
+  }
 
   revalidatePath("/parent");
   revalidatePath("/poems");
@@ -653,14 +681,14 @@ export async function recordPoemRecitation(formData: FormData) {
     .from("learner_profiles")
     .select("id,timezone")
     .eq("id", learnerId)
-    .eq("parent_user_id", user.id)
     .single();
   if (learnerError || !learner) throw new Error("找不到这个孩子档案");
 
   const { data: collections, error: collectionsError } = await supabase
     .from("learner_poem_collections")
     .select("collection_id")
-    .eq("learner_id", learnerId);
+    .eq("learner_id", learnerId)
+    .eq("assignment_status", "active");
   if (collectionsError || !collections?.length) throw new Error("找不到这个孩子的诗词册，请先运行 008 数据库脚本并导入诗词");
   const { data: membership, error: membershipError } = await supabase
     .from("poem_collection_items")

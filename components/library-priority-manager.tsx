@@ -53,11 +53,13 @@ export function LibraryPriorityManager({
   learnerId,
   selectedPackage,
   totalPriorityCount,
+  canManageContent,
 }: {
   rows: LibraryRowView[];
   learnerId: string;
   selectedPackage?: { id: string; title: string };
   totalPriorityCount: number;
+  canManageContent: boolean;
 }) {
   const router = useRouter();
   const pageIds = rows.map((row) => row.character_id);
@@ -211,7 +213,7 @@ export function LibraryPriorityManager({
                     {item.consecutive_known > 0 ? `连续认识 ${item.consecutive_known} 次。` : "最近一次选择了“再学一次”。"}
                   </p>
                 )}
-                <form action={updateCharacterContent} className="form-grid">
+                {canManageContent ? <form action={updateCharacterContent} className="form-grid">
                   <input type="hidden" name="learner_id" value={learnerId} />
                   <input type="hidden" name="character_id" value={item.character_id} />
                   <label>拼音<input name="pinyin_marked" defaultValue={item.pinyin_marked} required maxLength={40} /></label>
@@ -220,17 +222,17 @@ export function LibraryPriorityManager({
                   <label>词语 2<input name="word_two" defaultValue={item.word_two ?? ""} maxLength={100} /></label>
                   <label>例句<input name="example_sentence" defaultValue={item.example_sentence ?? ""} maxLength={300} /></label>
                   <div className="character-edit-actions"><button className="secondary" type="submit">保存这个字</button></div>
-                </form>
-                {selectedPackage ? (
+                </form> : <p className="notice">这是已审核的公共字库内容。如需修正拼音、释义或例句，请联系学习空间管理员。</p>}
+                {canManageContent && selectedPackage ? (
                   <form action={removeCharacterFromCurrentPackage} className="remove-form">
                     <input type="hidden" name="learner_id" value={learnerId} />
                     <input type="hidden" name="character_id" value={item.character_id} />
                     <input type="hidden" name="package_id" value={selectedPackage.id} />
                     <button className="text-button danger" type="submit">从“{selectedPackage.title}”移除“{item.hanzi}”</button>
                   </form>
-                ) : (
+                ) : canManageContent ? (
                   <p className="library-meta">如需从字册移除这个字，请先在“来源字册”筛选中选择具体字册。</p>
-                )}
+                ) : null}
               </div>
             </details>
           );

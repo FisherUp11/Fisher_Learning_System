@@ -35,19 +35,19 @@ export async function POST(request: Request) {
   const characterId = body.characterId?.trim() ?? "";
   if (!learnerId || !characterId) return NextResponse.json({ error: "缺少孩子或汉字信息" }, { status: 400 });
 
-  // 只允许为当前家长、当前孩子字库中的汉字生成图片，避免此受保护接口被当作任意图片生成器。
+  // RLS 只会返回当前家庭或管理员可访问的孩子。
   const { data: learner, error: learnerError } = await supabase
     .from("learner_profiles")
     .select("id")
     .eq("id", learnerId)
-    .eq("parent_user_id", user.id)
     .maybeSingle();
   if (learnerError || !learner) return NextResponse.json({ error: "找不到这个孩子档案" }, { status: 403 });
 
   const { data: packageLinks, error: packageLinksError } = await supabase
     .from("learner_content_packages")
     .select("package_id")
-    .eq("learner_id", learnerId);
+    .eq("learner_id", learnerId)
+    .eq("assignment_status", "active");
   const packageIds = (packageLinks ?? []).map((item) => item.package_id);
   if (packageLinksError || packageIds.length === 0) {
     return NextResponse.json({ error: "找不到孩子的字库归属，请先运行 006 数据库脚本" }, { status: 400 });
@@ -65,7 +65,6 @@ export async function POST(request: Request) {
     .from("characters")
     .select("character,pinyin_marked,meaning")
     .eq("id", characterId)
-    .eq("created_by", user.id)
     .maybeSingle();
   if (characterError || !character) return NextResponse.json({ error: "找不到汉字内容" }, { status: 404 });
 

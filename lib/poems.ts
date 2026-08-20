@@ -44,6 +44,7 @@ export async function loadPoemProgress(supabase: SupabaseClient, learnerId: stri
     .from("learner_poem_collections")
     .select("collection_id,linked_at")
     .eq("learner_id", learnerId)
+    .eq("assignment_status", "active")
     .order("linked_at") as { data: CollectionRow[] | null; error: { message?: string } | null };
   if (linksError) throw new Error(errorMessage(linksError, "无法读取孩子的诗词册"));
   const collectionIds = (links ?? []).map((row) => row.collection_id);

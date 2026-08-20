@@ -12,6 +12,7 @@
 4. 孩子逐张学习，使用“我自己认出来了 / 还要再学一次”完成动态双确认；
 5. Supabase 保存全部尝试记录，并根据阶段自动安排下一次；
 6. 朗读优先使用 Azure Speech；Azure 不可用时自动退回浏览器中文朗读。
+7. 家长忘记密码时，可由 Supabase Auth 通过 Resend 发恢复邮件并安全设置新密码。
 
 ## 1. 首次准备清单
 
@@ -37,13 +38,18 @@
 12. 再运行 [supabase/012_reward_sticker_module.sql](./supabase/012_reward_sticker_module.sql)，启用小芽贴纸册、成长星、家长手工贴纸、礼物兑换和撤销。它不修改任何学习模块的复习规则。
 13. 再运行 [supabase/013_fix_get_today_queue_session_id_ambiguity.sql](./supabase/013_fix_get_today_queue_session_id_ambiguity.sql)，修复跨日带入未完成汉字时的 `session_id is ambiguous`；它只替换队列函数，不改学习数据。
 14. 再运行 [supabase/014_dynamic_double_confirmation.sql](./supabase/014_dynamic_double_confirmation.sql)，启用新字/不稳定字连续两次独立认出、稳定字一次确认、柔和降级和不限次数的当天队尾重试。
-15. 成功后，在 SQL Editor 依次执行下面两段验证；两段都应返回结果或空表，不应报权限/函数不存在错误。
+15. 再运行 [supabase/015_multi_family_admin.sql](./supabase/015_multi_family_admin.sql)，回填旧账号为空间 owner，建立家庭隔离、管理员、资源审核/分配、邀请和新 RLS。这步不删除孩子、学习历史、奖励或 R2 对象。
+16. 再运行 [supabase/016_adaptive_queue_and_shared_content_rpcs.sql](./supabase/016_adaptive_queue_and_shared_content_rpcs.sql)，让汉字/音乐/问答/奖励 RPC 支持多家庭共享资源，并启用有界自适应汉字复习。
+17. 最后运行 [supabase/017_owner_user_management_and_duplicate_cleanup.sql](./supabase/017_owner_user_management_and_duplicate_cleanup.sql)，启用 owner 专属用户目录、首次登录改密、角色/家庭维护和重复资源安全合并。
+18. 成功后，在 SQL Editor 依次执行下面两段验证；两段都应返回结果或空表，不应报权限/函数不存在错误。
 
 ```sql
 select table_name
 from information_schema.tables
 where table_schema = 'public'
   and table_name in (
+    'learning_workspaces', 'workspace_members', 'families', 'family_members',
+    'workspace_invitations', 'workspace_audit_events', 'workspace_user_profiles',
     'learner_profiles', 'characters', 'learning_states', 'learning_attempts',
     'daily_character_progress',
     'learner_character_priorities',
@@ -62,11 +68,30 @@ select routine_name
 from information_schema.routines
 where routine_schema = 'public'
   and routine_name in (
+    'accept_workspace_invitation', 'owner_provision_workspace_user', 'owner_update_workspace_user',
+    'complete_initial_password_change', 'owner_merge_duplicate_resource',
     'get_today_queue', 'answer_queue_item', 'get_library_progress', 'get_library_rows',
     'set_character_priorities', 'record_music_practice', 'record_catechism_attempt',
     'claim_hanzi_daily_reward', 'register_reward_activity', 'grant_manual_reward',
     'redeem_reward', 'reverse_reward_redemption'
   );
+```
+
+对已有数据的项目，再运行下面这段；旧账号应该是 `owner`，`learners_without_family` 和 `resources_without_workspace` 都应该是 0：
+
+```sql
+select member.user_id, member.role, member.status, workspace.name
+from public.workspace_members member
+join public.learning_workspaces workspace on workspace.id = member.workspace_id
+order by member.joined_at;
+
+select
+  (select count(*) from public.learner_profiles where family_id is null) as learners_without_family,
+  (select count(*) from public.content_packages where workspace_id is null) +
+  (select count(*) from public.poem_collections where workspace_id is null) +
+  (select count(*) from public.music_items where workspace_id is null) +
+  (select count(*) from public.catechism_collections where workspace_id is null)
+  as resources_without_workspace;
 ```
 
 如果你已经运行过 001、并且学习页显示 `structure of query does not match function result type`，不要删除任何表；只运行 [supabase/002_fix_get_today_queue.sql](./supabase/002_fix_get_today_queue.sql)，然后刷新学习页。
@@ -93,12 +118,16 @@ where routine_schema = 'public'
 
 若前端提示“学习规则需要升级”或找不到五参数 `answer_queue_item`，请完整运行 [supabase/014_dynamic_double_confirmation.sql](./supabase/014_dynamic_double_confirmation.sql)。它新增每日单字确认进度和可编号的重试卡，不删除旧回答；当天已经按旧规则完成且没有待答卡的字继续视为完成。
 
+若更新到多家庭版本，必须先 `015` 后 `016`，两个都要整段运行。`015` 只负责数据归属/RLS，`016` 才替换学习 RPC 和字库函数；只运行其中一个会出现页面可打开但队列或分配失败的不完整状态。
+
+若更新到 owner 用户管理版本，在 `015`、`016` 成功后再完整运行 `017`。它会回填现有成员目录，但不会修改既有账号密码。前端出现 `workspace_user_profiles does not exist`、`owner_provision_workspace_user could not be found` 或用户页无法读取时，通常就是还没有运行 `017` 或 schema cache 尚未刷新。详细规则见 [16 号说明](./16_用户家庭管理与资源安全清理说明.md)。
+
 ### 2.1 SQL 做了什么，为什么必须整段运行
 
-- 建立内容、孩子、当前学习状态、每日队列、不可变回答历史等基础表；006 额外建立“孩子 ↔ 字册”关联表；008 建立诗词内容与背诵记录；009 建立音乐内容、媒体元数据、练习状态与历史；010 建立双语信仰问答、孩子分配、学习状态与每次判断历史；011 建立孩子级重点字及其安全保存/查询入口；012 建立贴纸流水、成长星、礼物与兑换记录；014 建立一天一个字的独立确认进度。
-- 所有表都开启 RLS；每位家长只能看到自己孩子/内容的数据。
-- 创建 `get_today_queue`、`answer_queue_item` 与字库汇总函数；004/006 会把字库查询升级为可分页、可按历史导入包筛选的版本。
-- 函数只授予 `authenticated` 执行权，并在函数内再次核验 `auth.uid()` 是否拥有该孩子档案。
+- 建立内容、孩子、状态、每日队列和不可变历史；008–012 分别扩展诗词、音乐、问答、重点字和奖励；014 建立每日汉字独立确认进度；015 建立空间/家庭/角色/审核/分配；016 建立有安全上限的自适应队列快照；017 建立 owner 用户目录和历史保护型资源合并。
+- 所有表都开启 RLS；普通家长只看本家庭，owner/admin 可看空间全部，资源通过审核后才能分配。
+- 创建 `get_today_queue`、`answer_queue_item`、`get_library_rows` 和各模块记录 RPC；前端不直接改学习阶段。
+- 函数只授予 `authenticated` 执行权，并在函数内再次核验家庭或空间管理员权限。
 
 不要只复制建表部分、漏掉最后的 RLS/function grant；那会导致应用无法安全工作。
 
@@ -111,13 +140,19 @@ where routine_schema = 'public'
 
 ```text
 http://localhost:3000/auth/callback
+http://localhost:3000/auth/recovery
 https://你的-vercel-域名/auth/callback
+https://你的-vercel-域名/auth/recovery
 ```
 
 3. **Authentication → Providers → Email**：打开 Email provider。
 4. 测试期可保留“确认邮箱”开启；注册后去邮箱点确认链接，再回来登录。
 
-密码最少 6 位是 Supabase 默认规则；实际家庭使用建议设更长的家长密码。
+owner 在“邀请”生成的是应用内一次性 `/join?token=...` 链接，不需要在 Supabase 另加 `/join` Redirect URL。受邀家长必须用邀请中的同一邮箱登录；如需新建账号，邮箱确认仍会经过上面的 `/auth/callback` 再回到原邀请页。
+
+普通登录兼容 Supabase 项目原有密码策略；邀请注册、owner 创建的临时密码和首次改密在应用中统一要求至少 12 位，并包含字母和数字。
+
+忘记密码专门使用 `/auth/recovery`，不要与邀请使用的 `/auth/callback` 混用。生产环境请把 Resend 配置为 Supabase Custom SMTP，并更新 Reset Password 模板；完整逐步操作见 [17_Resend密码恢复邮件配置教程.md](./17_Resend密码恢复邮件配置教程.md)。当前方案不需要在 Vercel 增加 `RESEND_API_KEY`，也不使用 Supabase Edge Function。
 
 ## 4. 检查本地环境变量
 
@@ -127,6 +162,10 @@ https://你的-vercel-域名/auth/callback
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 # 可选的新式键名：NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
+
+# owner 创建账号/重置密码使用；仅服务端。推荐新的 sb_secret_ key。
+SUPABASE_SECRET_KEY=
+# 旧项目临时兼容，和上面二选一：SUPABASE_SERVICE_ROLE_KEY=eyJ...
 
 AZURE_SPEECH_KEY=
 AZURE_SPEECH_REGION=
@@ -149,13 +188,15 @@ R2_SECRET_ACCESS_KEY=
 R2_BUCKET_NAME=fisher-learning-media
 ```
 
-你现有 `.env.local` 的 Supabase/Azure 字段已经符合这套命名。MVP 核心只需要 Supabase；Azure Speech 和 OpenAI 缺失时分别退回浏览器朗读/不显示生成内容，学习记录不受影响。音乐文件上传与播放需要 4 个 `R2_*` 变量，请按 [Cloudflare R2 保姆级配置教程](./10_Cloudflare_R2保姆级配置教程.md) 操作。
+你现有 `.env.local` 的 Supabase/Azure 字段已经符合这套命名。学习核心只需要 Supabase URL 和公开客户端 key；owner 的“创建账号/重置密码”还需要 `SUPABASE_SECRET_KEY`（推荐）或旧版 `SUPABASE_SERVICE_ROLE_KEY`。Azure Speech 和 OpenAI 缺失时分别退回浏览器朗读/不显示生成内容，学习记录不受影响。音乐文件上传与播放需要 4 个 `R2_*` 变量，请按 [Cloudflare R2 保姆级配置教程](./10_Cloudflare_R2保姆级配置教程.md) 操作。
 
 安全检查：
 
 - `NEXT_PUBLIC_` 只允许 Supabase URL 与 anon/publishable key；它们设计上可在浏览器使用。
-- **绝不**给 `AZURE_*`、`R2_*`、Supabase `service_role` 加 `NEXT_PUBLIC_` 前缀。
+- **绝不**给 `AZURE_*`、`R2_*`、`SUPABASE_SECRET_KEY` 或 `SUPABASE_SERVICE_ROLE_KEY` 加 `NEXT_PUBLIC_` 前缀。
 - 不要在客户端代码、CSV、日志或截图中记录任何密钥。
+
+`SUPABASE_SECRET_KEY` 的具体获取路径：Supabase Dashboard → Project Settings → API Keys → Secret keys，创建/复制 `sb_secret_...`。旧项目才使用同页 Legacy API keys 中的 `service_role` 完整 JWT。不要误填 anon/publishable key、Project URL 或数据库密码。Vercel 新增变量后必须 Redeploy。完整图文式步骤和安全边界见 [16 号说明](./16_用户家庭管理与资源安全清理说明.md)。
 
 ## 5. 本机启动
 
@@ -186,6 +227,14 @@ npm run dev
 14. 到“家长 → 儿童信仰问答”下载 CSV 模板，先导入模板中的 2 问并发布；打开“问一问”，确认中英文分别朗读、答案揭晓后才能判断。对同一问连续两次点“背出来了”，确认 `catechism_attempts` 同日保留 2 行但阶段只升级一次；随后“单独练这一问”点“还要再背”，确认历史新增且答错降级一次。
 15. 打开“奖励管理”，新增一个 10 枚贴纸的测试礼物；完成当天全部汉字卡，确认仅出现一次贴纸庆祝且 `reward_ledger` 只有一条当天 `hanzi_daily`。同一首诗当天打卡两次应只加一颗成长星；同一首歌仅听不加星；每天第三个不同的诗词/音乐项目保存练习但不再加星。累计三颗星后应自动发 1 枚贴纸。
 16. 在“奖励管理”给今天的数学作业加 1 枚，再重复提交，余额只能增加一次；测试一次礼物兑换，确认扣除正确，再点撤销，确认余额返还且原兑换记录显示“已撤销”。完整验收见 [小芽贴纸册说明](./13_奖励贴纸模块说明.md)。
+17. 用旧账号打开“学习空间”，确认它是 owner，旧孩子、字册和历史数量没有变少。
+18. owner 在“管理中心 → 邀请”用一个尚未加入字芽空间的邮箱生成邀请；用无痕窗口打开完整链接，使用同一邮箱注册/登录并接受。
+19. 家长 B 创建孩子 B，确认 B 只看到自家孩子；owner 能在管理看板看到 A/B 两个家庭。
+20. 家长 B 提交一份小字册或音乐，确认审核前孩子 B 看不到；owner 在资源库通过、再到分配页分配后才出现。取消分配后不再出题，重新分配后原有阶段/历史仍在。
+21. 将某孩子设为“智能调整”、基础 15、安全上限 25。确认当天改设置不重排队列，第二天生效；到期积压超过 30 时新字不超过 2，积压超过 60 时暂停新字。
+22. owner 打开“管理中心 → 用户”，创建一个家长账号并复制一次性临时密码；用无痕窗口登录，确认必须先设置至少 12 位的新密码。再确认家长看不到其他家庭，admin 能审核/分配但看不到用户模块。
+23. 导入两份完全相同的小字册，在“管理中心 → 资源”选择一份保留并安全合并；确认孩子分配、学习次数和阶段不变。给测试音乐先产生一条练习历史，再尝试合并删除，系统必须拒绝并提示归档。
+24. 按 [17 号教程](./17_Resend密码恢复邮件配置教程.md) 完成 Resend SMTP 后，从登录页发送一次密码恢复邮件；用另一浏览器点击，设置新密码并重新登录。旧密码和其他设备旧会话应失效，家庭、孩子和学习历史保持不变。
 
 如果第 3 步上传后“学一学”仍显示空字册，请先刷新一次页面；仍失败时查看浏览器控制台与 Vercel/Next 终端错误，再检查 SQL 是否完整运行。
 
@@ -198,7 +247,7 @@ npm run dev
 1. 把本目录提交到自己的 Git 仓库；确认 `.env.local` 没有被提交。
 2. 打开 Vercel → **Add New → Project** → 导入仓库。
 3. Framework Preset 选择 **Next.js**；Root Directory 选本目录（如果仓库根目录就是本项目，则无需填写）。
-4. 在 **Environment Variables** 中逐项加入第 4 节的变量。选择 Production、Preview、Development 三种环境均可；若 Azure 暂时不用，可只填 Supabase 两项。
+4. 在 **Environment Variables** 中逐项加入第 4 节的变量。选择 Production、Preview、Development 三种环境均可；若 Azure 暂时不用，至少填 Supabase URL、公开客户端 key，以及 owner 用户管理所需的服务器 Secret key。
 5. 点击 Deploy。
 6. 第一次部署成功后，回到 Supabase 的 URL Configuration，把 Vercel 正式地址补进 Site URL / Redirect URLs。
 
@@ -208,7 +257,8 @@ npm run dev
 - [ ] 点击分享 → 添加到主屏幕，打开后能回到“学一学”。
 - [ ] 在 iPad 横竖屏下，大字和底部按钮不被安全区遮挡。
 - [ ] 断开 Azure 配置或临时让 Speech 请求失败时，浏览器朗读仍可工作。
-- [ ] 用两个不同邮箱的测试家长 A/B，确认 B 看不到 A 的孩子、字包、尝试记录。
+- [ ] 用两个不同邮箱的测试家长 A/B，确认 B 看不到 A 的孩子和尝试记录；只能学习管理员已批准且分配给 B 孩子的资源。
+- [ ] owner/admin 可看两个家庭概况，普通家长不出现管理员入口；只有 owner 出现“用户/邀请”和永久重复清理。
 
 ## 7. 导入 1300 字前的内容检查
 
@@ -264,6 +314,10 @@ from public.catechism_attempts order by practiced_at desc limit 20;
 
 先查垃圾邮件；确认 Supabase Email provider 已启用，Site URL/Redirect URL 正确。测试阶段也可在 Supabase Auth 的 Users 页面人工确认测试用户。
 
+### 忘记密码邮件没有收到，或点击后链接无效
+
+先按 [17_Resend密码恢复邮件配置教程.md](./17_Resend密码恢复邮件配置教程.md) 逐项检查：Resend 域名必须 Verified，Supabase Custom SMTP 必须保存成功，Site URL 必须为正式站点，Redirect URLs 必须包含当前域名的 `/auth/recovery`，Reset Password 模板使用 `{{ .SiteURL }}/auth/recovery?token_hash={{ .TokenHash }}&type=recovery`。修改配置后要重新发送邮件，旧邮件不会自动更新。不要连续点击；同一用户的密码恢复默认有 60 秒安全间隔。
+
 ### 页面显示“未找到可用的孩子档案或已发布学习包”
 
 一般是孩子没有 active package，或 SQL 没有完整运行。到家长页重新上传样例 CSV；若仍失败，重新执行 `001_hanzi_mvp.sql`（它的 `create table if not exists` 与 `create or replace function` 可安全重复运行）。
@@ -276,11 +330,11 @@ from public.catechism_attempts order by practiced_at desc limit 20;
 column reference "session_id" is ambiguous
 ```
 
-完整运行 [supabase/013_fix_get_today_queue_session_id_ambiguity.sql](./supabase/013_fix_get_today_queue_session_id_ambiguity.sql)，然后刷新“学一学”。该问题只会在存在前一天未完成卡片、系统尝试跨日带入时触发，因此可能表现为“有时能打开，有时报错”。
+旧版可先运行 [supabase/013_fix_get_today_queue_session_id_ambiguity.sql](./supabase/013_fix_get_today_queue_session_id_ambiguity.sql)；已升级多家庭版时，直接确认已按顺序整段运行 `015` 和 `016`，因为 `016` 已包含最新队列函数。该问题只会在存在前一天未完成卡片、系统尝试跨日带入时触发。
 
 ### 学习页提示“学习规则需要升级”
 
-完整运行 [supabase/014_dynamic_double_confirmation.sql](./supabase/014_dynamic_double_confirmation.sql)，确认脚本末尾返回 `progress_table_count = 1`、`queue_function_count = 1`、`answer_function_count = 1`，再刷新页面。新版前端依赖 `daily_character_progress` 以及五参数 `answer_queue_item`，因此 SQL 必须先于或同时于前端部署。
+当前前端需要 `015` + `016` + `017`。请依次整段运行 [supabase/015_multi_family_admin.sql](./supabase/015_multi_family_admin.sql)、[supabase/016_adaptive_queue_and_shared_content_rpcs.sql](./supabase/016_adaptive_queue_and_shared_content_rpcs.sql) 和 [supabase/017_owner_user_management_and_duplicate_cleanup.sql](./supabase/017_owner_user_management_and_duplicate_cleanup.sql)，然后刷新 Supabase schema cache 和页面。新前端依赖空间/家庭表、`daily_character_progress`、自适应快照列、用户档案和最新 RPC。
 
 ### 朗读没有声音
 
@@ -299,6 +353,7 @@ column reference "session_id" is ambiguous
 - 音乐：`music_items`、`music_assets`、`learner_music_items`、`music_learning_states`、`music_practice_attempts`；
 - 信仰问答：`catechism_collections`、`catechism_items`、`learner_catechism_collections`、`catechism_learning_states`、`catechism_attempts`。
 - 奖励：`reward_accounts`、`reward_ledger`、`reward_growth_events`、`reward_catalog_items`、`reward_redemptions`。
+- 空间与用户：`learning_workspaces`、`workspace_members`、`workspace_user_profiles`、`families`、`family_members`、`workspace_invitations`、`workspace_audit_events`。
 
 不要只备份当前状态，逐次练习历史才是以后解释进度和调整算法的依据。R2 里的 MP3/琴谱不在 Supabase 数据库备份内，需要另行保留源文件或做 R2 备份。
 

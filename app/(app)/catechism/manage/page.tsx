@@ -2,6 +2,8 @@ import Link from "next/link";
 import { CatechismCollectionForm } from "@/components/catechism-collection-form";
 import { CatechismImportForm } from "@/components/catechism-import-form";
 import { createClient } from "@/lib/supabase/server";
+import { loadAccessContext } from "@/lib/access";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 type SearchParams = Promise<{ collection?: string; q?: string; page?: string }>;
@@ -23,11 +25,15 @@ function manageHref(collectionId: string | undefined, query: string, page = 1) {
 export default async function CatechismManagePage({ searchParams }: { searchParams: SearchParams }) {
   const params = await searchParams;
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+  const access = await loadAccessContext(supabase, user.id);
+  if (!access?.isAdmin) redirect("/catechism");
   const [{ data: learners }, { data: collections, error: collectionError }, { data: items, error: itemError }, { data: links }] = await Promise.all([
     supabase.from("learner_profiles").select("id,display_name").order("created_at"),
     supabase.from("catechism_collections").select("id,title,english_title,source_note,license_note,status,created_at").order("created_at", { ascending: false }),
     supabase.from("catechism_items").select("id,collection_id,item_key,sort_order,question_zh,question_en,status").order("sort_order"),
-    supabase.from("learner_catechism_collections").select("learner_id,collection_id"),
+    supabase.from("learner_catechism_collections").select("learner_id,collection_id").eq("assignment_status", "active"),
   ]);
   if (collectionError || itemError) return <section className="panel"><h1>管理页还差数据库脚本</h1><p className="lede">请在 Supabase SQL Editor 整段运行下面的文件，然后刷新。</p><p className="notice"><code>supabase/010_catechism_learning_mvp.sql</code></p><p className="error">{collectionError?.message ?? itemError?.message}</p></section>;
   const collectionRows = collections ?? [];
@@ -45,7 +51,7 @@ export default async function CatechismManagePage({ searchParams }: { searchPara
     <section className="panel catechism-import-panel">
       <div className="section-heading"><div><h2>导入新的问答册</h2><p className="library-meta">第一批可导入 145 问；以后每次导入都会建立新的来源问答册。</p></div><a className="secondary template-button" href="/api/templates/catechism">下载 CSV 模板</a></div>
       <p className="notice">必填：<code>item_key,sequence,question_zh,question_en,answer_zh,answer_en</code>。系统不会自动翻译或改写获授权的要理文本。</p>
-      {learners?.length ? <CatechismImportForm learners={learners} /> : <p className="notice">请先在家长页创建孩子档案。</p>}
+      {learners?.length ? <CatechismImportForm learners={learners} isAdmin /> : <p className="notice">请先在家长页创建孩子档案。</p>}
     </section>
     {collectionRows.length > 0 && <section className="panel">
       <h2>已有问答册</h2>

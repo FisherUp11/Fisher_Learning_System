@@ -1,10 +1,12 @@
 "use server";
 
+import { createHash } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { deleteR2Object } from "@/lib/r2";
 import { registerActivityReward } from "@/lib/reward-service";
+import { loadAccessContext } from "@/lib/access";
 
 export type MusicItemType = "song" | "instrument" | "rhythm";
 export type MusicItemStatus = "draft" | "published" | "archived";
@@ -18,6 +20,13 @@ export type MusicSaveState = {
   savedStatus?: MusicItemStatus;
   savedAt?: string;
 };
+
+function musicFingerprint(input: { itemType: string; title: string; category?: string | null; description?: string | null; lyrics?: string | null; correctAnswer?: string | null; instructions?: string | null; difficulty?: number }) {
+  const normalized = [input.itemType, input.title, input.category, input.description, input.lyrics, input.correctAnswer, input.instructions, input.difficulty ?? 1]
+    .map((value) => String(value ?? "").trim())
+    .join("|");
+  return createHash("sha256").update(normalized).digest("hex");
+}
 
 async function authenticatedMusicClient() {
   const supabase = await createClient();
@@ -34,17 +43,51 @@ function musicType(value: FormDataEntryValue | null): MusicItemType {
 
 async function ownedMusicItem(itemId: string) {
   const { supabase, user } = await authenticatedMusicClient();
-  const { data: item, error } = await supabase.from("music_items").select("id,item_type,title,status").eq("id", itemId).eq("created_by", user.id).single();
+  const access = await loadAccessContext(supabase, user.id);
+  if (!access) throw new Error("当前账号还没有学习空间");
+  const { data: item, error } = await supabase.from("music_items").select("id,item_type,title,status,review_status,created_by").eq("id", itemId).eq("workspace_id", access.workspaceId).single();
+  if (item && !access.isAdmin && item.created_by !== user.id) throw new Error("只能维护自己提交的音乐内容");
   if (error || !item) throw new Error("找不到这条音乐内容，或当前账号无权管理");
-  return { supabase, user, item };
+  return { supabase, user, access, item };
+}
+
+function assertRootMutable(access: { isAdmin: boolean }, item: { status: string; review_status: string }) {
+  if (!access.isAdmin && !(item.status === "draft" && ["draft", "pending_review", "rejected"].includes(item.review_status))) {
+    throw new Error("这份内容已由管理员发布，当前只能查看");
+  }
+}
+
+function assertMediaMutable(access: { isAdmin: boolean }, item: { status: string; review_status: string }) {
+  if (!access.isAdmin && !(item.status === "draft" && ["draft", "pending_review"].includes(item.review_status))) {
+    throw new Error("请先保存文字资料并重新提交审核，再修改媒体文件");
+  }
 }
 
 export async function createMusicItem(formData: FormData) {
   const { supabase, user } = await authenticatedMusicClient();
+  const access = await loadAccessContext(supabase, user.id);
+  if (!access) throw new Error("当前账号还没有学习空间");
   const title = String(formData.get("title") ?? "").trim().slice(0, 100);
   const itemType = musicType(formData.get("item_type"));
+  const submittedForLearnerId = String(formData.get("submitted_for_learner_id") ?? "") || null;
   if (!title) throw new Error("请填写内容名称");
-  const { data, error } = await supabase.from("music_items").insert({ created_by: user.id, item_type: itemType, title, status: "draft" }).select("id").single();
+  if (!access.isAdmin) {
+    if (!submittedForLearnerId) throw new Error("请选择建议分配的孩子");
+    const { data: learner, error: learnerError } = await supabase.from("learner_profiles").select("id").eq("id", submittedForLearnerId).single();
+    if (learnerError || !learner) throw new Error("找不到这个孩子档案");
+  }
+  const { data, error } = await supabase.from("music_items").insert({
+    created_by: user.id,
+    workspace_id: access.workspaceId,
+    submitted_for_learner_id: submittedForLearnerId,
+    item_type: itemType,
+    title,
+    fingerprint: musicFingerprint({ itemType, title }),
+    status: "draft",
+    review_status: access.isAdmin ? "approved" : "pending_review",
+    approved_by: access.isAdmin ? user.id : null,
+    approved_at: access.isAdmin ? new Date().toISOString() : null,
+  }).select("id").single();
   if (error || !data) throw new Error(error?.message ?? "创建失败");
   revalidatePath("/music/manage");
   redirect(`/music/manage/${data.id}`);
@@ -53,7 +96,8 @@ export async function createMusicItem(formData: FormData) {
 export async function updateMusicItem(_previousState: MusicSaveState, formData: FormData): Promise<MusicSaveState> {
   try {
     const itemId = String(formData.get("item_id") ?? "");
-    const { supabase, user, item } = await ownedMusicItem(itemId);
+    const { supabase, user, access, item } = await ownedMusicItem(itemId);
+    assertRootMutable(access, item);
     const title = String(formData.get("title") ?? "").trim().slice(0, 100);
     const category = String(formData.get("category") ?? "").trim().slice(0, 60) || null;
     const description = String(formData.get("description") ?? "").trim().slice(0, 500) || null;
@@ -61,47 +105,55 @@ export async function updateMusicItem(_previousState: MusicSaveState, formData: 
     const correctAnswer = String(formData.get("correct_answer") ?? "").trim().slice(0, 100) || null;
     const instructions = String(formData.get("instructions") ?? "").trim().slice(0, 2000) || null;
     const difficulty = Math.max(1, Math.min(5, Number(formData.get("difficulty") ?? 1) || 1));
-    const requestedStatus = String(formData.get("status") ?? "draft");
+    const requestedStatusInput = String(formData.get("status") ?? "draft");
+    const requestedStatus = access.isAdmin ? requestedStatusInput : "draft";
     if (!title) throw new Error("内容名称不能为空");
-    if (!["draft", "published", "archived"].includes(requestedStatus)) throw new Error("发布状态不正确");
+    if (!["draft", "published", "archived"].includes(requestedStatusInput)) throw new Error("发布状态不正确");
     if (item.item_type === "instrument" && !correctAnswer) throw new Error("辨声音内容必须填写正确乐器名称");
 
-    const requestedLearnerIds = [...new Set(formData.getAll("learner_ids").map(String).filter(Boolean))];
+    const submittedLearnerIds = access.isAdmin ? [...new Set(formData.getAll("learner_ids").map(String).filter(Boolean))] : [];
+    const requestedLearnerIds = requestedStatus === "published" ? submittedLearnerIds : [];
     const [{ data: ownedLearners, error: learnerError }, { data: currentAssignments, error: assignmentReadError }] = await Promise.all([
-      requestedLearnerIds.length
-        ? supabase.from("learner_profiles").select("id").eq("parent_user_id", user.id).in("id", requestedLearnerIds)
+      submittedLearnerIds.length
+        ? supabase.from("learner_profiles").select("id").in("id", submittedLearnerIds)
         : Promise.resolve({ data: [], error: null }),
-      supabase.from("learner_music_items").select("learner_id").eq("item_id", itemId),
+      supabase.from("learner_music_items").select("learner_id,assignment_status").eq("item_id", itemId),
     ]);
     if (learnerError) throw new Error(learnerError.message);
     if (assignmentReadError) throw new Error(assignmentReadError.message);
-    if ((ownedLearners?.length ?? 0) !== requestedLearnerIds.length) throw new Error("孩子分配信息不正确");
+    if ((ownedLearners?.length ?? 0) !== submittedLearnerIds.length) throw new Error("孩子分配信息不正确");
 
-    const currentLearnerIds = new Set((currentAssignments ?? []).map((assignment) => assignment.learner_id));
+    const currentLearnerIds = new Set((currentAssignments ?? []).filter((assignment) => assignment.assignment_status === "active").map((assignment) => assignment.learner_id));
     const requestedLearnerIdSet = new Set(requestedLearnerIds);
     const learnerIdsToAdd = requestedLearnerIds.filter((learnerId) => !currentLearnerIds.has(learnerId));
     const learnerIdsToRemove = [...currentLearnerIds].filter((learnerId) => !requestedLearnerIdSet.has(learnerId));
     const savedAt = new Date().toISOString();
-    const [updateResult, removeResult, addResult] = await Promise.all([
-      supabase.from("music_items").update({
-        title, category, description, lyrics, correct_answer: correctAnswer, instructions, difficulty, status: requestedStatus, updated_at: savedAt,
-      }).eq("id", itemId).eq("created_by", user.id).select("status,updated_at").single(),
-      learnerIdsToRemove.length
-        ? supabase.from("learner_music_items").delete().eq("item_id", itemId).in("learner_id", learnerIdsToRemove)
-        : Promise.resolve({ error: null }),
-      learnerIdsToAdd.length
-        ? supabase.from("learner_music_items").insert(learnerIdsToAdd.map((learnerId) => ({ learner_id: learnerId, item_id: itemId })))
-        : Promise.resolve({ error: null }),
-    ]);
+    // 先保存并确认发布状态，再顺序更新分配，避免并发请求读到旧的“草稿”状态。
+    const updateResult = await supabase.from("music_items").update({
+      title, category, description, lyrics, correct_answer: correctAnswer, instructions, difficulty,
+      fingerprint: musicFingerprint({ itemType: item.item_type, title, category, description, lyrics, correctAnswer, instructions, difficulty }),
+      status: requestedStatus,
+      review_status: access.isAdmin ? "approved" : "pending_review",
+      updated_at: savedAt,
+    }).eq("id", itemId).select("status,updated_at").single();
     if (updateResult.error || !updateResult.data) throw new Error(updateResult.error?.message ?? "内容资料没有成功写入数据库");
-    if (removeResult.error) throw new Error(removeResult.error.message);
-    if (addResult.error) throw new Error(addResult.error.message);
+    if (learnerIdsToRemove.length) {
+      const { error } = await supabase.from("learner_music_items").update({ assignment_status: "inactive", unassigned_at: savedAt })
+        .eq("item_id", itemId).in("learner_id", learnerIdsToRemove);
+      if (error) throw new Error(error.message);
+    }
+    if (learnerIdsToAdd.length) {
+      const { error } = await supabase.from("learner_music_items").upsert(learnerIdsToAdd.map((learnerId) => ({
+        learner_id: learnerId, item_id: itemId, assigned_by: user.id, assignment_status: "active", unassigned_at: null,
+      })));
+      if (error) throw new Error(error.message);
+    }
 
     const savedStatus = updateResult.data.status as MusicItemStatus;
     revalidatePath("/music");
     revalidatePath("/music/manage");
     revalidatePath(`/music/manage/${itemId}`);
-    return { status: "success", message: `已保存为“${savedStatus === "published" ? "已发布" : savedStatus === "archived" ? "已归档" : "草稿"}”`, savedStatus, savedAt: updateResult.data.updated_at };
+    return { status: "success", message: access.isAdmin ? `已保存为“${savedStatus === "published" ? "已发布" : savedStatus === "archived" ? "已归档" : "草稿"}”` : "已保存并提交管理员审核", savedStatus, savedAt: updateResult.data.updated_at };
   } catch (error) {
     return { status: "error", message: error instanceof Error ? error.message : "保存失败，请稍后再试" };
   }
@@ -116,7 +168,8 @@ export async function registerMusicAsset(input: {
   byteSize: number;
   label?: string;
 }) {
-  const { supabase, user, item } = await ownedMusicItem(input.itemId);
+  const { supabase, user, access, item } = await ownedMusicItem(input.itemId);
+  assertMediaMutable(access, item);
   const allowedAssets = ["audio", "cover", "score", "instrument_image", "rhythm_sheet", "demo_audio"];
   if (!allowedAssets.includes(input.assetType)) throw new Error("媒体类型不正确");
   const allowedForItem: Record<MusicItemType, string[]> = {
@@ -150,7 +203,8 @@ export async function registerMusicAsset(input: {
 export async function deleteMusicAsset(formData: FormData) {
   const assetId = String(formData.get("asset_id") ?? "");
   const itemId = String(formData.get("item_id") ?? "");
-  const { supabase } = await ownedMusicItem(itemId);
+  const { supabase, access, item } = await ownedMusicItem(itemId);
+  assertMediaMutable(access, item);
   const { data: asset, error: assetError } = await supabase.from("music_assets").select("id,object_key").eq("id", assetId).eq("item_id", itemId).single();
   if (assetError || !asset) throw new Error("找不到要删除的媒体文件");
   await deleteR2Object(asset.object_key);
@@ -162,11 +216,20 @@ export async function deleteMusicAsset(formData: FormData) {
 
 export async function deleteMusicItem(formData: FormData) {
   const itemId = String(formData.get("item_id") ?? "");
-  const { supabase, user } = await ownedMusicItem(itemId);
+  const { supabase, access, item } = await ownedMusicItem(itemId);
+  assertRootMutable(access, item);
+  if (access.isAdmin && !access.isOwner) throw new Error("普通管理员可以归档内容，但只有 owner 可以永久删除");
+  const [{ count: assignmentCount }, { count: stateCount }, { count: attemptCount }] = await Promise.all([
+    supabase.from("learner_music_items").select("learner_id", { count: "exact", head: true }).eq("item_id", itemId),
+    supabase.from("music_learning_states").select("id", { count: "exact", head: true }).eq("item_id", itemId),
+    supabase.from("music_practice_attempts").select("id", { count: "exact", head: true }).eq("item_id", itemId),
+  ]);
+  if ((stateCount ?? 0) > 0 || (attemptCount ?? 0) > 0) throw new Error("这条音乐已有孩子学习历史，只能归档，不能永久删除");
+  if ((assignmentCount ?? 0) > 0) throw new Error("这条音乐仍有孩子分配。重复内容请到“管理中心 → 资源”使用安全合并，其他情况请先取消分配");
   const { data: assets, error: assetError } = await supabase.from("music_assets").select("object_key").eq("item_id", itemId);
   if (assetError) throw new Error(assetError.message);
   for (const asset of assets ?? []) await deleteR2Object(asset.object_key);
-  const { error } = await supabase.from("music_items").delete().eq("id", itemId).eq("created_by", user.id);
+  const { error } = await supabase.from("music_items").delete().eq("id", itemId);
   if (error) throw new Error(error.message);
   revalidatePath("/music");
   revalidatePath("/music/manage");

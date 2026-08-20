@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { CatechismItemForm } from "@/components/catechism-item-form";
 import { createClient } from "@/lib/supabase/server";
+import { loadAccessContext } from "@/lib/access";
 
 export const dynamic = "force-dynamic";
 type Params = Promise<{ itemId: string }>;
@@ -9,6 +10,10 @@ type Params = Promise<{ itemId: string }>;
 export default async function CatechismItemEditPage({ params }: { params: Params }) {
   const { itemId } = await params;
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+  const access = await loadAccessContext(supabase, user.id);
+  if (!access?.isAdmin) redirect("/catechism");
   const { data: item, error } = await supabase.from("catechism_items").select("id,collection_id,item_key,sort_order,section_title,question_zh,question_en,answer_zh,answer_en,scripture_reference,parent_note,status").eq("id", itemId).maybeSingle();
   if (error) return <section className="panel"><h1>无法打开这条问答</h1><p className="error">{error.message}</p></section>;
   if (!item) notFound();

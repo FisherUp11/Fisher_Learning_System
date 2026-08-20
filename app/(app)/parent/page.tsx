@@ -2,40 +2,39 @@ import Link from "next/link";
 import { createLearner, importCharacters, importPoems, signOut, updateLearnerSettings } from "@/lib/actions";
 import { DeleteLearnerForm } from "@/components/delete-learner-form";
 import { createClient } from "@/lib/supabase/server";
+import { loadAccessContext } from "@/lib/access";
+import { loadLearnerDashboard } from "@/lib/dashboard";
+import { CatechismImportForm } from "@/components/catechism-import-form";
 
 export const dynamic = "force-dynamic";
 
-export default async function ParentPage() {
+export default async function ParentPage({ searchParams }: { searchParams: Promise<{ learner?: string }> }) {
+  const params = await searchParams;
   const supabase = await createClient();
-  const [{ data: baseLearners }, { data: catechismSettings }, { data: states }, { data: attempts }] = await Promise.all([
-    supabase.from("learner_profiles").select("id,display_name,daily_new_limit,active_package_id").order("created_at"),
-    supabase.from("learner_profiles").select("id,catechism_daily_new_limit,catechism_review_limit").order("created_at"),
-    supabase.from("learning_states").select("learner_id,stage,due_at"),
-    supabase.from("learning_attempts").select("learner_id,result,answered_at").order("answered_at", { ascending: false }).limit(60),
-  ]);
-  const catechismSettingsByLearner = new Map((catechismSettings ?? []).map((setting) => [setting.id, setting]));
-  const learners = (baseLearners ?? []).map((learner) => ({
-    ...learner,
-    catechism_daily_new_limit: catechismSettingsByLearner.get(learner.id)?.catechism_daily_new_limit ?? 3,
-    catechism_review_limit: catechismSettingsByLearner.get(learner.id)?.catechism_review_limit ?? 10,
-  }));
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+  const access = await loadAccessContext(supabase, user.id);
+  if (!access) return null;
+  const { data: learners } = await supabase.from("learner_profiles")
+    .select("id,parent_user_id,display_name,daily_new_limit,catechism_daily_new_limit,catechism_review_limit,hanzi_review_mode,hanzi_base_review_limit,hanzi_max_review_limit,active_package_id,timezone")
+    .order("created_at");
   const hasLearners = Boolean(learners?.length);
-  const known = states?.filter((state) => state.stage >= 5).length ?? 0;
-  const unstable = states?.filter((state) => state.stage <= 2).length ?? 0;
-  const today = new Date().toISOString().slice(0, 10);
-  const todayAttempts = attempts?.filter((attempt) => attempt.answered_at.startsWith(today)).length ?? 0;
+  const selectedLearner = learners?.find((learner) => learner.id === params.learner) ?? learners?.[0];
+  const dashboard = selectedLearner ? await loadLearnerDashboard(supabase, selectedLearner.id, selectedLearner.timezone) : null;
 
   return (
     <div>
       <header className="hero"><p className="eyebrow">Parent desk</p><h1>把节奏交给系统。</h1><p className="lede">孩子只要学习；导入、查看进度和调整每日量由家长在这里完成。</p></header>
+      {(learners?.length ?? 0) > 1 && <form action="/parent" className="learner-switch"><label>查看哪位孩子？<select name="learner" defaultValue={selectedLearner?.id}>{learners?.map((learner) => <option key={learner.id} value={learner.id}>{learner.display_name}</option>)}</select></label><button className="secondary">切换</button></form>}
       <section className="today-card">
-        <p className="eyebrow">学习概览</p>
-        <div className="today-grid">
-          <div className="metric"><span className="metric-label">今天已回答</span><span className="metric-value">{todayAttempts}</span></div>
-          <div className="metric"><span className="metric-label">稳定认识</span><span className="metric-value">{known}</span></div>
-          <div className="metric"><span className="metric-label">需要多见面</span><span className="metric-value">{unstable}</span></div>
-        </div>
-        <p className="small muted">“需要多见面”是阶段 0–2 的字；这不是成绩，只是明天应优先安排的提示。</p>
+        <p className="eyebrow">{selectedLearner ? `${selectedLearner.display_name} 的学习概览` : "学习概览"}</p>
+        {dashboard ? <><div className="today-grid parent-dashboard-grid">
+          <div className="metric"><span className="metric-label">今天已完成</span><span className="metric-value">{dashboard.todayAnswered}</span><small>还有 {dashboard.todayRemaining} 个字</small></div>
+          <div className="metric"><span className="metric-label">稳定认识</span><span className="metric-value">{dashboard.stable}</span><small>其中熟练 {dashboard.mastered}</small></div>
+          <div className="metric"><span className="metric-label">当前到期</span><span className="metric-value">{dashboard.due}</span><small>系统会按能力调整</small></div>
+          <div className="metric"><span className="metric-label">7 天独立首答</span><span className="metric-value">{dashboard.firstAttemptRate === null ? "—" : `${dashboard.firstAttemptRate}%`}</span><small>{dashboard.firstAttemptCount} 次有效样本</small></div>
+        </div><div className="dashboard-module-strip"><span>汉字册 {dashboard.assignedPackages}</span><span>诗词册 {dashboard.assignedPoemCollections}</span><span>音乐 {dashboard.assignedMusicItems}（到期 {dashboard.musicDue}）</span><span>问答册 {dashboard.assignedCatechismCollections}（到期 {dashboard.catechismDue}）</span></div></> : <p className="notice">创建孩子档案后，这里会显示真实学习概况。</p>}
+        <p className="small muted">首答率只统计最近 7 天每个字的第一次独立回答，不把同日反复确认当成成绩，更能反映真实记忆。</p>
       </section>
 
       <section className="panel">
@@ -49,10 +48,13 @@ export default async function ParentPage() {
               <label>每天新字数量<select name="daily_new_limit" defaultValue={String(learner.daily_new_limit)}><option value="1">1 个（轻松）</option><option value="3">3 个（慢一点）</option><option value="5">5 个（推荐）</option><option value="8">8 个（快一些）</option><option value="10">10 个（稳定学习）</option><option value="20">20 个（冲刺筛查）</option><option value="30">30 个（冲刺筛查）</option><option value="40">40 个（快速摸底）</option><option value="50">50 个（快速摸底）</option></select><span className="field-note">保存后，今天已经生成的学习卡不变；明天会自动按新数量排入新字。</span></label>
               <label>信仰问答 · 每天新问题<input name="catechism_daily_new_limit" type="number" min="1" max="20" step="1" defaultValue={learner.catechism_daily_new_limit} /><span className="field-note">可填 1–20，默认 3。新的数量立即用于下一次打开“问一问”；已经练过的问题不会重新算作新问题。</span></label>
               <label>信仰问答 · 每天到期复习上限<input name="catechism_review_limit" type="number" min="1" max="50" step="1" defaultValue={learner.catechism_review_limit} /><span className="field-note">可填 1–50，默认 10；优先安排上次还不会、已经到期或阶段较低的问题。</span></label>
+              <label>汉字复习节奏<select name="hanzi_review_mode" defaultValue={learner.hanzi_review_mode ?? "adaptive"}><option value="adaptive">智能调整（推荐）</option><option value="fixed">固定上限</option></select><span className="field-note">智能模式会根据到期积压和 7 天首答率调整第二天的复习量与新字量。</span></label>
+              <label>基础复习量<input name="hanzi_base_review_limit" type="number" min="5" max="40" defaultValue={learner.hanzi_base_review_limit ?? 15} /></label>
+              <label>每日复习安全上限<input name="hanzi_max_review_limit" type="number" min="5" max="50" defaultValue={learner.hanzi_max_review_limit ?? 25} /><span className="field-note">不建议超过 30。超过上限的到期字会按逾期程度和记忆阶段逐日消化。</span></label>
             </div>
             <button className="secondary" type="submit">保存 {learner.display_name} 的设置</button>
-            {learner.active_package_id && <a className="text-button" href={`/library?learner=${learner.id}`}>查看 / 修正 {learner.display_name} 的字库</a>}
-            <DeleteLearnerForm learnerId={learner.id} learnerName={learner.display_name} hasActivePackage={Boolean(learner.active_package_id)} />
+            {learner.active_package_id && <a className="text-button" href={`/library?learner=${learner.id}`}>{access.isAdmin ? "查看 / 修正" : "查看 / 标重点"} {learner.display_name} 的字库</a>}
+            {learner.parent_user_id === user.id && <DeleteLearnerForm learnerId={learner.id} learnerName={learner.display_name} hasActivePackage={Boolean(learner.active_package_id)} />}
           </form>
         ))}</div> : <p className="notice">还没有孩子档案；请先在下方创建，再导入汉字。</p>}
       </section>
@@ -71,19 +73,21 @@ export default async function ParentPage() {
 
       <section className="panel">
         <h2>导入字册</h2>
+        {!access.isAdmin && <p className="notice">家长导入后会先进入“待审核”；管理员检查并分配后，才会进入孩子的学习队列。</p>}
         <p className="notice">CSV 必填列：<code>character,pinyin_marked,meaning</code>。可选列：<code>word_1,word_2,example_sentence,sequence</code>。先用 samples 里的 30 字试跑。</p>
         {hasLearners ? <form action={importCharacters} className="form-grid" style={{ marginTop: 16 }}>
           <label>这份字册导入给哪位孩子<select name="learner_id" required defaultValue={learners?.[0]?.id}>{learners?.map((learner) => <option key={learner.id} value={learner.id}>{learner.display_name} · 每天新字 {learner.daily_new_limit} 个</option>)}</select></label>
           <label>学习包名称<input name="package_title" defaultValue="学前汉字" required /></label>
           <label>CSV 文件<input name="csv_file" type="file" accept=".csv,text/csv" required /></label>
-          <p className="small muted">导入完成后，只会切换所选孩子的当前字册；其他孩子的字册和学习记录不会改变。</p>
+          <p className="small muted">{access.isAdmin ? "导入后会直接分配给所选孩子，并与他已有的字册叠加；其他孩子和原有学习记录不变。" : "导入后先等待审核，管理员会看到你建议分配的孩子；审核前不会进入学习队列。"}</p>
           <button className="primary" type="submit">校验并导入</button>
         </form> : <p className="muted">创建孩子档案后可以导入。</p>}
       </section>
 
       <section className="panel">
         <h2>导入诗词册</h2>
-        <p className="notice">CSV 必填列：<code>poem_key,title,author,content</code>。可选列：<code>dynasty,sequence</code>。<code>poem_key</code> 是诗词的稳定编号；相同编号再次导入会更新诗词内容，但不会删除孩子已有的打卡记录。</p>
+        {!access.isAdmin && <p className="notice">这份诗词册会提交给管理员审核，不会立即分配。</p>}
+        <p className="notice">CSV 必填列：<code>poem_key,title,author,content</code>。可选列：<code>dynasty,sequence</code>。<code>poem_key</code> 是空间内的稳定编号；重复编号会复用已有正文，避免家长导入覆盖公共内容，孩子原有打卡记录始终保留。</p>
         <div className="template-download"><span>先下载模板，填好第一批 28 首后再上传。</span><a className="text-button" href="/samples/poems-template.csv" download>下载诗词 CSV 模板</a></div>
         {hasLearners ? <form action={importPoems} className="form-grid" style={{ marginTop: 16 }}>
           <label>这份诗词册导入给哪位孩子<select name="learner_id" required defaultValue={learners?.[0]?.id}>{learners?.map((learner) => <option key={learner.id} value={learner.id}>{learner.display_name}</option>)}</select></label>
@@ -98,7 +102,7 @@ export default async function ParentPage() {
         <h2>儿童信仰问答</h2>
         <p className="notice">支持中英文问题与答案、CSV 多批次导入、按孩子分配、答错降级和间隔复习。先运行 <code>supabase/010_catechism_learning_mvp.sql</code>。</p>
         <div className="template-download"><span>下载 UTF-8 模板，准备第一批 145 问。</span><a className="text-button" href="/api/templates/catechism">下载信仰问答 CSV 模板</a></div>
-        <Link className="primary full" style={{ display: "grid", placeItems: "center", marginTop: 16 }} href="/catechism/manage">导入和管理问答册</Link>
+        {access.isAdmin ? <Link className="primary full" style={{ display: "grid", placeItems: "center", marginTop: 16 }} href="/catechism/manage">导入和管理问答册</Link> : hasLearners ? <><p className="notice">导入后会保留建议分配的孩子，并等待管理员审核。</p><CatechismImportForm learners={learners ?? []} /></> : <p className="notice">请先创建孩子档案。</p>}
       </section>
 
       <section className="panel">

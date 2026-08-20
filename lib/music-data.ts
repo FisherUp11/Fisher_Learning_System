@@ -24,7 +24,7 @@ export type MusicProgress = {
 };
 
 export async function loadMusicProgress(supabase: SupabaseClient, learnerId: string): Promise<MusicProgress[]> {
-  const { data: assignments, error: assignmentError } = await supabase.from("learner_music_items").select("item_id").eq("learner_id", learnerId);
+  const { data: assignments, error: assignmentError } = await supabase.from("learner_music_items").select("item_id").eq("learner_id", learnerId).eq("assignment_status", "active");
   if (assignmentError) throw new Error(assignmentError.message);
   const itemIds = (assignments ?? []).map((assignment) => assignment.item_id);
   if (!itemIds.length) return [];
