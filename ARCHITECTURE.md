@@ -53,6 +53,8 @@ flowchart TB
 | `lib/dashboard.ts` | 只聚合当前活跃分配的学习概况 | 7 天首答率只统计首次独立回答。 |
 | `app/(app)/poems/page.tsx` | 诗词背诵概览、筛选、推荐、分页 | 只展示记录与建议，不运行汉字复习算法。 |
 | `app/(app)/poems/[poemId]/page.tsx` | 单首诗正文、打卡历史、评分概况 | 每条记录必须来自 `poem_recitation_attempts`。 |
+| `app/(app)/poems/game/page.tsx` / `components/*poem-game*` | 选诗、桌面 Canvas 主玩法、手机轻量玩法、结算与人工评分 | 游戏答题不自动等同会背；帧循环不直接写数据库。 |
+| `app/api/ai/poem-game-map/route.ts` | 校验孩子/诗词分配后生成并缓存诗意地图 | Azure 不可用时返回稳定降级，不决定答案或评分。 |
 | `components/poem-recitation-form.tsx` | “今天背过一次”可重复打卡表单 | 不在客户端合并同日点击。 |
 | `app/(app)/music/page.tsx` | 音乐总览、孩子切换、类型筛选与建议 | 只展示数据库已计算的阶段和到期日。 |
 | `app/(app)/music/[itemId]/page.tsx` | 播放、歌词/琴谱、辨音揭晓、结果打卡与历史 | 读取 R2 文件前必须验证孩子已被分配。 |
@@ -84,6 +86,7 @@ flowchart TB
 | `supabase/015_multi_family_admin.sql` | 空间/家庭/角色、公共资源审核、可恢复分配、邀请和 RLS 升级 | 先回填旧数据，不删除孩子或历史。 |
 | `supabase/016_adaptive_queue_and_shared_content_rpcs.sql` | 新权限边界下的学习 RPC、字库查询与有界自适应队列 | 保持 014 真值表不变，只调整每日取题数。 |
 | `supabase/017_owner_user_management_and_duplicate_cleanup.sql` | owner 用户目录、首次改密、邀请升级和重复资源安全合并 | 不修改旧密码；音乐/问答有历史时拒绝永久删除。 |
+| `supabase/018_poem_tank_game.sql` | 诗词游戏地图、场次、逐题、逐句状态和两个保存/评分 RPC | 不修改汉字算法；整首诗掌握仍由家长评分。 |
 | `samples/characters-sample.csv` | 30 字真实试跑内容 | 修改后需重新人工检查拼音/例句。 |
 
 ## 3. 数据模型与归属
@@ -171,6 +174,9 @@ erDiagram
 | `poems` | 空间内由 `poem_key` 稳定识别的诗词正文与作者信息 | 家长重复导入不得自动覆盖公共正文。 |
 | `learner_poem_collections` | 诗词册与孩子的可启停分配 | 取消分配不能删除旧打卡。 |
 | `poem_recitation_attempts` | 每次“今天背过一次”的历史事实，含本地日期、可空评分与备注 | 不合并同一天的多次打卡。 |
+| `poem_game_sessions` / `poem_game_attempts` | 一局游戏汇总与每个答案事实 | 游戏命中率不覆盖家长背诵评分。 |
+| `learner_poem_line_states` | 每句诗的暴露/对错/首次答对/到期建议 | 不接入汉字 stage，也不代替整首诗记录。 |
+| `poem_game_maps` | AI 或稳定诗意地图 JSON 蓝图缓存 | 不保存孩子隐私或学习结果。 |
 | `music_items` | 唱一唱、辨声音或打节奏的内容与发布状态 | 不存 MP3 二进制，不存孩子进度。 |
 | `music_assets` | R2 `object_key`、原文件名、MIME、大小、类型与顺序 | 不存公开 URL；读取 URL 必须临时签发。 |
 | `learner_music_items` | 内容与孩子的可启停分配关系 | 只有 active 且资源已批准/已发布才能进孩子页。 |
@@ -286,7 +292,7 @@ sequenceDiagram
 
 ### 迁移纪律
 
-- 已部署环境的真实结构是 `001` 加后续适用的 `002`–`017` 累计结果，不要回头改已经在线执行过的旧脚本来“假装升级”。
+- 已部署环境的真实结构是 `001` 加后续适用的 `002`–`018` 累计结果，不要回头改已经在线执行过的旧脚本来“假装升级”。
 - 新的数据库变化应新增下一个编号脚本，并在执行前备份相关内容表、状态表和历史表。
 - SQL 文件要尽量可重复运行；函数签名变化时同时清理旧签名权限，外键和 RLS 变更要验证已有数据能安全通过。
 - 内容只有错字/标点修正可原地更新；答案含义、授权文本版本或译本变化必须创建新问答册。
@@ -340,8 +346,10 @@ sequenceDiagram
 
 - 诗词模块目前是独立的“内容 + 记录”模型：`poem_recitation_attempts` 允许同日多行，`recited_local_date` 是孩子时区的真实练习日期，`score` 可为 null。
 - 首次和后续 CSV 都会创建独立诗词册并关联到所选孩子；页面默认汇总所有导入批次，并可按来源筛选。
-- 当前没有把诗词接入汉字的 `get_today_queue` / `answer_queue_item`，这是刻意的边界：背诵事实可靠后，再另做诗词调度状态与可解释的间隔提醒。
-- 若将来加入按句背诵或自动提醒，请新增诗词专用状态表与迁移，不要给 `learning_states` / `learning_attempts` 临时加 nullable `poem_id`。
+- `018` 新增独立诗词游戏场次、逐题事实、逐句状态和地图缓存；仍没有把诗词接入汉字的 `get_today_queue` / `answer_queue_item`，这是刻意的边界。
+- `record_poem_game_result` 原子写入整局证据并计算逐句 `mastery_score/next_due_at`；游戏帧循环不访问数据库。`rate_poem_game_session` 才把家长 1–10 分写回原有背诵记录，并保持幂等。
+- AI 地图 Route Handler 先验证当前会话、孩子和已分配诗词，再读取 Azure 变量；生成失败时使用本地稳定蓝图。AI 不产生标准答案、不判断孩子会不会背。
+- 若将来加入今日自动推荐，应基于 `learner_poem_line_states.next_due_at` 生成候选，不要给 `learning_states` / `learning_attempts` 临时加 nullable `poem_id`。
 
 ### 音乐学习（当前已实现）
 

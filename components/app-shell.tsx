@@ -10,6 +10,12 @@ const hanziLinks = [
   { href: "/parent", label: "家长", icon: "家" },
 ];
 
+const poemLinks = [
+  { href: "/poems/game", label: "诗境", icon: "战" },
+  { href: "/poems", label: "诗词册", icon: "诗" },
+  { href: "/parent", label: "家长", icon: "家" },
+];
+
 const catechismLinks = [
   { href: "/catechism/study", label: "问一问", icon: "问" },
   { href: "/catechism", label: "问答册", icon: "册" },
@@ -50,8 +56,10 @@ export function AppShell({ email, isAdmin, isOwner, children }: { email: string;
   const [menuOpen, setMenuOpen] = useState(false);
   const navigationLinks = useMemo(() => pathname.startsWith("/admin")
     ? adminLinks.filter((link) => !link.ownerOnly || isOwner)
-    : pathname.startsWith("/catechism")
-      ? (isAdmin ? catechismLinks : familyCatechismLinks)
+      : pathname.startsWith("/catechism")
+        ? (isAdmin ? catechismLinks : familyCatechismLinks)
+      : pathname.startsWith("/poems")
+        ? poemLinks
       : pathname.startsWith("/rewards")
         ? rewardLinks
         : hanziLinks, [isAdmin, isOwner, pathname]);

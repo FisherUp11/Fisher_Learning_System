@@ -40,8 +40,9 @@
 14. 再运行 [supabase/014_dynamic_double_confirmation.sql](./supabase/014_dynamic_double_confirmation.sql)，启用新字/不稳定字连续两次独立认出、稳定字一次确认、柔和降级和不限次数的当天队尾重试。
 15. 再运行 [supabase/015_multi_family_admin.sql](./supabase/015_multi_family_admin.sql)，回填旧账号为空间 owner，建立家庭隔离、管理员、资源审核/分配、邀请和新 RLS。这步不删除孩子、学习历史、奖励或 R2 对象。
 16. 再运行 [supabase/016_adaptive_queue_and_shared_content_rpcs.sql](./supabase/016_adaptive_queue_and_shared_content_rpcs.sql)，让汉字/音乐/问答/奖励 RPC 支持多家庭共享资源，并启用有界自适应汉字复习。
-17. 最后运行 [supabase/017_owner_user_management_and_duplicate_cleanup.sql](./supabase/017_owner_user_management_and_duplicate_cleanup.sql)，启用 owner 专属用户目录、首次登录改密、角色/家庭维护和重复资源安全合并。
-18. 成功后，在 SQL Editor 依次执行下面两段验证；两段都应返回结果或空表，不应报权限/函数不存在错误。
+17. 运行 [supabase/017_owner_user_management_and_duplicate_cleanup.sql](./supabase/017_owner_user_management_and_duplicate_cleanup.sql)，启用 owner 专属用户目录、首次登录改密、角色/家庭维护和重复资源安全合并。
+18. 最后运行 [supabase/018_poem_tank_game.sql](./supabase/018_poem_tank_game.sql)，启用诗境守卫战场次、逐题事实、逐句状态、AI 地图缓存与游戏后家长评分。
+19. 成功后，在 SQL Editor 依次执行下面两段验证；两段都应返回结果或空表，不应报权限/函数不存在错误。
 
 ```sql
 select table_name
@@ -53,7 +54,8 @@ where table_schema = 'public'
     'learner_profiles', 'characters', 'learning_states', 'learning_attempts',
     'daily_character_progress',
     'learner_character_priorities',
-    'poems', 'poem_recitation_attempts',
+    'poems', 'poem_recitation_attempts', 'poem_game_maps',
+    'poem_game_sessions', 'poem_game_attempts', 'learner_poem_line_states',
     'music_items', 'music_assets', 'music_learning_states', 'music_practice_attempts',
     'catechism_collections', 'catechism_items', 'learner_catechism_collections',
     'catechism_learning_states', 'catechism_attempts',
@@ -72,6 +74,7 @@ where routine_schema = 'public'
     'complete_initial_password_change', 'owner_merge_duplicate_resource',
     'get_today_queue', 'answer_queue_item', 'get_library_progress', 'get_library_rows',
     'set_character_priorities', 'record_music_practice', 'record_catechism_attempt',
+    'record_poem_game_result', 'rate_poem_game_session',
     'claim_hanzi_daily_reward', 'register_reward_activity', 'grant_manual_reward',
     'redeem_reward', 'reverse_reward_redemption'
   );
@@ -122,9 +125,11 @@ select
 
 若更新到 owner 用户管理版本，在 `015`、`016` 成功后再完整运行 `017`。它会回填现有成员目录，但不会修改既有账号密码。前端出现 `workspace_user_profiles does not exist`、`owner_provision_workspace_user could not be found` 或用户页无法读取时，通常就是还没有运行 `017` 或 schema cache 尚未刷新。详细规则见 [16 号说明](./16_用户家庭管理与资源安全清理说明.md)。
 
+若更新到诗境守卫战版本，在 `008`、`012`、`015` 成功后再完整运行 `018`。它只新增游戏专用表与两个原子函数，不修改旧诗词打卡；详细配置、评分和验收见 [18 号说明](./18_诗境守卫战模块说明.md)。
+
 ### 2.1 SQL 做了什么，为什么必须整段运行
 
-- 建立内容、孩子、状态、每日队列和不可变历史；008–012 分别扩展诗词、音乐、问答、重点字和奖励；014 建立每日汉字独立确认进度；015 建立空间/家庭/角色/审核/分配；016 建立有安全上限的自适应队列快照；017 建立 owner 用户目录和历史保护型资源合并。
+- 建立内容、孩子、状态、每日队列和不可变历史；008–012 分别扩展诗词、音乐、问答、重点字和奖励；014 建立每日汉字独立确认进度；015 建立空间/家庭/角色/审核/分配；016 建立有安全上限的自适应队列快照；017 建立 owner 用户目录和历史保护型资源合并；018 建立诗词游戏场次、逐题事实和逐句状态。
 - 所有表都开启 RLS；普通家长只看本家庭，owner/admin 可看空间全部，资源通过审核后才能分配。
 - 创建 `get_today_queue`、`answer_queue_item`、`get_library_rows` 和各模块记录 RPC；前端不直接改学习阶段。
 - 函数只授予 `authenticated` 执行权，并在函数内再次核验家庭或空间管理员权限。
@@ -223,18 +228,19 @@ npm run dev
 10. 在“册”中勾选来自两次不同 CSV 的 5–10 个字，点击“保存本页重点字”；确认顶部重点统计、重点筛选和每行“重点”标识同步更新。每日新字设为 5 时，新任务仍不超过 5 个新字，并优先取未学重点字；未到期重点字不应提前出现。详细验收见 [汉字重点字功能说明](./12_汉字重点字功能说明.md)。
 11. 已配置图片模型时，在“学一学”点击“看联想图”，确认出现无文字的儿童联想插图；本轮应标记为得到帮助，稍后重新隐藏图片和答案再独立认。
 12. 到“家长”页下载 `poems-template.csv`，用模板中的 3 首先试跑或填入第一批 28 首后上传；在顶部“学习模块”打开“诗词背诵”，点进一首诗，连续点击两次“今天背过一次”，确认页面显示 2 条记录、Supabase `poem_recitation_attempts` 也有同一日期的 2 行。再试一次“暂不评分”，确认该行保留且标为未评分。
-13. 按 [Cloudflare R2 保姆级配置教程](./10_Cloudflare_R2保姆级配置教程.md) 创建私有 Bucket、CORS 和 Token；在“学习模块 → 音乐天地 → 家长管理”创建一首测试歌曲，上传 MP3、分配孩子并发布；在孩子页播放后点一次练习结果，确认 `music_practice_attempts` 新增 1 行。
-14. 到“家长 → 儿童信仰问答”下载 CSV 模板，先导入模板中的 2 问并发布；打开“问一问”，确认中英文分别朗读、答案揭晓后才能判断。对同一问连续两次点“背出来了”，确认 `catechism_attempts` 同日保留 2 行但阶段只升级一次；随后“单独练这一问”点“还要再背”，确认历史新增且答错降级一次。
-15. 打开“奖励管理”，新增一个 10 枚贴纸的测试礼物；完成当天全部汉字卡，确认仅出现一次贴纸庆祝且 `reward_ledger` 只有一条当天 `hanzi_daily`。同一首诗当天打卡两次应只加一颗成长星；同一首歌仅听不加星；每天第三个不同的诗词/音乐项目保存练习但不再加星。累计三颗星后应自动发 1 枚贴纸。
-16. 在“奖励管理”给今天的数学作业加 1 枚，再重复提交，余额只能增加一次；测试一次礼物兑换，确认扣除正确，再点撤销，确认余额返还且原兑换记录显示“已撤销”。完整验收见 [小芽贴纸册说明](./13_奖励贴纸模块说明.md)。
-17. 用旧账号打开“学习空间”，确认它是 owner，旧孩子、字册和历史数量没有变少。
-18. owner 在“管理中心 → 邀请”用一个尚未加入字芽空间的邮箱生成邀请；用无痕窗口打开完整链接，使用同一邮箱注册/登录并接受。
-19. 家长 B 创建孩子 B，确认 B 只看到自家孩子；owner 能在管理看板看到 A/B 两个家庭。
-20. 家长 B 提交一份小字册或音乐，确认审核前孩子 B 看不到；owner 在资源库通过、再到分配页分配后才出现。取消分配后不再出题，重新分配后原有阶段/历史仍在。
-21. 将某孩子设为“智能调整”、基础 15、安全上限 25。确认当天改设置不重排队列，第二天生效；到期积压超过 30 时新字不超过 2，积压超过 60 时暂停新字。
-22. owner 打开“管理中心 → 用户”，创建一个家长账号并复制一次性临时密码；用无痕窗口登录，确认必须先设置至少 12 位的新密码。再确认家长看不到其他家庭，admin 能审核/分配但看不到用户模块。
-23. 导入两份完全相同的小字册，在“管理中心 → 资源”选择一份保留并安全合并；确认孩子分配、学习次数和阶段不变。给测试音乐先产生一条练习历史，再尝试合并删除，系统必须拒绝并提示归档。
-24. 按 [17 号教程](./17_Resend密码恢复邮件配置教程.md) 完成 Resend SMTP 后，从登录页发送一次密码恢复邮件；用另一浏览器点击，设置新密码并重新登录。旧密码和其他设备旧会话应失效，家庭、孩子和学习历史保持不变。
+13. 打开“诗境”，选择孩子和一首诗，完成或提前结束一局；确认 `poem_game_sessions` 新增 1 行、`poem_game_attempts` 有逐题记录。家长评分后，原诗词详情页也新增一次带分背诵记录。手机尺寸应自动切到轻量背诗模式。
+14. 按 [Cloudflare R2 保姆级配置教程](./10_Cloudflare_R2保姆级配置教程.md) 创建私有 Bucket、CORS 和 Token；在“学习模块 → 音乐天地 → 家长管理”创建一首测试歌曲，上传 MP3、分配孩子并发布；在孩子页播放后点一次练习结果，确认 `music_practice_attempts` 新增 1 行。
+15. 到“家长 → 儿童信仰问答”下载 CSV 模板，先导入模板中的 2 问并发布；打开“问一问”，确认中英文分别朗读、答案揭晓后才能判断。对同一问连续两次点“背出来了”，确认 `catechism_attempts` 同日保留 2 行但阶段只升级一次；随后“单独练这一问”点“还要再背”，确认历史新增且答错降级一次。
+16. 打开“奖励管理”，新增一个 10 枚贴纸的测试礼物；完成当天全部汉字卡，确认仅出现一次贴纸庆祝且 `reward_ledger` 只有一条当天 `hanzi_daily`。同一首诗当天打卡两次应只加一颗成长星；同一首歌仅听不加星；每天第三个不同的诗词/音乐项目保存练习但不再加星。累计三颗星后应自动发 1 枚贴纸。
+17. 在“奖励管理”给今天的数学作业加 1 枚，再重复提交，余额只能增加一次；测试一次礼物兑换，确认扣除正确，再点撤销，确认余额返还且原兑换记录显示“已撤销”。完整验收见 [小芽贴纸册说明](./13_奖励贴纸模块说明.md)。
+18. 用旧账号打开“学习空间”，确认它是 owner，旧孩子、字册和历史数量没有变少。
+19. owner 在“管理中心 → 邀请”用一个尚未加入字芽空间的邮箱生成邀请；用无痕窗口打开完整链接，使用同一邮箱注册/登录并接受。
+20. 家长 B 创建孩子 B，确认 B 只看到自家孩子；owner 能在管理看板看到 A/B 两个家庭。
+21. 家长 B 提交一份小字册或音乐，确认审核前孩子 B 看不到；owner 在资源库通过、再到分配页分配后才出现。取消分配后不再出题，重新分配后原有阶段/历史仍在。
+22. 将某孩子设为“智能调整”、基础 15、安全上限 25。确认当天改设置不重排队列，第二天生效；到期积压超过 30 时新字不超过 2，积压超过 60 时暂停新字。
+23. owner 打开“管理中心 → 用户”，创建一个家长账号并复制一次性临时密码；用无痕窗口登录，确认必须先设置至少 12 位的新密码。再确认家长看不到其他家庭，admin 能审核/分配但看不到用户模块。
+24. 导入两份完全相同的小字册，在“管理中心 → 资源”选择一份保留并安全合并；确认孩子分配、学习次数和阶段不变。给测试音乐先产生一条练习历史，再尝试合并删除，系统必须拒绝并提示归档。
+25. 按 [17 号教程](./17_Resend密码恢复邮件配置教程.md) 完成 Resend SMTP 后，从登录页发送一次密码恢复邮件；用另一浏览器点击，设置新密码并重新登录。旧密码和其他设备旧会话应失效，家庭、孩子和学习历史保持不变。
 
 如果第 3 步上传后“学一学”仍显示空字册，请先刷新一次页面；仍失败时查看浏览器控制台与 Vercel/Next 终端错误，再检查 SQL 是否完整运行。
 
@@ -288,6 +294,19 @@ select learner_id, poem_id, recited_local_date, score from public.poem_recitatio
 ```
 
 若第一句能返回诗词、第二句在打卡后能返回记录，说明数据层正常，接着检查是否在页面选择了正确的孩子。
+
+### 诗境页提示 018 脚本未运行
+
+完整运行 [supabase/018_poem_tank_game.sql](./supabase/018_poem_tank_game.sql)，刷新页面后执行：
+
+```sql
+select id, learner_id, poem_id, mode, correct_count, wrong_count, recitation_score
+from public.poem_game_sessions order by played_at desc limit 10;
+select learner_id, poem_id, line_index, mastery_score, next_due_at
+from public.learner_poem_line_states order by updated_at desc limit 20;
+```
+
+如果表能查询但网页仍提示 schema cache，等待十几秒后刷新，并确认 Supabase Data API 暴露 `public` schema。`018` 已显式给 `authenticated` 最小读取和函数执行权限。
 
 ### 信仰问答页提示缺少表、列或 RPC
 

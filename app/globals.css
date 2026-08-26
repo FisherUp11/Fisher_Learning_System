@@ -704,6 +704,103 @@ textarea { min-height:112px; resize:vertical; line-height:1.65; }
 .compact-form { margin-top:14px; padding:14px; border-radius:15px; background:rgba(255,253,248,.72); }
 .password-reset-row { display:flex; align-items:center; justify-content:space-between; gap:14px; margin-top:12px; padding:12px; border:1px solid #ebd3ca; border-radius:14px; background:#fff8f4; }
 .password-reset-row p { margin:3px 0 0; color:var(--muted); font:11px/1.4 ui-sans-serif,system-ui,sans-serif; }
+.poem-game-entry { position:relative; z-index:2; display:inline-grid; place-items:center; width:max-content; margin:28px auto 0; }
+.poem-game-hero-link { display:inline-grid; place-items:center; width:max-content; margin-top:8px; }
+.poem-game-page { display:grid; gap:16px; }
+.poem-game-hero { margin-bottom:2px; }
+.poem-game-picker { display:grid; gap:14px; align-items:end; }
+.poem-game-picker h2, .poem-game-brief h2 { margin:7px 0 5px; }
+.poem-game-picker p, .poem-game-brief p { margin:0; color:var(--muted); line-height:1.55; }
+.poem-game-picker .text-button { text-align:left; }
+.poem-game-experience { display:grid; gap:16px; }
+.poem-game-brief { position:relative; display:grid; gap:14px; overflow:hidden; background:linear-gradient(135deg,rgba(255,253,248,.96),rgba(226,237,223,.72)); }
+.poem-game-brief::after { content:"诗"; position:absolute; right:15px; bottom:-34px; color:rgba(53,93,69,.05); font:900 128px/1 Georgia,serif; transform:rotate(-7deg); }
+.poem-game-brief > * { position:relative; z-index:1; }
+.poem-game-mode-switch { display:flex; width:max-content; max-width:100%; padding:4px; border:1px solid var(--line); border-radius:14px; background:#fffdf8; }
+.poem-game-mode-switch button { min-height:38px; padding:7px 11px; border:0; border-radius:10px; color:var(--muted); background:transparent; font:800 12px/1 ui-sans-serif,system-ui,sans-serif; }
+.poem-game-mode-switch button.active { color:var(--leaf); background:var(--leaf-soft); }
+.poem-game-mode-switch button:disabled { cursor:not-allowed; opacity:.62; }
+.poem-map-status { display:inline-flex; width:max-content; padding:6px 9px; border-radius:99px; color:#805525; background:var(--sun-soft); font:800 11px/1 ui-sans-serif,system-ui,sans-serif; }
+.poem-map-status.ai { color:var(--leaf); background:var(--leaf-soft); }
+
+.poem-tank-shell { overflow:hidden; border:1px solid #324e3b; border-radius:27px; color:#fff8e8; background:linear-gradient(145deg,#1d382a,#091710); box-shadow:0 28px 62px rgba(20,39,27,.26); }
+.poem-tank-hud { display:grid; grid-template-columns:.65fr 1.8fr .65fr; gap:8px; padding:12px 15px; border-bottom:1px solid rgba(255,248,232,.12); }
+.poem-tank-hud > div { display:grid; gap:5px; align-content:center; min-width:0; }
+.poem-tank-hud > div:last-child { text-align:right; }
+.poem-tank-hud span { color:#91a596; font:800 9px/1 ui-monospace,SFMono-Regular,monospace; letter-spacing:.12em; text-transform:uppercase; }
+.poem-tank-hud strong { color:#f2dfb8; font:900 19px/1.2 ui-sans-serif,system-ui,sans-serif; }
+.poem-tank-objective { text-align:center; }
+.poem-tank-objective strong { overflow:hidden; font:800 14px/1.35 "Kaiti SC","STKaiti","KaiTi",serif; text-overflow:ellipsis; white-space:nowrap; }
+.poem-tank-layout { display:grid; grid-template-columns:minmax(0,1fr) 250px; gap:10px; padding:10px; }
+.poem-tank-arena { position:relative; min-width:0; overflow:hidden; border:2px solid #07120d; border-radius:17px 17px 17px 6px; background:#183024; box-shadow:inset 0 0 0 2px rgba(255,255,255,.04); }
+.poem-tank-arena canvas { display:block; width:100%; aspect-ratio:16/10; outline:none; background:#1d3829; image-rendering:pixelated; }
+.poem-tank-intro { position:absolute; inset:0; display:grid; place-content:center; justify-items:center; gap:10px; padding:28px; color:var(--ink); background:linear-gradient(145deg,rgba(255,249,235,.95),rgba(234,217,185,.95)); text-align:center; backdrop-filter:blur(8px); }
+.poem-tank-intro h2 { margin:0; font-size:clamp(30px,5vw,50px); letter-spacing:.08em; }
+.poem-tank-intro p:not(.eyebrow) { max-width:540px; margin:0; color:#536157; line-height:1.55; }
+.poem-tank-seal, .poem-result-medal { display:grid; place-items:center; width:54px; height:54px; border-radius:18px 18px 18px 5px; color:#fff8e8; background:var(--leaf); box-shadow:0 10px 22px rgba(53,93,69,.22); font:900 27px/1 "Kaiti SC","STKaiti","KaiTi",serif; }
+.poem-map-tags { display:flex; flex-wrap:wrap; justify-content:center; gap:6px; }
+.poem-map-tags span { padding:6px 9px; border:1px solid #d6c7aa; border-radius:99px; color:#5d6b5f; background:rgba(255,255,255,.45); font:800 11px/1 ui-sans-serif,system-ui,sans-serif; }
+.poem-tank-side { display:grid; grid-template-rows:auto 1fr auto auto; gap:11px; padding:15px; border:1px solid rgba(240,221,183,.16); border-radius:16px; background:rgba(5,17,10,.45); }
+.poem-tank-side h2 { margin:7px 0 3px; color:#f4e7c9; font-size:26px; }
+.poem-tank-side p { margin:0; color:#8fa495; }
+.poem-tank-lines { display:grid; align-content:start; gap:6px; }
+.poem-tank-lines p { min-height:29px; padding:6px 8px; border-radius:8px; color:#718579; background:rgba(255,255,255,.035); font-size:13px; }
+.poem-tank-lines p.revealed { color:#f1dfb8; background:rgba(239,173,70,.10); }
+.poem-tank-status { display:grid; gap:4px; color:#819887; font:800 10px/1.3 ui-monospace,SFMono-Regular,monospace; }
+.poem-tank-controls { display:grid; grid-template-columns:1fr 1.4fr 1fr; align-items:center; gap:12px; padding:9px 14px 14px; color:#829987; font:700 9px/1.5 ui-monospace,SFMono-Regular,monospace; }
+.poem-tank-controls strong { color:#e7d7b7; text-align:center; }
+.poem-tank-controls span:last-child { text-align:right; }
+.poem-tank-controls kbd { display:inline-grid; place-items:center; min-width:26px; min-height:24px; padding:0 6px; border:1px solid #607665; border-bottom-width:3px; border-radius:7px; color:#f0e3ca; background:#1a3024; box-shadow:0 3px 0 #08130e; }
+
+.mobile-poem-game { overflow:hidden; border:1px solid var(--line); border-radius:28px; background:linear-gradient(155deg,#fffdf8,#f3ead8); box-shadow:var(--card-shadow); }
+.mobile-poem-game-head { display:grid; gap:3px; padding:18px 20px; color:#fff8e8; background:linear-gradient(135deg,#315e46,#1d3c2b); }
+.mobile-poem-game-head span { color:#b5ccb8; font:800 10px/1 ui-sans-serif,system-ui,sans-serif; letter-spacing:.12em; text-transform:uppercase; }
+.mobile-poem-game-head strong { font-size:28px; letter-spacing:.08em; }
+.mobile-poem-game-head small { color:#c5d4c7; }
+.mobile-poem-scroll, .mobile-tank-question, .mobile-recital-finish { display:grid; gap:15px; padding:22px; }
+.mobile-poem-lines { display:grid; gap:10px; padding:18px; border-radius:18px; background:#fffaf1; text-align:center; font:clamp(24px,8vw,34px)/1.5 "Kaiti SC","STKaiti","KaiTi",serif; }
+.mobile-poem-lines p { margin:0; }
+.mobile-game-message { margin:0; color:var(--muted); line-height:1.55; text-align:center; }
+.mobile-game-progress { height:6px; overflow:hidden; border-radius:99px; background:var(--paper-deep); }
+.mobile-game-progress span { display:block; height:100%; border-radius:inherit; background:var(--sun); transition:width .2s ease; }
+.mobile-question-count { margin:0; color:var(--leaf); font:800 12px/1 ui-sans-serif,system-ui,sans-serif; text-align:center; }
+.mobile-tank-question h2 { margin:0; font-size:clamp(23px,7vw,32px); line-height:1.5; text-align:center; }
+.mobile-tank-targets { display:grid; gap:10px; }
+.mobile-tank-targets button { position:relative; display:grid; grid-template-columns:auto minmax(0,1fr); grid-template-rows:auto auto; align-items:center; gap:2px 12px; min-height:76px; padding:12px 15px; border:1px solid #d9c8a7; border-radius:18px; color:var(--ink); background:#fffaf1; text-align:left; box-shadow:0 8px 16px rgba(67,55,31,.06); }
+.mobile-tank-targets button > span { grid-row:1 / 3; color:var(--leaf); font-size:30px; transform:rotate(90deg); }
+.mobile-tank-targets button strong { font-size:20px; }
+.mobile-tank-targets button small { color:var(--muted); font:700 10px/1 ui-sans-serif,system-ui,sans-serif; }
+.mobile-recital-finish { justify-items:center; text-align:center; }
+.mobile-recital-finish h2, .mobile-recital-finish p { margin:0; }
+.mobile-finish-seal { display:grid; place-items:center; width:66px; height:66px; border-radius:50%; color:#fff8e8; background:var(--sun); font:900 31px/1 "Kaiti SC","STKaiti","KaiTi",serif; box-shadow:0 10px 22px rgba(233,150,58,.24); }
+.mobile-recital-actions { display:grid; grid-template-columns:1fr 1fr; gap:9px; width:100%; }
+.mobile-recital-finish > .primary { width:100%; }
+
+.poem-game-result { display:grid; justify-items:center; gap:14px; padding:28px; text-align:center; }
+.poem-game-result h2, .poem-game-result p { margin:0; }
+.poem-game-result > p { color:var(--muted); }
+.poem-result-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; width:100%; }
+.poem-result-grid > div { display:grid; gap:5px; padding:13px; border-radius:15px; background:var(--paper-deep); }
+.poem-result-grid span { color:var(--muted); font:700 11px/1 ui-sans-serif,system-ui,sans-serif; }
+.poem-result-grid strong { font-size:25px; }
+.poem-parent-rating { display:grid; gap:14px; width:100%; padding:18px; border:1px solid #cfe0ce; border-radius:21px; background:linear-gradient(135deg,var(--leaf-soft),#fffdf8); text-align:left; }
+.poem-parent-rating h3 { margin:0; font-size:21px; }
+.poem-parent-rating p { margin:5px 0 0; color:var(--muted); line-height:1.5; }
+.poem-score-buttons { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:7px; }
+.poem-score-buttons button { display:grid; gap:3px; min-height:58px; padding:7px 4px; border:1px solid var(--line); border-radius:12px; color:var(--muted); background:#fffdf8; text-align:center; }
+.poem-score-buttons button.selected { color:#fff; border-color:var(--leaf); background:var(--leaf); box-shadow:0 7px 15px rgba(53,93,69,.18); }
+.poem-score-buttons strong { font-size:19px; }
+.poem-score-buttons small { font:700 9px/1.2 ui-sans-serif,system-ui,sans-serif; }
+.poem-rating-actions { display:grid; gap:10px; }
+.poem-rating-actions .text-button { text-align:center; }
+.poem-game-result .success-box { width:100%; text-align:left; }
+.poem-game-result .success-box p { margin-top:4px; }
+.poem-game-history-list { display:grid; gap:9px; margin-top:14px; }
+.poem-game-history-list article { display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:5px 12px; padding:13px; border:1px solid var(--line); border-radius:15px; background:#fffdf8; }
+.poem-game-history-list article > span { grid-row:1 / 3; display:grid; place-items:center; min-width:60px; min-height:45px; padding:6px; border-radius:11px; color:var(--leaf); background:var(--leaf-soft); font:800 10px/1.2 ui-sans-serif,system-ui,sans-serif; text-align:center; }
+.poem-game-history-list strong { font-size:15px; }
+.poem-game-history-list small { color:var(--muted); font:11px/1.4 ui-sans-serif,system-ui,sans-serif; }
+.poem-game-history-list em { grid-column:3; grid-row:1 / 3; padding:6px 8px; border-radius:99px; color:#805525; background:var(--sun-soft); font:normal 800 10px/1 ui-sans-serif,system-ui,sans-serif; }
 .resource-action-stack { display:grid; justify-items:end; gap:8px; }
 .duplicate-cleanup { max-width:330px; padding:9px 10px; border:1px solid #efd4c8; border-radius:13px; background:#fff8f4; }
 .duplicate-cleanup form { display:grid; gap:10px; margin-top:10px; }
@@ -744,6 +841,13 @@ textarea { min-height:112px; resize:vertical; line-height:1.65; }
   .poem-suggestion-grid { grid-template-columns:repeat(4, minmax(0,1fr)); }
   .poem-grid { grid-template-columns:repeat(3, minmax(0,1fr)); }
   .recitation-fields { grid-template-columns:repeat(2, minmax(0,1fr)); }
+  .poem-game-picker { grid-template-columns:minmax(240px,1.2fr) minmax(160px,.55fr) minmax(250px,.9fr) auto; }
+  .poem-game-picker .text-button { grid-column:1 / -1; }
+  .poem-game-brief { grid-template-columns:minmax(0,1fr) auto; align-items:center; }
+  .poem-game-brief .poem-map-status { grid-column:1 / -1; }
+  .poem-result-grid { grid-template-columns:repeat(4,minmax(0,1fr)); }
+  .poem-rating-actions { grid-template-columns:minmax(0,1fr) auto; align-items:center; }
+  .poem-game-history-list { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .music-today-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .music-library-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
   .music-create-panel { grid-template-columns:minmax(0,.8fr) minmax(420px,1.2fr); align-items:end; }
@@ -787,6 +891,16 @@ textarea { min-height:112px; resize:vertical; line-height:1.65; }
   .admin-invite-form > p, .admin-invite-form .invite-result { grid-column:1 / -1; }
   .field-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .owner-user-list { grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
+
+@media (max-width: 759px) {
+  .poem-game-hero h1 { font-size:42px; }
+  .poem-game-mode-switch { width:100%; }
+  .poem-game-mode-switch button { flex:1; }
+  .poem-score-buttons { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .poem-score-buttons button:last-child { grid-column:1 / -1; }
+  .poem-game-history-list article { grid-template-columns:auto minmax(0,1fr); }
+  .poem-game-history-list em { grid-column:2; grid-row:auto; width:max-content; }
 }
 @media (max-width: 580px) {
   .topbar { gap:9px; }

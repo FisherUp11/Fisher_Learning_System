@@ -69,7 +69,7 @@ export default async function PoemsPage({ searchParams }: { searchParams: Search
   }).slice(0, 4);
 
   return <div>
-    <header className="hero"><p className="eyebrow">Poem recitation</p><h1>诗词背诵 · 轻轻记下每一次。</h1><p className="lede">背诵可以在任何地方完成；这里负责记录哪天背过、背过几次，以及家长给出的掌握评分。</p></header>
+    <header className="hero"><p className="eyebrow">Poem recitation</p><h1>诗词背诵 · 轻轻记下每一次。</h1><p className="lede">背诵可以在任何地方完成；这里负责记录哪天背过、背过几次，以及家长给出的掌握评分。</p><div><Link className="secondary poem-game-hero-link" href={`/poems/game?learner=${learner.id}`}>进入诗境守卫战 →</Link></div></header>
     <PoemControls learners={learners ?? []} learnerId={learner.id} collections={collections} collectionId={selectedCollection?.id} query={query} filter={filter} />
 
     <section className="today-card poem-summary">

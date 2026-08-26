@@ -29,6 +29,7 @@ export default async function PoemDetailPage({ params, searchParams }: PageProps
         <h1>{poem.title}</h1>
         <p className="poem-detail-byline">{poem.author}{poem.dynasty ? ` · ${poem.dynasty}` : ""}</p>
         <div className="poem-lines" aria-label={`${poem.title} 正文`}>{lines.map((line, index) => <p key={`${line}-${index}`}>{line}</p>)}</div>
+        <Link className="primary poem-game-entry" href={`/poems/game?learner=${learner.id}&poem=${poem.id}`}>驾驶小坦克复习这首诗</Link>
       </section>
 
       <section className="today-card poem-detail-summary"><p className="eyebrow">背诵情况</p><div className="today-grid"><div className="metric"><span className="metric-label">累计背诵</span><span className="metric-value">{poem.attemptCount}</span><small>次</small></div><div className="metric"><span className="metric-label">练习日期</span><span className="metric-value">{poem.practiceDays}</span><small>天</small></div><div className="metric"><span className="metric-label">最近评分</span><span className="metric-value">{poem.lastScore ?? "—"}</span><small>{poem.lastScore ? "/ 10 分" : poem.attemptCount ? "尚未评分" : "先背一次"}</small></div></div><p className="small muted">{poem.lastRecitedDate ? `最近一次：${formatPoemDate(poem.lastRecitedDate)}。` : "还没有背诵记录。"}{poem.averageScore !== null ? ` 已评分 ${poem.scoreCount} 次，平均 ${poem.averageScore} 分。` : ""}</p></section>

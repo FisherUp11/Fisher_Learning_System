@@ -1,0 +1,899 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>字芽 · 诗境守卫战 AI 地图原型</title>
+  <style>
+    :root {
+      --night: #0b1712;
+      --night-2: #13271d;
+      --ink: #17251d;
+      --paper: #fff8e8;
+      --paper-2: #ead8b7;
+      --leaf: #37654a;
+      --leaf-2: #79a269;
+      --sun: #efad46;
+      --coral: #d96d4c;
+      --muted: #91a596;
+      --line: rgba(241, 220, 181, .17);
+      --shadow: 0 30px 80px rgba(3, 14, 8, .42);
+    }
+
+    * { box-sizing: border-box; }
+    html { min-width: 1100px; min-height: 100%; background: var(--night); }
+    body {
+      min-height: 100vh;
+      margin: 0;
+      overflow-x: auto;
+      color: var(--paper);
+      background:
+        radial-gradient(circle at 8% 10%, rgba(91, 143, 97, .23), transparent 26%),
+        radial-gradient(circle at 90% 4%, rgba(239, 173, 70, .16), transparent 23%),
+        linear-gradient(145deg, #08140e 0%, #172d22 50%, #0b1912 100%);
+      font-family: "Kaiti SC", "STKaiti", "KaiTi", "Songti SC", serif;
+    }
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: .16;
+      background-image:
+        linear-gradient(rgba(255,255,255,.024) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.024) 1px, transparent 1px);
+      background-size: 24px 24px;
+      mask-image: linear-gradient(#000, transparent 88%);
+    }
+    button, select { font: inherit; }
+    button { -webkit-tap-highlight-color: transparent; }
+
+    .page {
+      width: min(1580px, calc(100vw - 44px));
+      min-width: 1056px;
+      margin: 0 auto;
+      padding: 20px 0 28px;
+    }
+    .topbar {
+      display: grid;
+      grid-template-columns: minmax(260px, 1fr) auto minmax(260px, 1fr);
+      align-items: center;
+      gap: 18px;
+      margin-bottom: 14px;
+      animation: arrive .6s cubic-bezier(.2,.8,.2,1) both;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand-mark {
+      display: grid;
+      place-items: center;
+      width: 46px;
+      height: 46px;
+      border: 1px solid rgba(255,248,232,.32);
+      border-radius: 15px 15px 15px 5px;
+      color: var(--night);
+      background: var(--paper);
+      box-shadow: 0 12px 24px rgba(0,0,0,.2);
+      font: 900 28px/1 Georgia, "Songti SC", serif;
+    }
+    .brand-copy strong { display: block; font-size: 21px; letter-spacing: .13em; }
+    .brand-copy small { color: #a8baaa; font: 700 10px/1.5 ui-monospace, monospace; letter-spacing: .18em; text-transform: uppercase; }
+    .mission-title { text-align: center; }
+    .mission-title p { margin: 0 0 3px; color: var(--sun); font: 800 10px/1 ui-monospace, monospace; letter-spacing: .28em; text-transform: uppercase; }
+    .mission-title h1 { margin: 0; font-size: 27px; letter-spacing: .13em; }
+    .top-actions { display: flex; justify-content: flex-end; gap: 8px; }
+    .chip-button {
+      min-height: 38px;
+      padding: 8px 13px;
+      border: 1px solid rgba(233,216,184,.22);
+      border-radius: 12px;
+      color: #dae6dc;
+      background: rgba(8,22,15,.45);
+      cursor: pointer;
+      font: 800 11px/1 ui-monospace, monospace;
+      transition: .18s ease;
+    }
+    .chip-button:hover { transform: translateY(-1px); border-color: rgba(239,173,70,.7); background: rgba(34,61,45,.74); }
+
+    .game-shell {
+      position: relative;
+      padding: 12px;
+      border: 1px solid rgba(240,215,168,.24);
+      border-radius: 28px;
+      background: linear-gradient(150deg, rgba(36,63,47,.96), rgba(10,24,17,.97));
+      box-shadow: var(--shadow), inset 0 1px rgba(255,255,255,.08);
+      animation: arrive .7s .05s cubic-bezier(.2,.8,.2,1) both;
+    }
+    .game-shell::before, .game-shell::after {
+      content: "";
+      position: absolute;
+      z-index: 3;
+      top: 18px;
+      width: 15px;
+      height: 15px;
+      border: 3px solid #b28a4f;
+      border-radius: 50%;
+      background: #1c3226;
+      box-shadow: inset 0 0 0 2px #6e5735;
+    }
+    .game-shell::before { left: 18px; }
+    .game-shell::after { right: 18px; }
+
+    .hud {
+      display: grid;
+      grid-template-columns: .9fr 1.35fr .9fr;
+      gap: 10px;
+      min-height: 68px;
+      padding: 7px 54px 12px;
+    }
+    .hud-cell { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 7px 14px; border-bottom: 1px solid rgba(235,217,180,.13); }
+    .hud-cell:first-child { justify-content: flex-start; }
+    .hud-cell:last-child { justify-content: flex-end; }
+    .hud-label { color: #8eaa94; font: 700 9px/1.2 ui-monospace, monospace; letter-spacing: .16em; text-transform: uppercase; }
+    .hud-value { min-width: 58px; color: var(--paper); font: 900 22px/1 ui-monospace, monospace; letter-spacing: .03em; }
+    .hud-value.warm { color: var(--sun); font-size: 16px; min-width: 140px; text-align: center; }
+    .time-track { width: min(185px, 32%); height: 7px; overflow: hidden; border-radius: 99px; background: #09150f; box-shadow: inset 0 1px 3px #000; }
+    .time-fill { display: block; width: 100%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--coral), var(--sun), #87b579); transition: width .35s linear; }
+
+    .game-layout { display: grid; grid-template-columns: minmax(0, 1fr) 326px; gap: 12px; }
+    .arena-frame {
+      position: relative;
+      min-width: 0;
+      overflow: hidden;
+      border: 2px solid #07120d;
+      border-radius: 17px 17px 17px 6px;
+      background: #182d22;
+      box-shadow: inset 0 0 0 2px rgba(255,255,255,.04), 0 14px 28px rgba(0,0,0,.2);
+    }
+    canvas { display: block; width: 100%; aspect-ratio: 16/10; background: #1d3829; image-rendering: pixelated; }
+    .scanlines { position: absolute; z-index: 2; inset: 0; pointer-events: none; opacity: .075; background: repeating-linear-gradient(to bottom, transparent 0 3px, #000 4px); mix-blend-mode: multiply; }
+    .arena-label {
+      position: absolute;
+      z-index: 3;
+      left: 14px;
+      bottom: 12px;
+      padding: 7px 10px;
+      border: 1px solid rgba(255,248,233,.14);
+      border-radius: 8px;
+      color: rgba(255,248,233,.8);
+      background: rgba(7,17,12,.67);
+      backdrop-filter: blur(6px);
+      font: 700 9px/1 ui-monospace, monospace;
+      letter-spacing: .12em;
+    }
+    .objective-banner {
+      position: absolute;
+      z-index: 4;
+      top: 14px;
+      left: 50%;
+      width: min(720px, calc(100% - 110px));
+      transform: translateX(-50%);
+      padding: 10px 18px;
+      border: 1px solid rgba(255,241,211,.22);
+      border-radius: 12px 12px 12px 4px;
+      color: #fff2d7;
+      background: rgba(7,22,14,.86);
+      box-shadow: 0 10px 25px rgba(0,0,0,.22);
+      backdrop-filter: blur(7px);
+      text-align: center;
+      font-size: 17px;
+      letter-spacing: .08em;
+      opacity: 0;
+      transition: opacity .2s ease, transform .2s ease;
+      pointer-events: none;
+    }
+    .objective-banner.show { opacity: 1; transform: translate(-50%, 0); }
+    .objective-banner small { display: block; margin-bottom: 3px; color: #dbab61; font: 800 9px/1 ui-monospace, monospace; letter-spacing: .17em; text-transform: uppercase; }
+
+    .side-panel { display: grid; grid-template-rows: auto auto 1fr auto; gap: 10px; min-width: 0; }
+    .panel-card { overflow: hidden; border: 1px solid rgba(240,221,183,.17); border-radius: 16px; background: rgba(10,25,17,.64); box-shadow: inset 0 1px rgba(255,255,255,.035); }
+    .panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 13px; border-bottom: 1px solid rgba(240,221,183,.11); color: #94ae99; font: 800 9px/1 ui-monospace, monospace; letter-spacing: .16em; text-transform: uppercase; }
+    .signal { display: inline-flex; align-items: center; gap: 7px; }
+    .signal::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--sun); box-shadow: 0 0 0 4px rgba(240,173,69,.12); }
+    .poem-focus { position: relative; min-height: 164px; padding: 14px; }
+    .poem-focus::after { content: "卷"; position: absolute; right: 7px; bottom: -12px; color: rgba(255,248,233,.035); font: 900 94px/1 Georgia, serif; transform: rotate(-8deg); }
+    .poem-focus h2 { position: relative; z-index: 1; margin: 0; color: var(--paper); font-size: 24px; letter-spacing: .12em; }
+    .poem-author { position: relative; z-index: 1; margin: 5px 0 11px; color: #a3b5a6; font-size: 12px; }
+    .verse-slots { position: relative; z-index: 1; display: grid; gap: 5px; }
+    .verse-slot { display: flex; align-items: center; gap: 8px; min-height: 24px; color: #718579; font-size: 13px; }
+    .verse-slot::before { content: ""; flex: 0 0 15px; width: 15px; height: 2px; background: #4f7059; }
+    .verse-slot.revealed { color: #f1dfb8; }
+    .verse-slot.revealed::before { height: 7px; border-radius: 50%; background: var(--sun); box-shadow: 0 0 8px rgba(240,173,69,.4); }
+
+    .mission-list { display: grid; gap: 7px; padding: 10px; }
+    .mission-row { display: grid; grid-template-columns: 34px minmax(0,1fr) auto; align-items: center; gap: 9px; padding: 9px; border-radius: 11px; background: rgba(239,221,184,.055); }
+    .mission-number { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid rgba(239,221,184,.14); border-radius: 9px; color: var(--sun); font: 900 11px/1 ui-monospace, monospace; }
+    .mission-row strong { display: block; color: #e8ddc8; font-size: 14px; }
+    .mission-row small { display: block; margin-top: 3px; color: #78907e; font: 700 9px/1 ui-monospace, monospace; letter-spacing: .05em; }
+    .mission-badge { padding: 5px 7px; border-radius: 99px; color: #a4c0a7; background: rgba(94,139,99,.16); font: 800 9px/1 ui-monospace, monospace; }
+    .mission-badge.weak { color: #f2c16f; background: rgba(217,142,61,.15); }
+
+    .log-list { display: grid; align-content: start; gap: 7px; min-height: 116px; max-height: 167px; padding: 10px; overflow: auto; scrollbar-color: #47644f #102219; }
+    .log-empty { margin: auto; color: #617867; font-size: 12px; line-height: 1.6; text-align: center; }
+    .log-row { display: grid; grid-template-columns: 8px minmax(0,1fr) auto; align-items: start; gap: 8px; padding: 7px 8px; border-radius: 9px; color: #a8b7aa; background: rgba(255,255,255,.035); font-size: 11px; line-height: 1.4; }
+    .log-dot { width: 7px; height: 7px; margin-top: 4px; border-radius: 50%; background: var(--leaf-2); }
+    .log-row.wrong .log-dot { background: var(--coral); }
+    .log-row time { color: #657b6a; font: 700 9px/1.4 ui-monospace, monospace; }
+    .side-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .side-button { min-height: 40px; border: 1px solid rgba(239,221,184,.16); border-radius: 11px; color: #c8d5ca; background: rgba(255,255,255,.045); cursor: pointer; font-size: 12px; font-weight: 800; }
+    .side-button:hover { border-color: rgba(240,173,69,.6); color: var(--paper); }
+    .side-button.reward { color: #173524; border-color: #efc36e; background: #efc36e; box-shadow: 0 8px 20px rgba(239,195,110,.18); }
+    .controls { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 18px; padding: 13px 10px 3px; color: #829987; font: 700 9px/1.5 ui-monospace, monospace; letter-spacing: .04em; }
+    .control-group { display: flex; align-items: center; gap: 8px; }
+    .control-group.center { justify-content: center; color: #b2c2b5; }
+    .control-group.end { justify-content: flex-end; }
+    kbd { display: inline-grid; place-items: center; min-width: 25px; height: 25px; padding: 0 6px; border: 1px solid #607665; border-bottom-width: 3px; border-radius: 7px; color: #f0e3ca; background: #1a3024; box-shadow: 0 3px 0 #08130e; font: 800 9px/1 ui-monospace, monospace; }
+
+    .overlay { position: absolute; z-index: 9; inset: 0; display: grid; place-items: center; padding: 28px; background: rgba(7,17,12,.75); backdrop-filter: blur(8px); }
+    .overlay[hidden] { display: none; }
+    .intro-card {
+      position: relative;
+      width: min(930px, 94%);
+      overflow: hidden;
+      padding: 30px;
+      border: 1px solid rgba(243,221,177,.34);
+      border-radius: 24px 24px 24px 8px;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 93% 5%, rgba(239,173,70,.24), transparent 28%),
+        linear-gradient(145deg, #fff9eb, #ead9b9);
+      box-shadow: 0 30px 80px rgba(0,0,0,.45), inset 0 1px rgba(255,255,255,.8);
+      animation: card-in .4s cubic-bezier(.2,.8,.2,1) both;
+    }
+    .intro-grid { display: grid; grid-template-columns: minmax(0,1.18fr) minmax(320px,.82fr); gap: 27px; align-items: stretch; }
+    .eyebrow { margin: 0 0 8px; color: #9a6227; font: 900 10px/1 ui-monospace, monospace; letter-spacing: .22em; text-transform: uppercase; }
+    .intro-card h2 { margin: 0; font-size: clamp(35px, 4vw, 53px); line-height: 1.08; letter-spacing: .07em; }
+    .intro-card .lede { margin: 14px 0 18px; color: #526157; font-size: 14px; line-height: 1.75; }
+    .field-label { display: block; margin: 0 0 7px; color: #686c60; font: 800 10px/1 ui-monospace, monospace; letter-spacing: .09em; }
+    .poem-picker { width: 100%; min-height: 43px; margin-bottom: 13px; padding: 8px 12px; border: 1px solid #bba57c; border-radius: 11px; color: #304037; background: rgba(255,255,255,.68); font-weight: 900; cursor: pointer; outline: none; }
+    .duration-picker { display: flex; gap: 8px; margin-bottom: 15px; }
+    .duration-option { min-width: 70px; min-height: 38px; border: 1px solid #bca67c; border-radius: 10px; color: #5a604f; background: rgba(255,255,255,.52); cursor: pointer; font: 900 11px/1 ui-monospace, monospace; }
+    .duration-option.selected { color: #fff9eb; border-color: #315f49; background: #315f49; box-shadow: 0 8px 16px rgba(49,95,73,.18); }
+    .start-button, .continue-button {
+      min-height: 49px;
+      padding: 13px 22px;
+      border: 0;
+      border-radius: 13px;
+      color: #fff9eb;
+      background: #315f49;
+      box-shadow: 0 10px 20px rgba(49,95,73,.22);
+      cursor: pointer;
+      font-size: 15px;
+      font-weight: 900;
+      letter-spacing: .08em;
+      transition: .18s ease;
+    }
+    .start-button:hover, .continue-button:hover { transform: translateY(-2px); background: #254b38; box-shadow: 0 14px 25px rgba(49,95,73,.26); }
+    .intro-note { margin: 11px 0 0; color: #7b766a; font-size: 10px; line-height: 1.55; }
+
+    .ai-plan { position: relative; overflow: hidden; min-height: 100%; padding: 18px; border: 1px solid rgba(49,95,73,.22); border-radius: 18px 18px 18px 6px; background: rgba(255,255,255,.46); }
+    .ai-plan::after { content: "AI"; position: absolute; right: -5px; bottom: -22px; color: rgba(49,95,73,.055); font: 900 108px/1 Georgia, serif; }
+    .ai-head { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .ai-kicker { display: flex; align-items: center; gap: 7px; color: #315f49; font: 900 10px/1 ui-monospace, monospace; letter-spacing: .1em; }
+    .ai-kicker::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #57a267; box-shadow: 0 0 0 5px rgba(87,162,103,.12); }
+    .cache-tag { padding: 5px 7px; border-radius: 99px; color: #8d652d; background: #f9e9ca; font: 800 8px/1 ui-monospace, monospace; }
+    .ai-plan h3 { position: relative; z-index: 1; margin: 17px 0 5px; color: #20372a; font-size: 25px; letter-spacing: .08em; }
+    .ai-plan > p { position: relative; z-index: 1; margin: 0; color: #687268; font-size: 12px; line-height: 1.6; }
+    .plan-tags { position: relative; z-index: 1; display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0; }
+    .plan-tag { padding: 6px 8px; border: 1px solid rgba(49,95,73,.18); border-radius: 8px; color: #486052; background: rgba(255,255,255,.48); font-size: 11px; }
+    .plan-legend { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(2,1fr); gap: 7px; margin: 13px 0; }
+    .legend-item { padding: 8px; border-radius: 9px; color: #5f6a61; background: rgba(49,95,73,.07); font-size: 10px; }
+    .legend-item strong { display: block; margin-bottom: 3px; color: #315f49; font-size: 11px; }
+    .reroll-button { position: relative; z-index: 1; width: 100%; min-height: 37px; border: 1px dashed #8c9e87; border-radius: 10px; color: #476052; background: rgba(255,255,255,.36); cursor: pointer; font-size: 11px; font-weight: 900; }
+    .reroll-button:hover { color: #fff; border-style: solid; background: #55765d; }
+
+    .pause-card, .help-card, .result-card { border: 1px solid rgba(248,228,187,.4); box-shadow: 0 28px 80px rgba(0,0,0,.47); }
+    .pause-card { width: 390px; padding: 30px; border-radius: 22px; color: var(--paper); background: #193326; text-align: center; }
+    .pause-glyph { display: inline-grid; place-items: center; width: 62px; height: 62px; margin-bottom: 12px; border: 1px solid #617b67; border-radius: 20px; color: var(--sun); background: #102219; font: 900 24px/1 ui-monospace, monospace; }
+    .pause-card h3 { margin: 0; font-size: 28px; }
+    .pause-card p { margin: 10px 0 18px; color: #a8b9ac; font-size: 13px; line-height: 1.65; }
+    .help-card, .result-card { width: min(700px, 90%); padding: 28px; border-radius: 22px 22px 22px 7px; color: var(--ink); background: #fff8e9; }
+    .help-card h3, .result-card h3 { margin: 0; font-size: 30px; }
+    .help-card > p, .result-card > p { color: #677168; font-size: 13px; line-height: 1.7; }
+    .stage-guide { display: grid; grid-template-columns: repeat(5,1fr); gap: 7px; margin: 18px 0; }
+    .stage-guide div { padding: 12px 8px; border: 1px solid #ddcfb4; border-radius: 11px; color: #667167; background: #f4eddd; font-size: 10px; line-height: 1.5; text-align: center; }
+    .stage-guide strong { display: block; margin-bottom: 5px; color: #315f49; font-size: 16px; }
+    .help-actions { display: flex; justify-content: flex-end; }
+    .result-card { text-align: center; }
+    .result-seal { display: grid; place-items: center; width: 76px; height: 76px; margin: 0 auto 12px; border: 4px double #fff0d0; border-radius: 50%; color: #fff8e9; background: #315f49; box-shadow: 0 12px 25px rgba(49,95,73,.22); font-size: 34px; }
+    .result-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 19px 0; }
+    .result-stat { padding: 14px 7px; border: 1px solid #ddcfb4; border-radius: 13px; background: #f2ead9; }
+    .result-stat strong { display: block; color: #315f49; font: 900 25px/1 ui-monospace, monospace; }
+    .result-stat span { display: block; margin-top: 7px; color: #7b796f; font-size: 10px; }
+    .result-note { margin: 0 0 16px !important; padding: 12px; border-radius: 11px; color: #755929 !important; background: #fff0d5; }
+    .toast { position: absolute; z-index: 6; left: 50%; top: 87px; transform: translate(-50%,-10px); max-width: 72%; padding: 9px 14px; border: 1px solid rgba(248,229,192,.24); border-radius: 99px; color: #fff2d5; background: rgba(9,24,16,.9); box-shadow: 0 10px 24px rgba(0,0,0,.25); opacity: 0; pointer-events: none; font-size: 12px; text-align: center; transition: .2s ease; }
+    .toast.show { opacity: 1; transform: translate(-50%,0); }
+
+    .concept-note { display: grid; grid-template-columns: 1.35fr repeat(3,1fr); gap: 10px; margin-top: 13px; animation: arrive .65s .14s cubic-bezier(.2,.8,.2,1) both; }
+    .concept-block { min-height: 83px; padding: 14px 16px; border: 1px solid rgba(237,216,177,.13); border-radius: 15px; color: #91a596; background: rgba(9,22,15,.5); }
+    .concept-block:first-child { border-color: rgba(240,173,69,.24); background: rgba(65,66,33,.22); }
+    .concept-block strong { display: block; margin-bottom: 6px; color: #e7d9bd; font-size: 13px; }
+    .concept-block p { margin: 0; font: 700 9px/1.58 ui-monospace, monospace; }
+
+    @keyframes arrive { from { opacity: 0; transform: translateY(13px); } to { opacity: 1; transform: none; } }
+    @keyframes card-in { from { opacity: 0; transform: scale(.96) translateY(8px); } to { opacity: 1; transform: none; } }
+    @media (prefers-reduced-motion: reduce) { *,*::before,*::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; } }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark">字</span><span class="brand-copy"><strong>字芽</strong><small>Learning Arcade</small></span></div>
+      <div class="mission-title"><p>Operation 028 · AI Scene</p><h1>诗境守卫战</h1></div>
+      <div class="top-actions">
+        <button class="chip-button" id="soundButton" type="button" aria-pressed="true">声音 · 开</button>
+        <button class="chip-button" id="helpButton" type="button">五段玩法</button>
+      </div>
+    </header>
+
+    <section class="game-shell" aria-label="诗境守卫战 AI 地图交互原型">
+      <div class="hud" aria-live="polite">
+        <div class="hud-cell"><span class="hud-label">剩余时间</span><strong class="hud-value" id="timerText">07:00</strong></div>
+        <div class="hud-cell"><span class="hud-label">当前阶段</span><strong class="hud-value warm" id="stageText">等待出发</strong><span class="time-track"><span class="time-fill" id="timeFill"></span></span></div>
+        <div class="hud-cell"><span class="hud-label">记忆星</span><strong class="hud-value" id="memoryText">★ 0</strong></div>
+      </div>
+
+      <div class="game-layout">
+        <div class="arena-frame">
+          <canvas id="gameCanvas" width="960" height="600" tabindex="0" aria-label="驾驶坦克完成诗句堡垒、下一句、排序据点与诗词 Boss 挑战"></canvas>
+          <div class="scanlines" aria-hidden="true"></div>
+          <div class="objective-banner" id="objectiveBanner"><small id="objectiveKicker">任务</small><span id="objectiveText">准备出发</span></div>
+          <div class="arena-label" id="arenaLabel">AI 诗境 · 等待生成</div>
+        </div>
+
+        <aside class="side-panel" aria-label="本局诗词与记忆记录">
+          <section class="panel-card">
+            <div class="panel-heading"><span class="signal">主攻诗卷</span><span id="poemProgress">0 / 4</span></div>
+            <div class="poem-focus">
+              <h2 id="poemTitle">春晓</h2><p class="poem-author" id="poemAuthor">唐 · 孟浩然</p>
+              <div class="verse-slots" id="verseSlots"></div>
+            </div>
+          </section>
+          <section class="panel-card">
+            <div class="panel-heading"><span>今日编队</span><span>主攻 + 保温</span></div>
+            <div class="mission-list" id="missionList"></div>
+          </section>
+          <section class="panel-card">
+            <div class="panel-heading"><span>学习证据</span><span id="answerCount">0 条</span></div>
+            <div class="log-list" id="logList"><p class="log-empty">进入诗句阶段后，<br>系统会记录首次作答与提示后答对。</p></div>
+          </section>
+          <div class="side-actions"><button class="side-button" id="pauseButton" type="button">暂停 P</button><button class="side-button" id="finishButton" type="button">结束试玩</button></div>
+        </aside>
+      </div>
+
+      <footer class="controls">
+        <div class="control-group"><kbd>WASD</kbd><kbd>方向键</kbd><span>移动</span><kbd>空格</kbd><span>发射墨弹</span></div>
+        <div class="control-group center" id="controllerStatus">○ 未检测到手柄</div>
+        <div class="control-group end"><span>手柄</span><kbd>左摇杆</kbd><span>移动</span><kbd>A</kbd><span>发射</span><kbd>≡</kbd><span>暂停</span></div>
+      </footer>
+
+      <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+      <div class="overlay" id="introOverlay">
+        <section class="intro-card">
+          <div class="intro-grid">
+            <div>
+              <p class="eyebrow">7-minute poem mission</p>
+              <h2>开进诗里，<br>打败遗忘。</h2>
+              <p class="lede">先在诗境里听见、看见，再打下一句、排诗序、攻 Boss。答错不扣命，只让薄弱诗句稍后再来。</p>
+              <label class="field-label" for="poemSelect">试玩诗境</label>
+              <select class="poem-picker" id="poemSelect"></select>
+              <span class="field-label">家长设置 · 本局时长</span>
+              <div class="duration-picker" role="group" aria-label="选择本局时长">
+                <button class="duration-option" type="button" data-minutes="5">5 分钟</button>
+                <button class="duration-option selected" type="button" data-minutes="7">7 分钟</button>
+                <button class="duration-option" type="button" data-minutes="10">10 分钟</button>
+              </div>
+              <button class="start-button" id="startButton" type="button">生成诗境并出发 →</button>
+              <p class="intro-note">试玩版使用预生成地图蓝图，不会上传数据，也不会把 Azure 密钥放进 HTML。正式版由服务端调用 GPT‑4.1 并缓存地图。</p>
+            </div>
+            <aside class="ai-plan" aria-label="AI 地图蓝图预览">
+              <div class="ai-head"><span class="ai-kicker">GPT‑4.1 地图蓝图</span><span class="cache-tag">本地演示缓存</span></div>
+              <h3 id="planTitle">春日花庭</h3><p id="planBrief">晨雾、花树与鸟鸣，把诗意放进可行驶的庭院。</p>
+              <div class="plan-tags" id="planTags"></div>
+              <div class="plan-legend"><div class="legend-item"><strong>诗意地标</strong><span id="planLandmarks">花树 · 飞鸟 · 雨痕</span></div><div class="legend-item"><strong>战术地貌</strong><span id="planTerrain">庭墙 · 小池 · 曲径</span></div></div>
+              <button class="reroll-button" id="rerollButton" type="button">↻ 换一版安全布局</button>
+            </aside>
+          </div>
+        </section>
+      </div>
+
+      <div class="overlay" id="pauseOverlay" hidden><section class="pause-card"><span class="pause-glyph">Ⅱ</span><h3>诗境已暂停</h3><p>起来看看远处，喝一口水。计时器也一起停下了。</p><button class="continue-button" id="resumeButton" type="button">继续本局</button></section></div>
+
+      <div class="overlay" id="helpOverlay" hidden>
+        <section class="help-card"><h3>一局不是五套题，而是一场小冒险</h3><p>学习逐步从“看见”走向“回忆”。完成当前任务就立即前进，不必等固定分钟；同一句最多出现三次。</p><div class="stage-guide"><div><strong>01</strong>热身战斗</div><div><strong>02</strong>点亮堡垒</div><div><strong>03</strong>追击下句</div><div><strong>04</strong>占领诗序</div><div><strong>05</strong>诗卷 Boss</div></div><div class="help-actions"><button class="continue-button" id="closeHelpButton" type="button">明白了</button></div></section>
+      </div>
+
+      <div class="overlay" id="resultOverlay" hidden>
+        <section class="result-card"><div class="result-seal">诗</div><h3 id="resultTitle">今日诗境守护完成</h3><p>到点就收兵，把期待留给明天。</p><div class="result-stats"><div class="result-stat"><strong id="resultStars">0</strong><span>记忆星</span></div><div class="result-stat"><strong id="resultFirstTry">0</strong><span>首次答对</span></div><div class="result-stat"><strong id="resultBoss">0 / 4</strong><span>Boss 诗印</span></div><div class="result-stat"><strong id="resultAccuracy">—</strong><span>识别正确率</span></div></div><p class="result-note" id="resultNote">完成今日第一局会记为一次诗词练习，但游戏答对不会直接改成“已会背”。</p><button class="continue-button" id="backButton" type="button">返回诗境选择</button></section>
+      </div>
+    </section>
+
+    <section class="concept-note" aria-label="AI 地图与学习设计说明">
+      <div class="concept-block"><strong>AI 只设计，不临场指挥</strong><p>GPT‑4.1 生成结构化地图 JSON；服务端校验可行走区域后缓存。孩子开局直接读取，快且稳定。</p></div>
+      <div class="concept-block"><strong>一主一辅</strong><p>主攻最薄弱诗词，保温一首到期诗词；避免两首平均用力。</p></div>
+      <div class="concept-block"><strong>证据分层</strong><p>听看不升级；识别、排序、Boss 回忆分别留下不同强度证据。</p></div>
+      <div class="concept-block"><strong>奖励边界</strong><p>首局完成计入诗词活动进度；不按分数惩罚，也不自动兑换实体贴纸。</p></div>
+    </section>
+  </main>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const canvas = document.getElementById("gameCanvas");
+      const ctx = canvas.getContext("2d");
+      const W = canvas.width, H = canvas.height;
+
+      const poems = [
+        {
+          id: "chun-xiao", title: "春晓", author: "唐 · 孟浩然",
+          lines: ["春眠不觉晓", "处处闻啼鸟", "夜来风雨声", "花落知多少"],
+          map: { name: "春日花庭", brief: "晨雾、花树与鸟鸣，把诗意放进可行驶的庭院。", tags: ["清晨", "鸟鸣", "花落", "雨痕"], landmarks: "花树 · 飞鸟 · 雨痕", terrain: "庭墙 · 小池 · 曲径", palette: ["#315c43", "#1c3829", "#e7a86a", "#7fae83"], kinds: ["tree", "flower", "bird", "pond"], weather: "petals" }
+        },
+        {
+          id: "jing-ye-si", title: "静夜思", author: "唐 · 李白",
+          lines: ["床前明月光", "疑是地上霜", "举头望明月", "低头思故乡"],
+          map: { name: "月下客舍", brief: "银蓝月色落在石院，远山与窗棂共同指向故乡。", tags: ["明月", "秋霜", "客舍", "远山"], landmarks: "圆月 · 窗影 · 归雁", terrain: "石墙 · 月池 · 松径", palette: ["#29415b", "#17293c", "#d7dcae", "#6685a0"], kinds: ["moon", "house", "pine", "mountain"], weather: "stars" }
+        },
+        {
+          id: "guan-que-lou", title: "登鹳雀楼", author: "唐 · 王之涣",
+          lines: ["白日依山尽", "黄河入海流", "欲穷千里目", "更上一层楼"],
+          map: { name: "黄河高楼", brief: "河流横穿战场，夕阳沉向群山，终点是一座可登高的楼。", tags: ["落日", "黄河", "群山", "高楼"], landmarks: "鹳雀楼 · 落日 · 山影", terrain: "河道 · 石桥 · 台阶", palette: ["#6a5335", "#3e3929", "#e6a04b", "#8aa09a"], kinds: ["sun", "river", "pagoda", "mountain"], weather: "dust" }
+        },
+        {
+          id: "yong-e", title: "咏鹅", author: "唐 · 骆宾王",
+          lines: ["鹅鹅鹅", "曲项向天歌", "白毛浮绿水", "红掌拨清波"],
+          map: { name: "绿水鹅塘", brief: "池水成为地图中心，白鹅沿荷叶巡游，水纹会回应炮弹。", tags: ["白鹅", "绿水", "红掌", "清波"], landmarks: "白鹅 · 荷叶 · 水草", terrain: "池塘 · 木桥 · 芦苇", palette: ["#31705f", "#1b443d", "#e9eee0", "#d96d4c"], kinds: ["pond", "goose", "lotus", "reed"], weather: "ripples" }
+        },
+        {
+          id: "min-nong", title: "悯农", author: "唐 · 李绅",
+          lines: ["锄禾日当午", "汗滴禾下土", "谁知盘中餐", "粒粒皆辛苦"],
+          map: { name: "正午禾田", brief: "整齐田垄组成战术通道，烈日与稻穗讲出每粒粮食的来处。", tags: ["烈日", "禾苗", "汗水", "谷粒"], landmarks: "稻草人 · 谷仓 · 日轮", terrain: "田垄 · 水渠 · 土径", palette: ["#6a6b35", "#3e4927", "#e6b84b", "#a78345"], kinds: ["sun", "field", "barn", "scarecrow"], weather: "pollen" }
+        },
+        {
+          id: "lu-zhai", title: "鹿柴", author: "唐 · 王维",
+          lines: ["空山不见人", "但闻人语响", "返景入深林", "复照青苔上"],
+          map: { name: "返景深林", brief: "空山没有人物，声音与斜照穿过密林，青苔在幽暗处发光。", tags: ["空山", "人语", "返景", "青苔"], landmarks: "鹿影 · 古木 · 苔石", terrain: "密林 · 溪涧 · 山径", palette: ["#244b3b", "#132f27", "#d9a94e", "#678b63"], kinds: ["forest", "deer", "stream", "moss"], weather: "fireflies" }
+        }
+      ];
+
+      const stageDefs = [
+        { key: "warmup", name: "01 · 热身巡游", maxSeconds: 60, kicker: "自由战斗", objective: "先熟悉坦克：移动、射击，击退两辆迷雾坦克" },
+        { key: "exposure", name: "02 · 点亮诗堡", maxSeconds: 90, kicker: "看见与听见", objective: "按顺序击中四座诗句堡垒；每句会慢读一遍" },
+        { key: "choice", name: "03 · 追击下句", maxSeconds: 150, kicker: "首次识别", objective: "看上句，击中正确的下一句；答错不扣命" },
+        { key: "order", name: "04 · 占领诗序", maxSeconds: 120, kicker: "顺序回忆", objective: "从第一句开始，依次击中四个诗句据点" },
+        { key: "boss", name: "05 · 诗卷 Boss", maxSeconds: null, kicker: "提示回忆", objective: "完成四道诗印，击散最终的遗忘迷雾" }
+      ];
+      const bonusStage = { key: "bonus", name: "奖励巡游", kicker: "主线完成", objective: "自由击退迷雾，也可以随时完成今日任务" };
+
+      const els = {
+        timer: byId("timerText"), stage: byId("stageText"), memory: byId("memoryText"), timeFill: byId("timeFill"),
+        poemTitle: byId("poemTitle"), poemAuthor: byId("poemAuthor"), poemProgress: byId("poemProgress"), verseSlots: byId("verseSlots"), missionList: byId("missionList"),
+        answerCount: byId("answerCount"), logList: byId("logList"), controller: byId("controllerStatus"), arenaLabel: byId("arenaLabel"),
+        finishButton: byId("finishButton"),
+        objectiveBanner: byId("objectiveBanner"), objectiveKicker: byId("objectiveKicker"), objectiveText: byId("objectiveText"), toast: byId("toast"),
+        intro: byId("introOverlay"), pause: byId("pauseOverlay"), help: byId("helpOverlay"), result: byId("resultOverlay"),
+        poemSelect: byId("poemSelect"), planTitle: byId("planTitle"), planBrief: byId("planBrief"), planTags: byId("planTags"), planLandmarks: byId("planLandmarks"), planTerrain: byId("planTerrain"),
+        resultTitle: byId("resultTitle"), resultStars: byId("resultStars"), resultFirstTry: byId("resultFirstTry"), resultBoss: byId("resultBoss"), resultAccuracy: byId("resultAccuracy"), resultNote: byId("resultNote")
+      };
+      const keys = new Set();
+      const state = {
+        mode: "intro", duration: 420, timeLeft: 420, lastTime: performance.now(), mapSeed: 0,
+        mainPoem: poems[0], maintenancePoem: poems[1], stageIndex: -1, stageKey: "intro", stageElapsed: 0, stageStartKills: 0, transitionPending: false,
+        player: null, enemies: [], bullets: [], particles: [], targets: [], obstacles: [], landmarks: [], ambience: [],
+        kills: 0, memoryStars: 0, answers: 0, correct: 0, firstTry: 0, bossHp: 4, bossMax: 4,
+        revealed: new Set(), logs: [], questionQueue: [], currentQuestion: null, answerLockedUntil: 0,
+        exposureIndex: 0, orderIndex: 0, orderLines: [], choiceAppearances: {},
+        enemySpawnTimer: 0, sound: true, audio: null, speech: null, speechSequence: 0, spokenHistory: [], narrationLocked: false, activeSpeechDone: null, toastTimer: 0, bannerTimer: 0,
+        gamepadButtons: [], gamepadPauseHeld: false, finishReason: "time"
+      };
+
+      function byId(id) { return document.getElementById(id); }
+      function shuffle(items) {
+        const copy = [...items];
+        for (let i = copy.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [copy[i], copy[j]] = [copy[j], copy[i]]; }
+        return copy;
+      }
+      function seeded(seed) { const x = Math.sin(seed * 999.17 + 17.3) * 43758.5453; return x - Math.floor(x); }
+      function formatTime(seconds) { const total = Math.max(0, Math.ceil(seconds)); return `${String(Math.floor(total / 60)).padStart(2,"0")}:${String(total % 60).padStart(2,"0")}`; }
+
+      function setupSelectors() {
+        els.poemSelect.innerHTML = poems.map((poem, index) => `<option value="${index}">${poem.title} · ${poem.map.name}</option>`).join("");
+        els.poemSelect.value = "0";
+        renderPlan();
+      }
+      function renderPlan() {
+        const poem = poems[Number(els.poemSelect.value) || 0], plan = poem.map;
+        els.planTitle.textContent = plan.name;
+        els.planBrief.textContent = plan.brief;
+        els.planTags.innerHTML = plan.tags.map(tag => `<span class="plan-tag">${tag}</span>`).join("");
+        els.planLandmarks.textContent = plan.landmarks;
+        els.planTerrain.textContent = plan.terrain;
+        state.mainPoem = poem;
+        state.maintenancePoem = poems[(poems.indexOf(poem) + 1) % poems.length];
+        buildMapBlueprint();
+        renderPoemPanel();
+        renderMissionList();
+      }
+
+      function buildMapBlueprint() {
+        const p = state.mainPoem.map.palette, seed = state.mapSeed + poems.indexOf(state.mainPoem) * 19;
+        const base = [
+          { x: 70, y: 92, w: 170, h: 32, type: "wall" }, { x: 342, y: 65, w: 34, h: 142, type: "grove" },
+          { x: 500, y: 96, w: 176, h: 32, type: "wall" }, { x: 782, y: 73, w: 36, h: 155, type: "grove" },
+          { x: 137, y: 254, w: 34, h: 137, type: "grove" }, { x: 281, y: 268, w: 172, h: 31, type: "wall" },
+          { x: 558, y: 249, w: 34, h: 135, type: "grove" }, { x: 676, y: 309, w: 177, h: 31, type: "wall" },
+          { x: 65, y: 474, w: 190, h: 31, type: "wall" }, { x: 714, y: 472, w: 181, h: 31, type: "wall" },
+          { x: 404, y: 432, w: 151, h: 31, type: "water" }
+        ];
+        const offset = Math.round((seeded(seed + 1) - .5) * 24);
+        state.obstacles = base.map((o, i) => ({ ...o, x: Math.max(22, Math.min(W-o.w-22, o.x + (i%3===0 ? offset : -offset/2))), color: p[2] }));
+        state.landmarks = state.mainPoem.map.kinds.map((type, i) => ({ type, x: 90 + ((i * 233 + Math.round(seeded(seed+i)*90)) % 790), y: 145 + ((i * 131 + Math.round(seeded(seed+i+7)*90)) % 310), scale: .8 + seeded(seed+i+11)*.45 }));
+        state.ambience = Array.from({ length: 62 }, (_, i) => ({ x: seeded(seed+i+30)*W, y: seeded(seed+i+90)*H, phase: seeded(seed+i+140)*6.28, size: 1+seeded(seed+i+190)*3 }));
+        els.arenaLabel.textContent = `AI 诗境 · ${state.mainPoem.map.name} · 布局 ${state.mapSeed + 1}`;
+      }
+
+      function resetPlayer() { state.player = { x: 480, y: 540, dir: -Math.PI/2, speed: 188, cooldown: 0, shield: 2, invulnerable: 0 }; }
+      function startGame() {
+        state.mainPoem = poems[Number(els.poemSelect.value) || 0];
+        state.maintenancePoem = poems[(poems.indexOf(state.mainPoem)+1)%poems.length];
+        state.mode = "playing"; state.timeLeft = state.duration; state.lastTime = performance.now(); state.stageIndex = -1; state.stageKey = "";
+        state.enemies=[]; state.bullets=[]; state.particles=[]; state.targets=[]; state.kills=0; state.memoryStars=0; state.answers=0; state.correct=0; state.firstTry=0; state.bossHp=4;
+        state.revealed=new Set(); state.logs=[]; state.exposureIndex=0; state.orderIndex=0; state.choiceAppearances={}; state.answerLockedUntil=0; state.finishReason="time";
+        state.stageElapsed=0; state.stageStartKills=0; state.transitionPending=false; state.narrationLocked=false; state.spokenHistory=[]; state.speechSequence++; state.enemySpawnTimer=1.1;
+        resetPlayer(); buildMapBlueprint();
+        els.intro.hidden=true; els.pause.hidden=true; els.help.hidden=true; els.result.hidden=true;
+        els.finishButton.textContent="结束试玩"; els.finishButton.classList.remove("reward");
+        enterStage(0); renderPoemPanel(); renderMissionList(); renderLogs(); updateHud(); canvas.focus();
+        beep(360,.06,"square",.035); showToast(`主攻《${state.mainPoem.title}》· 保温《${state.maintenancePoem.title}》`);
+      }
+
+      function enterStage(index) {
+        state.stageIndex=index; state.stageKey=stageDefs[index].key; state.stageElapsed=0; state.stageStartKills=state.kills; state.transitionPending=false; state.narrationLocked=false;
+        state.targets=[]; state.bullets=[]; state.enemies=[]; state.currentQuestion=null; state.answerLockedUntil=0;
+        const def=stageDefs[index]; showObjective(def.kicker, def.objective, 4200); beep(400+index*70,.07,"sine",.026);
+        if (def.key==="warmup") { for(let i=0;i<4;i++) spawnEnemy(i+1); }
+        if (def.key==="exposure") setupExposure();
+        if (def.key==="choice") setupChoice();
+        if (def.key==="order") setupOrder();
+        if (def.key==="boss") setupBoss();
+        updateHud();
+      }
+
+      function completeStage(reason="complete") {
+        if(state.transitionPending||state.stageKey==="bonus"||state.mode!=="playing")return;
+        state.transitionPending=true; state.narrationLocked=true;
+        if(reason==="timeout"){
+          showObjective("先继续前进","未完成内容已标记为下次重点，不让这一关卡住",1700);
+        }else{
+          showObjective("任务完成","马上进入下一段诗境",1200);
+        }
+        if(state.stageIndex>=stageDefs.length-1){
+          window.setTimeout(enterBonusStage,650);
+        }else{
+          const next=state.stageIndex+1;
+          window.setTimeout(()=>enterStage(next),650);
+        }
+      }
+
+      function enterBonusStage() {
+        state.stageIndex=stageDefs.length; state.stageKey="bonus"; state.stageElapsed=0; state.transitionPending=false; state.narrationLocked=false;
+        state.targets=[]; state.bullets=[]; state.enemies=[]; state.currentQuestion=null; state.finishReason=state.bossHp===0?"boss":"practice";
+        for(let i=0;i<5;i++)spawnEnemy(i+21);
+        els.finishButton.textContent="完成今日任务"; els.finishButton.classList.add("reward");
+        showObjective(bonusStage.kicker, bonusStage.objective, 5200);
+        showToast("主线已完成！现在是奖励巡游");
+        updateHud();
+      }
+
+      function setupExposure() {
+        state.exposureIndex=0; state.revealed.clear();
+        state.targets=state.mainPoem.lines.map((line,i)=>({ kind:"fortress", line, lineIndex:i, x:[155,760,178,735][i], y:[155,165,405,412][i], w:185, h:58, active:i===0, complete:false, pulse:0 }));
+      }
+      function buildChoiceQuestions(poem, source) {
+        const otherLines=poems.filter(p=>p!==poem).flatMap(p=>p.lines);
+        return poem.lines.slice(0,3).map((line,i)=>{
+          const answer=poem.lines[i+1];
+          return { id:`${source}-${i}`, source, prompt:`${line}，下一句是？`, spokenText:`${line}，${answer}`, answer, options:shuffle([answer,otherLines[(i*5+3)%otherLines.length],otherLines[(i*7+8)%otherLines.length]]), lineIndex:i+1, firstAttempt:true };
+        });
+      }
+      function setupChoice() {
+        state.questionQueue=[...buildChoiceQuestions(state.mainPoem,"主攻"), buildChoiceQuestions(state.maintenancePoem,"保温")[0]];
+        nextChoiceQuestion();
+      }
+      function nextChoiceQuestion() {
+        if (state.stageKey!=="choice") return;
+        state.narrationLocked=false;state.answerLockedUntil=0;
+        let question=state.questionQueue.shift();
+        if (!question) { state.targets=[]; state.currentQuestion=null; completeStage(); return; }
+        state.currentQuestion=question;
+        state.choiceAppearances[question.id]=(state.choiceAppearances[question.id]||0)+1;
+        const weak=question.source==="主攻" && Number(question.id.at(-1))===0;
+        state.targets=question.options.map((text,i)=>({ kind:"answer", text, x:210+i*275, y:weak?250:190+i%2*140, w:230, h:65, vy:weak?0:(i%2?25:-25), minY:145, maxY:430, optionIndex:i, correct:text===question.answer, pulse:0 }));
+        showObjective(`${question.source}诗句`,question.prompt,3600);
+      }
+      function setupOrder() {
+        state.orderIndex=0; state.orderLines=shuffle(state.mainPoem.lines.map((line,index)=>({line,index})));
+        state.targets=state.orderLines.map((item,i)=>({ kind:"order", text:item.line, originalIndex:item.index, x:[180,690,210,690][i], y:[170,170,405,405][i], w:240, h:65, complete:false, pulse:0 }));
+        showObjective("诗序 · 第 1 句","击中你认为的第一句",3500);
+      }
+      function setupBoss() {
+        state.bossHp=4;
+        const other=poems.filter(p=>p!==state.mainPoem).flatMap(p=>p.lines);
+        state.questionQueue=state.mainPoem.lines.map((line,i)=>({
+          id:`boss-${i}`, source:"Boss", prompt:i===0?`《${state.mainPoem.title}》第一句是？`:`${state.mainPoem.lines[i-1]}，下一句是？`, answer:line,
+          spokenText:i===0?line:`${state.mainPoem.lines[i-1]}，${line}`,
+          options:shuffle([line,other[(i*6+2)%other.length],other[(i*9+5)%other.length]]), lineIndex:i, firstAttempt:true
+        }));
+        nextBossQuestion();
+      }
+      function nextBossQuestion() {
+        if (state.stageKey!=="boss") return;
+        state.narrationLocked=false;state.answerLockedUntil=0;
+        const question=state.questionQueue.shift();
+        if (!question) {
+          state.targets=[]; state.currentQuestion=null;
+          const message=state.bossHp===0?"四枚诗印全部命中，听完整首诗！":"薄弱诗印已记下，听完整首诗后进入奖励巡游";
+          showObjective(state.bossHp===0?"Boss 已击退":"Boss 暂时退去",message,5200);
+          state.narrationLocked=true;
+          speak(`${state.mainPoem.title}。${state.mainPoem.lines.join("。")}`,()=>completeStage());
+          return;
+        }
+        state.currentQuestion=question;
+        state.choiceAppearances[question.id]=(state.choiceAppearances[question.id]||0)+1;
+        state.targets=question.options.map((text,i)=>({kind:"boss-answer",text,x:205+i*277,y:395,w:232,h:64,optionIndex:i,correct:text===question.answer,pulse:0}));
+        showObjective(`Boss 诗印 · ${5-state.bossHp}/4`,question.prompt,4200);
+      }
+
+      function findSafeEnemySpawn(seed=Math.random()*10,ignoredEnemy=null) {
+        const candidates=[
+          {x:55,y:150,dir:0},{x:905,y:150,dir:Math.PI},{x:55,y:365,dir:0},{x:905,y:365,dir:Math.PI},
+          {x:300,y:155,dir:Math.PI/2},{x:480,y:155,dir:Math.PI/2},{x:680,y:155,dir:Math.PI/2},{x:480,y:355,dir:-Math.PI/2}
+        ];
+        const start=Math.abs(Math.floor(seed*13+state.kills*3+state.mapSeed))%candidates.length;
+        for(let step=0;step<candidates.length;step++){
+          const point=candidates[(start+step)%candidates.length];
+          if(collidesObstacle(point.x,point.y,24))continue;
+          if(state.player&&Math.hypot(state.player.x-point.x,state.player.y-point.y)<145)continue;
+          if(state.enemies.some(enemy=>enemy!==ignoredEnemy&&Math.hypot(enemy.x-point.x,enemy.y-point.y)<86))continue;
+          return point;
+        }
+        for(let y=130;y<=420;y+=58){
+          for(let x=55;x<=905;x+=85){
+            if(!collidesObstacle(x,y,24)&&(!state.player||Math.hypot(state.player.x-x,state.player.y-y)>=145)&&!state.enemies.some(enemy=>enemy!==ignoredEnemy&&Math.hypot(enemy.x-x,enemy.y-y)<78))return{x,y,dir:Math.PI/2};
+          }
+        }
+        return null;
+      }
+      function spawnEnemy(seed=Math.random()*10) {
+        if(state.enemies.length>=7)return;
+        const point=findSafeEnemySpawn(seed);if(!point)return;
+        state.enemies.push({x:point.x,y:point.y,dir:point.dir,speed:52+Math.random()*26,turnTimer:.5+Math.random()*1.4,fireTimer:1.2+Math.random()*1.8,cooldown:0,stuckTimer:0,color:state.kills%2?"#bd6249":"#b98543",glyph:["忘","雾","乱","错"][Math.floor(Math.random()*4)]});
+      }
+      function collidesObstacle(x,y,radius=21) {
+        if(x-radius<14||x+radius>W-14||y-radius<75||y+radius>H-14)return true;
+        return state.obstacles.some(o=>o.type!=="water"&&x+radius>o.x&&x-radius<o.x+o.w&&y+radius>o.y&&y-radius<o.y+o.h);
+      }
+      function moveTank(tank,dx,dy,dt) {
+        if(!dx&&!dy)return; const len=Math.hypot(dx,dy)||1; dx/=len;dy/=len;tank.dir=Math.atan2(dy,dx);
+        const nx=tank.x+dx*tank.speed*dt,ny=tank.y+dy*tank.speed*dt;
+        if(!collidesObstacle(nx,tank.y))tank.x=nx;if(!collidesObstacle(tank.x,ny))tank.y=ny;
+      }
+      function fire(tank,owner) {
+        if(tank.cooldown>0)return; const speed=owner==="player"?410:240,offset=owner==="player"?28:23;
+        state.bullets.push({x:tank.x+Math.cos(tank.dir)*offset,y:tank.y+Math.sin(tank.dir)*offset,vx:Math.cos(tank.dir)*speed,vy:Math.sin(tank.dir)*speed,owner,life:2.2});
+        tank.cooldown=owner==="player"?.3:1.5; beep(owner==="player"?180:120,.035,"square",owner==="player"?.022:.012);
+      }
+
+      function updatePlayer(dt) {
+        const p=state.player;p.cooldown=Math.max(0,p.cooldown-dt);p.invulnerable=Math.max(0,p.invulnerable-dt);
+        let dx=0,dy=0;if(keys.has("ArrowLeft")||keys.has("KeyA"))dx--;if(keys.has("ArrowRight")||keys.has("KeyD"))dx++;if(keys.has("ArrowUp")||keys.has("KeyW"))dy--;if(keys.has("ArrowDown")||keys.has("KeyS"))dy++;
+        const pad=navigator.getGamepads?.()[0];
+        if(pad){dx+=Math.abs(pad.axes[0]||0)>.18?pad.axes[0]:0;dy+=Math.abs(pad.axes[1]||0)>.18?pad.axes[1]:0;if(pad.buttons[0]?.pressed&&!state.gamepadButtons[0])fire(p,"player");const ph=!!pad.buttons[9]?.pressed;if(ph&&!state.gamepadPauseHeld)togglePause();state.gamepadPauseHeld=ph;state.gamepadButtons=pad.buttons.map(b=>b.pressed);}
+        moveTank(p,dx,dy,dt*(state.narrationLocked?.55:1));if(keys.has("Space"))fire(p,"player");
+      }
+      function updateEnemies(dt) {
+        for(const e of state.enemies){e.cooldown=Math.max(0,e.cooldown-dt);e.turnTimer-=dt;e.fireTimer-=dt;
+          if(e.turnTimer<=0){e.dir=Math.random()<.55?Math.atan2(state.player.y-e.y,state.player.x-e.x)+(Math.random()-.5)*.65:[0,Math.PI/2,Math.PI,-Math.PI/2][Math.floor(Math.random()*4)];e.turnTimer=.65+Math.random()*1.4;}
+          const ox=e.x,oy=e.y;moveTank(e,Math.cos(e.dir),Math.sin(e.dir),dt);
+          if(Math.hypot(e.x-ox,e.y-oy)<.05){e.stuckTimer=(e.stuckTimer||0)+dt;e.dir+=Math.PI/2+(Math.random()-.5)*.35;e.turnTimer=.28;}
+          else e.stuckTimer=Math.max(0,(e.stuckTimer||0)-dt*.6);
+          if(collidesObstacle(e.x,e.y,24)||e.stuckTimer>1.6){const safe=findSafeEnemySpawn(Math.random()*10,e);if(safe){e.x=safe.x;e.y=safe.y;e.dir=safe.dir;e.stuckTimer=0;e.turnTimer=.45;}continue;}
+          if(e.fireTimer<=0&&Math.hypot(state.player.x-e.x,state.player.y-e.y)<440){e.dir=Math.atan2(state.player.y-e.y,state.player.x-e.x);fire(e,"enemy");e.fireTimer=1.5+Math.random()*1.5;}
+        }
+        state.enemySpawnTimer-=dt;if(state.enemySpawnTimer<=0&&state.enemies.length<5&&["warmup","choice","bonus"].includes(state.stageKey)){spawnEnemy();state.enemySpawnTimer=1.5;}
+      }
+      function updateTargets(dt) {
+        state.targets.forEach(t=>{t.pulse=(t.pulse||0)+dt*3;if(t.vy){t.y+=t.vy*dt;if(t.y<t.minY||t.y>t.maxY)t.vy*=-1;}});
+      }
+      function bulletHitsObstacle(b){return state.obstacles.some(o=>o.type!=="water"&&b.x>o.x&&b.x<o.x+o.w&&b.y>o.y&&b.y<o.y+o.h);}
+      function updateBullets(dt) {
+        for(let i=state.bullets.length-1;i>=0;i--){const b=state.bullets[i];b.x+=b.vx*dt;b.y+=b.vy*dt;b.life-=dt;
+          if(b.life<=0||b.x<0||b.x>W||b.y<0||b.y>H||bulletHitsObstacle(b)){spark(b.x,b.y,b.owner==="player"?"#f5bd58":"#d96d4c",4);state.bullets.splice(i,1);continue;}
+          if(b.owner==="player"){
+            const ti=state.targets.findIndex(t=>!t.complete&&b.x>t.x-t.w/2&&b.x<t.x+t.w/2&&b.y>t.y-t.h/2&&b.y<t.y+t.h/2);
+            if(ti>=0){const t=state.targets[ti];state.bullets.splice(i,1);handleTargetHit(t);continue;}
+            const ei=state.enemies.findIndex(e=>Math.hypot(e.x-b.x,e.y-b.y)<24);
+            if(ei>=0){const e=state.enemies[ei];spark(e.x,e.y,"#f1b750",13);state.enemies.splice(ei,1);state.bullets.splice(i,1);state.kills++;state.memoryStars++;state.enemySpawnTimer=.5;beep(92,.1,"sawtooth",.025);showToast("击散一团遗忘迷雾");
+              if(state.stageKey==="warmup"&&state.kills-state.stageStartKills>=2)completeStage();
+              updateHud();continue;}
+          }else if(state.player.invulnerable<=0&&Math.hypot(state.player.x-b.x,state.player.y-b.y)<23){state.bullets.splice(i,1);spark(state.player.x,state.player.y,"#d96d4c",10);state.player.shield--;state.player.invulnerable=1.2;if(state.player.shield<0){resetPlayer();showToast("诗卷台送来新的守护坦克");}else showToast(`墨盾还剩 ${state.player.shield+1} 层`);beep(72,.14,"square",.035);}
+        }
+      }
+
+      function handleTargetHit(target) {
+        if(performance.now()<state.answerLockedUntil||state.narrationLocked||state.transitionPending)return;
+        if(target.kind==="fortress"){
+          if(!target.active){showToast(`先点亮第 ${state.exposureIndex+1} 句`);beep(150,.08,"triangle",.02);return;}
+          target.complete=true;target.active=false;state.revealed.add(target.lineIndex);state.memoryStars++;state.exposureIndex++;
+          spark(target.x,target.y,state.mainPoem.map.palette[2],18);recordEvidence("听看",target.line,true,"接触");state.narrationLocked=true;
+          speak(target.line,()=>{
+            if(state.stageKey!=="exposure")return;
+            if(state.targets[state.exposureIndex]){
+              state.targets[state.exposureIndex].active=true;state.narrationLocked=false;
+              showObjective(`诗堡 · 第 ${state.exposureIndex+1} 句`,`听完了，继续点亮下一句`,1600);
+            }else{
+              showObjective("诗卷已点亮","四句都已看见、听见；马上进入追击下句",2200);completeStage();
+            }
+          });
+          renderPoemPanel();updateHud();return;
+        }
+        if(target.kind==="order"){
+          if(target.originalIndex===state.orderIndex){
+            target.complete=true;state.orderIndex++;state.memoryStars+=2;recordEvidence("排序",target.text,true,"强证据");spark(target.x,target.y,"#efad46",16);state.narrationLocked=true;
+            speak(target.text,()=>{
+              if(state.stageKey!=="order")return;
+              if(state.orderIndex>=4){showObjective("诗序完成",`《${state.mainPoem.title}》四句已经归位，马上挑战 Boss`,2200);completeStage();}
+              else{state.narrationLocked=false;showObjective(`诗序 · 第 ${state.orderIndex+1} 句`,`继续寻找第 ${state.orderIndex+1} 句`,1800);}
+            });
+          }else{
+            recordEvidence("排序",target.text,false,"待巩固");showToast(`再听一遍：第 ${state.orderIndex+1} 句`);beep(160,.1,"triangle",.022);
+            const correctLine=state.mainPoem.lines[state.orderIndex],right=state.targets.find(item=>item.originalIndex===state.orderIndex);if(right)right.pulse=20;
+            state.narrationLocked=true;speak(`第${state.orderIndex+1}句，${correctLine}`,()=>{if(state.stageKey==="order"){state.narrationLocked=false;if(right)right.pulse=0;}});
+          }
+          updateHud();return;
+        }
+        if(["answer","boss-answer"].includes(target.kind))answerWorldQuestion(target);
+      }
+
+      function answerWorldQuestion(target) {
+        if(!state.currentQuestion)return;state.answerLockedUntil=performance.now()+850;state.narrationLocked=true;state.answers++;
+        const correct=target.correct, first=state.currentQuestion.firstAttempt!==false;
+        const spokenText=state.currentQuestion.spokenText||state.currentQuestion.answer;
+        if(correct){state.correct++;if(first)state.firstTry++;state.memoryStars+=target.kind==="boss-answer"?3:2;state.revealed.add(state.currentQuestion.lineIndex);recordEvidence(state.currentQuestion.source,state.currentQuestion.answer,true,first?"首次答对":"提示后答对");spark(target.x,target.y,"#f1c56f",20);beep(660,.08,"sine",.03);target.complete=true;
+          if(target.kind==="boss-answer"){state.bossHp=Math.max(0,state.bossHp-1);showToast(`诗印命中！听一遍，Boss 还剩 ${state.bossHp} 格`);}else{showToast(first?"第一次就找对了，听完整上下句！":"这次找对了，再听一遍！");}
+          speak(spokenText,()=>{if(state.stageKey==="boss")nextBossQuestion();else if(state.stageKey==="choice")nextChoiceQuestion();});
+        }else{recordEvidence(state.currentQuestion.source,target.text,false,"首次未认出");beep(175,.12,"triangle",.025);showToast(`再听一遍：${state.currentQuestion.answer}`);
+          const id=state.currentQuestion.id;
+          if(state.choiceAppearances[id]<3)state.questionQueue.push({...state.currentQuestion,firstAttempt:false});
+          const right=state.targets.find(t=>t.correct);if(right)right.pulse=20;
+          speak(`再听一遍，${spokenText}`,()=>{if(state.stageKey==="boss")nextBossQuestion();else if(state.stageKey==="choice")nextChoiceQuestion();});
+        }
+        updateHud();renderPoemPanel();renderLogs();
+      }
+      function recordEvidence(mode,text,correct,strength){state.logs.push({mode,text,correct,strength,time:formatTime(state.duration-state.timeLeft)});renderLogs();}
+
+      function update(dt) {
+        if(state.mode!=="playing")return;
+        state.timeLeft=Math.max(0,state.timeLeft-dt);if(state.timeLeft<=0){finishSession();return;}
+        state.stageElapsed+=dt;
+        const def=stageDefs[state.stageIndex];
+        if(def?.maxSeconds&&state.stageElapsed>=def.maxSeconds&&!state.narrationLocked&&!state.transitionPending)completeStage("timeout");
+        updatePlayer(dt);updateTargets(dt);updateEnemies(state.narrationLocked?0:dt);updateBullets(dt);updateParticles(dt);updateHud();
+      }
+      function spark(x,y,color,count){for(let i=0;i<count;i++){const a=Math.random()*Math.PI*2,s=30+Math.random()*95;state.particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:.3+Math.random()*.45,color});}}
+      function updateParticles(dt){for(let i=state.particles.length-1;i>=0;i--){const p=state.particles[i];p.x+=p.vx*dt;p.y+=p.vy*dt;p.vx*=.96;p.vy*=.96;p.life-=dt;if(p.life<=0)state.particles.splice(i,1);}}
+
+      function drawBackground(now) {
+        const pal=state.mainPoem.map.palette,g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,pal[0]);g.addColorStop(1,pal[1]);ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+        ctx.strokeStyle="rgba(246,232,198,.035)";ctx.lineWidth=1;for(let x=0;x<W;x+=48){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}for(let y=0;y<H;y+=48){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+        drawAmbience(now);state.landmarks.forEach(drawLandmark);
+        ctx.fillStyle="rgba(233,177,71,.05)";ctx.beginPath();ctx.arc(480,548,165,0,Math.PI*2);ctx.fill();
+      }
+      function drawAmbience(now) {
+        const type=state.mainPoem.map.weather;state.ambience.forEach((p,i)=>{const drift=Math.sin(now*.0004+p.phase)*14,fall=(now*.018*(1+i%3)+p.y)%H;ctx.globalAlpha=.14+(i%3)*.05;
+          ctx.fillStyle=type==="stars"||type==="fireflies"?"#fff0a2":type==="petals"?"#f6b8a6":"#f0d38b";
+          if(type==="stars"){ctx.fillRect(p.x,p.y,p.size,p.size);}else{ctx.beginPath();ctx.ellipse((p.x+drift)%W,fall,p.size*1.5,p.size*.65,drift*.03,0,Math.PI*2);ctx.fill();}
+        });ctx.globalAlpha=1;
+      }
+      function drawLandmark(lm) {
+        ctx.save();ctx.translate(lm.x,lm.y);ctx.scale(lm.scale,lm.scale);ctx.globalAlpha=.28;
+        const accent=state.mainPoem.map.palette[2];ctx.strokeStyle=accent;ctx.fillStyle=accent;ctx.lineWidth=3;
+        if(["tree","pine","forest"].includes(lm.type)){ctx.fillRect(-4,0,8,42);ctx.beginPath();ctx.arc(0,-5,25,0,Math.PI*2);ctx.fill();}
+        else if(["pond","river","stream"].includes(lm.type)){ctx.beginPath();ctx.ellipse(0,15,55,18,0,0,Math.PI*2);ctx.fill();ctx.strokeStyle="rgba(255,255,255,.35)";ctx.beginPath();ctx.moveTo(-35,12);ctx.lineTo(30,12);ctx.stroke();}
+        else if(["moon","sun"].includes(lm.type)){ctx.beginPath();ctx.arc(0,0,28,0,Math.PI*2);ctx.fill();}
+        else if(["pagoda","house","barn"].includes(lm.type)){ctx.fillRect(-24,-2,48,35);ctx.beginPath();ctx.moveTo(-34,-2);ctx.lineTo(0,-25);ctx.lineTo(34,-2);ctx.fill();}
+        else if(["mountain"].includes(lm.type)){ctx.beginPath();ctx.moveTo(-48,30);ctx.lineTo(-10,-30);ctx.lineTo(14,4);ctx.lineTo(31,-20);ctx.lineTo(55,30);ctx.fill();}
+        else if(["goose","bird","deer"].includes(lm.type)){ctx.font="bold 38px KaiTi";ctx.textAlign="center";ctx.fillText(lm.type==="goose"?"鹅":lm.type==="deer"?"鹿":"鸟",0,10);}
+        else{ctx.beginPath();ctx.arc(0,0,16,0,Math.PI*2);ctx.fill();}
+        ctx.restore();ctx.globalAlpha=1;
+      }
+      function drawObstacles() {
+        state.obstacles.forEach(o=>{if(o.type==="water"){ctx.fillStyle="rgba(53,116,117,.62)";ctx.fillRect(o.x,o.y,o.w,o.h);ctx.strokeStyle="rgba(190,226,211,.23)";for(let x=o.x+8;x<o.x+o.w-8;x+=22){ctx.beginPath();ctx.moveTo(x,o.y+10);ctx.lineTo(x+11,o.y+10);ctx.stroke();}return;}
+          if(o.type==="wall"){ctx.fillStyle="#77543b";ctx.fillRect(o.x,o.y,o.w,o.h);ctx.fillStyle=state.mainPoem.map.palette[2];ctx.globalAlpha=.35;ctx.fillRect(o.x+3,o.y+3,o.w-6,5);ctx.globalAlpha=1;ctx.strokeStyle="rgba(25,18,12,.55)";for(let x=o.x+28;x<o.x+o.w;x+=36){ctx.beginPath();ctx.moveTo(x,o.y);ctx.lineTo(x,o.y+o.h);ctx.stroke();}}
+          else{ctx.fillStyle="#3f6848";ctx.fillRect(o.x,o.y,o.w,o.h);ctx.fillStyle="#6d955d";for(let y=o.y+7;y<o.y+o.h;y+=18)ctx.fillRect(o.x+4,y,o.w-8,4);}
+        });
+      }
+      function roundRect(x,y,w,h,r,fill,stroke){ctx.beginPath();ctx.roundRect(x,y,w,h,r);if(fill)ctx.fill();if(stroke)ctx.stroke();}
+      function fitText(text,maxWidth,start=20){let size=start;ctx.font=`bold ${size}px KaiTi`;while(size>11&&ctx.measureText(text).width>maxWidth){size--;ctx.font=`bold ${size}px KaiTi`;}return size;}
+      function drawTargets() {
+        state.targets.forEach(t=>{if(t.complete&&t.kind!=="fortress")return;ctx.save();const active=t.active||["answer","order","boss-answer"].includes(t.kind);const glow=t.pulse>8||t.active;ctx.shadowColor=glow?state.mainPoem.map.palette[2]:"transparent";ctx.shadowBlur=glow?18:0;
+          ctx.fillStyle=t.complete?"rgba(42,94,60,.45)":active?"rgba(255,248,230,.94)":"rgba(17,37,26,.75)";ctx.strokeStyle=t.complete?"#8ec18c":active?state.mainPoem.map.palette[2]:"rgba(255,255,255,.2)";ctx.lineWidth=active?3:1;roundRect(t.x-t.w/2,t.y-t.h/2,t.w,t.h,12,true,true);ctx.shadowBlur=0;
+          ctx.fillStyle=t.complete?"#dff0d8":active?"#20362a":"#879a8b";ctx.textAlign="center";ctx.textBaseline="middle";
+          const text=t.line||t.text;fitText(text,t.w-24,18);ctx.fillText(text,t.x,t.y+(t.kind==="fortress"?7:0));
+          if(t.kind==="fortress"){ctx.fillStyle=t.complete?"#9fd19b":t.active?"#a6662e":"#6d806f";ctx.font="bold 9px ui-monospace";ctx.fillText(t.complete?"已点亮":t.active?`第 ${t.lineIndex+1} 句 · 击中朗读`:"等待前一句",t.x,t.y-18);}
+          if(t.kind==="order"&&t.complete){ctx.fillStyle="#fff";ctx.font="bold 11px ui-monospace";ctx.fillText(`0${t.originalIndex+1}`,t.x+t.w/2-20,t.y-t.h/2+14);}
+          ctx.restore();
+        });
+      }
+      function drawBoss() {
+        if(state.stageKey!=="boss")return;const x=480,y=235;ctx.save();ctx.translate(x,y);ctx.fillStyle="rgba(7,15,11,.35)";ctx.beginPath();ctx.ellipse(0,38,90,24,0,0,Math.PI*2);ctx.fill();ctx.fillStyle="#8d4b3c";ctx.fillRect(-72,-38,144,76);ctx.fillStyle="#c36d4e";ctx.fillRect(-55,-28,110,56);ctx.fillStyle="#5c302a";ctx.beginPath();ctx.arc(0,0,30,0,Math.PI*2);ctx.fill();ctx.fillStyle="#d99b62";ctx.fillRect(20,-6,88,12);ctx.fillStyle="#fff1d1";ctx.font="bold 27px KaiTi";ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText("忘",0,1);ctx.restore();
+        for(let i=0;i<state.bossMax;i++){ctx.fillStyle=i<state.bossHp?"#d96d4c":"rgba(255,255,255,.12)";roundRect(370+i*57,305,45,8,4,true,false);}
+      }
+      function drawBase(){ctx.save();ctx.translate(480,570);ctx.fillStyle="#e7cf99";ctx.beginPath();ctx.moveTo(-48,-17);ctx.quadraticCurveTo(-22,-29,0,-12);ctx.quadraticCurveTo(22,-29,48,-17);ctx.lineTo(43,13);ctx.quadraticCurveTo(18,4,0,18);ctx.quadraticCurveTo(-18,4,-43,13);ctx.closePath();ctx.fill();ctx.strokeStyle="#967140";ctx.lineWidth=3;ctx.stroke();ctx.fillStyle="#315f49";ctx.font="bold 17px KaiTi";ctx.textAlign="center";ctx.fillText("诗",0,5);ctx.restore();}
+      function drawTank(t,isPlayer){ctx.save();ctx.translate(Math.round(t.x),Math.round(t.y));ctx.rotate(t.dir);if(isPlayer&&t.invulnerable>0&&Math.floor(t.invulnerable*12)%2)ctx.globalAlpha=.36;ctx.fillStyle="rgba(0,0,0,.22)";ctx.fillRect(-17,-18,38,40);ctx.fillStyle=isPlayer?"#d8bc6c":"#463728";ctx.fillRect(-20,-18,40,8);ctx.fillRect(-20,10,40,8);ctx.fillStyle=isPlayer?"#54815a":t.color;ctx.fillRect(-16,-15,32,30);ctx.fillStyle=isPlayer?"#78a36f":"#d09359";ctx.fillRect(-12,-11,24,6);ctx.fillStyle=isPlayer?"#2f5941":"#6b4231";ctx.beginPath();ctx.arc(0,0,9,0,Math.PI*2);ctx.fill();ctx.fillStyle=isPlayer?"#d9c27b":"#ebc281";ctx.fillRect(5,-3,24,6);if(!isPlayer){ctx.rotate(-t.dir);ctx.fillStyle="#fff2d3";ctx.font="bold 14px KaiTi";ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(t.glyph,0,1);}ctx.restore();
+        if(isPlayer)for(let i=0;i<=t.shield;i++){ctx.strokeStyle=`rgba(132,190,141,${.22+i*.08})`;ctx.lineWidth=2;ctx.beginPath();ctx.arc(t.x,t.y,29+i*4,0,Math.PI*2);ctx.stroke();}
+      }
+      function drawEffects(){state.bullets.forEach(b=>{ctx.fillStyle=b.owner==="player"?"#ffd56c":"#ee7854";ctx.beginPath();ctx.arc(b.x,b.y,b.owner==="player"?4:3.5,0,Math.PI*2);ctx.fill();});state.particles.forEach(p=>{ctx.globalAlpha=Math.max(0,p.life*1.6);ctx.fillStyle=p.color;ctx.fillRect(p.x-2,p.y-2,4,4);});ctx.globalAlpha=1;}
+      function draw(now){drawBackground(now);drawObstacles();drawBase();drawTargets();drawBoss();state.enemies.forEach(e=>drawTank(e,false));if(state.player)drawTank(state.player,true);drawEffects();if(state.mode==="intro"){ctx.fillStyle="rgba(4,14,9,.15)";ctx.fillRect(0,0,W,H);ctx.fillStyle="rgba(255,248,233,.45)";ctx.font="bold 13px ui-monospace";ctx.textAlign="center";ctx.fillText(`${state.mainPoem.map.name} · 地图蓝图预览`,W/2,H/2+92);}}
+
+      function loop(now){const dt=Math.min(.033,(now-state.lastTime)/1000||0);state.lastTime=now;update(dt);draw(now);requestAnimationFrame(loop);}
+      function updateHud(){els.timer.textContent=formatTime(state.timeLeft);els.stage.textContent=state.stageKey==="bonus"?bonusStage.name:state.stageIndex>=0?stageDefs[state.stageIndex]?.name||"等待出发":"等待出发";els.memory.textContent=`★ ${state.memoryStars}`;els.timeFill.style.width=`${Math.max(0,state.timeLeft/state.duration*100)}%`;}
+      function renderPoemPanel(){const poem=state.mainPoem;els.poemTitle.textContent=poem.title;els.poemAuthor.textContent=poem.author;els.poemProgress.textContent=`${state.revealed.size} / 4`;els.verseSlots.innerHTML=poem.lines.map((line,i)=>`<div class="verse-slot${state.revealed.has(i)?" revealed":""}">${state.revealed.has(i)?line:"诗句尚未点亮"}</div>`).join("");}
+      function renderMissionList(){els.missionList.innerHTML=`<div class="mission-row"><span class="mission-number">主</span><span><strong>${state.mainPoem.title}</strong><small>今日薄弱 · 重点练习</small></span><span class="mission-badge weak">主攻</span></div><div class="mission-row"><span class="mission-number">温</span><span><strong>${state.maintenancePoem.title}</strong><small>到期复习 · 少量出现</small></span><span class="mission-badge">保温</span></div>`;}
+      function renderLogs(){els.answerCount.textContent=`${state.logs.length} 条`;if(!state.logs.length){els.logList.innerHTML='<p class="log-empty">进入诗句阶段后，<br>系统会记录首次作答与提示后答对。</p>';return;}els.logList.innerHTML=state.logs.slice().reverse().map(l=>`<div class="log-row${l.correct?"":" wrong"}"><span class="log-dot"></span><span>${l.mode} · ${l.correct?l.strength:"待巩固"}<br>${l.text}</span><time>${l.time}</time></div>`).join("");}
+      function showObjective(kicker,text,duration=2600){els.objectiveKicker.textContent=kicker;els.objectiveText.textContent=text;els.objectiveBanner.classList.add("show");window.clearTimeout(state.bannerTimer);state.bannerTimer=window.setTimeout(()=>els.objectiveBanner.classList.remove("show"),duration);}
+      function showToast(message){els.toast.textContent=message;els.toast.classList.add("show");window.clearTimeout(state.toastTimer);state.toastTimer=window.setTimeout(()=>els.toast.classList.remove("show"),1700);}
+      function togglePause(){if(state.mode==="playing"){state.mode="paused";els.pause.hidden=false;}else if(state.mode==="paused"){state.mode="playing";state.lastTime=performance.now();els.pause.hidden=true;canvas.focus();}}
+      function finishSession(){if(["intro","finished"].includes(state.mode))return;state.mode="finished";state.speechSequence++;window.speechSynthesis?.cancel();state.activeSpeechDone=null;els.pause.hidden=true;state.finishReason=state.finishReason||"time";els.resultTitle.textContent=state.finishReason==="boss"?"诗卷 Boss 已击退":state.finishReason==="practice"?"今日主线练习完成":"今日诗境守护完成";els.resultStars.textContent=state.memoryStars;els.resultFirstTry.textContent=state.firstTry;els.resultBoss.textContent=`${4-state.bossHp} / 4`;els.resultAccuracy.textContent=state.answers?`${Math.round(state.correct/state.answers*100)}%`:"—";els.resultNote.textContent=`留下 ${state.logs.length} 条学习证据。完成今日第一局可计入诗词活动进度，但游戏结果不会直接覆盖家长的“会背”评分。`;els.result.hidden=false;beep(430,.08,"sine",.025);window.setTimeout(()=>beep(590,.12,"sine",.025),100);}
+      function backToIntro(){state.mode="intro";state.timeLeft=state.duration;state.stageIndex=-1;state.stageKey="intro";state.enemies=[];state.targets=[];state.bullets=[];state.particles=[];state.revealed=new Set();state.speechSequence++;window.speechSynthesis?.cancel();resetPlayer();els.finishButton.textContent="结束试玩";els.finishButton.classList.remove("reward");els.result.hidden=true;els.intro.hidden=false;renderPlan();updateHud();}
+
+      function speak(text,onDone){
+        state.spokenHistory.push(text);
+        const token=++state.speechSequence;let settled=false,fallback;
+        const done=()=>{if(settled||token!==state.speechSequence)return;settled=true;window.clearTimeout(fallback);state.activeSpeechDone=null;onDone?.();};
+        state.activeSpeechDone=done;
+        if(!state.sound||!("speechSynthesis" in window)){window.setTimeout(done,90);return;}
+        window.speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.lang="zh-CN";u.rate=.72;u.pitch=1.02;u.onend=done;u.onerror=done;
+        window.speechSynthesis.speak(u);
+        const readableLength=text.replace(/[，。！？、\s]/g,"").length;
+        fallback=window.setTimeout(done,Math.min(7200,Math.max(2200,readableLength*430)));
+      }
+      function beep(frequency,duration,type,volume){if(!state.sound)return;try{state.audio||=new(window.AudioContext||window.webkitAudioContext)();const o=state.audio.createOscillator(),g=state.audio.createGain();o.type=type;o.frequency.value=frequency;g.gain.setValueAtTime(volume,state.audio.currentTime);g.gain.exponentialRampToValueAtTime(.0001,state.audio.currentTime+duration);o.connect(g);g.connect(state.audio.destination);o.start();o.stop(state.audio.currentTime+duration);}catch(_){}}
+
+      document.querySelectorAll(".duration-option").forEach(button=>button.addEventListener("click",()=>{document.querySelectorAll(".duration-option").forEach(x=>x.classList.remove("selected"));button.classList.add("selected");state.duration=Number(button.dataset.minutes)*60;state.timeLeft=state.duration;updateHud();}));
+      els.poemSelect.addEventListener("change",()=>{state.mapSeed=0;renderPlan();});
+      byId("rerollButton").addEventListener("click",()=>{state.mapSeed=(state.mapSeed+1)%5;buildMapBlueprint();showToast(`已生成安全布局 ${state.mapSeed+1}`);});
+      byId("startButton").addEventListener("click",startGame);byId("pauseButton").addEventListener("click",togglePause);byId("resumeButton").addEventListener("click",togglePause);byId("finishButton").addEventListener("click",finishSession);byId("backButton").addEventListener("click",backToIntro);
+      byId("helpButton").addEventListener("click",()=>{els.help.hidden=false;if(state.mode==="playing")state.mode="help";});
+      byId("closeHelpButton").addEventListener("click",()=>{els.help.hidden=true;if(state.mode==="help"){state.mode="playing";state.lastTime=performance.now();canvas.focus();}});
+      byId("soundButton").addEventListener("click",event=>{state.sound=!state.sound;event.currentTarget.textContent=`声音 · ${state.sound?"开":"关"}`;event.currentTarget.setAttribute("aria-pressed",String(state.sound));if(state.sound)beep(480,.08,"sine",.025);else{window.speechSynthesis?.cancel();state.activeSpeechDone?.();}});
+
+      window.addEventListener("keydown",event=>{if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space"].includes(event.code))event.preventDefault();keys.add(event.code);if(event.code==="KeyP"&&!event.repeat)togglePause();});
+      window.addEventListener("keyup",event=>keys.delete(event.code));window.addEventListener("blur",()=>{keys.clear();if(state.mode==="playing")togglePause();});
+      window.addEventListener("gamepadconnected",event=>{els.controller.textContent=`● 已连接手柄 · ${event.gamepad.id.split("(")[0].trim().slice(0,24)}`;els.controller.style.color="#f0c36c";showToast("手柄已连接");});
+      window.addEventListener("gamepaddisconnected",()=>{els.controller.textContent="○ 未检测到手柄";els.controller.style.color="";});
+
+      setupSelectors();resetPlayer();renderPoemPanel();renderMissionList();renderLogs();updateHud();requestAnimationFrame(loop);
+
+      // 仅供自动化测试：不会向后端写数据。
+      window.poemTankDemo={
+        start:startGame, finish:finishSession,
+        selectPoem:index=>{els.poemSelect.value=String(index);renderPlan();},
+        setSound:value=>{state.sound=!!value;},
+        jumpToStage:index=>{if(state.mode==="intro")startGame();enterStage(index);},
+        completeStage:()=>completeStage(),
+        hitTarget:index=>{const target=state.targets[index];if(target)handleTargetHit(target);},
+        state:()=>({
+          mode:state.mode, stage:state.stageKey, poem:state.mainPoem.title,
+          targets:state.targets.map(target=>({kind:target.kind,text:target.text||target.line||"",correct:!!target.correct,active:!!target.active,complete:!!target.complete,order:target.originalIndex})),
+          enemies:state.enemies.map(enemy=>({x:Number(enemy.x.toFixed(1)),y:Number(enemy.y.toFixed(1)),blocked:collidesObstacle(enemy.x,enemy.y,24),stuck:Number((enemy.stuckTimer||0).toFixed(2))})),
+          answers:state.answers, correct:state.correct, bossHp:state.bossHp,
+          revealed:state.revealed.size, logs:state.logs.length, spoken:[...state.spokenHistory], transitionPending:state.transitionPending,
+          timeLeft:state.timeLeft, stageElapsed:state.stageElapsed, narrationLocked:state.narrationLocked
+        })
+      };
+    })();
+  </script>
+</body>
+</html>
