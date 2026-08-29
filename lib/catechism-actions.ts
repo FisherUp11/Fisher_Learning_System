@@ -59,7 +59,7 @@ export async function importCatechismCollection(_previousState: CatechismFormSta
     const access = await loadAccessContext(supabase, user.id);
     if (!access) throw new Error("当前账号还没有学习空间");
     const learnerIds = [...new Set(formData.getAll("learner_ids").map(String).filter(Boolean))];
-    const title = String(formData.get("collection_title") ?? "儿童信仰问答").trim().slice(0, 120);
+    const title = String(formData.get("collection_title") ?? "要理问答").trim().slice(0, 120);
     const englishTitle = cleanOptional(formData.get("english_title"), 180);
     const sourceNote = cleanOptional(formData.get("source_note"), 500);
     const licenseNote = cleanOptional(formData.get("license_note"), 500);

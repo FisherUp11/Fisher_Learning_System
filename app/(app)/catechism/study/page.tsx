@@ -10,7 +10,7 @@ export default async function CatechismStudyPage({ searchParams }: { searchParam
   const params = await searchParams;
   const supabase = await createClient();
   const { data: learners, error: learnerError } = await supabase.from("learner_profiles").select("id,display_name,timezone,catechism_daily_new_limit,catechism_review_limit").order("created_at");
-  if (learnerError) return <section className="panel"><h1>请先运行信仰问答 SQL</h1><p className="notice"><code>supabase/010_catechism_learning_mvp.sql</code></p><p className="error">{learnerError.message}</p></section>;
+  if (learnerError) return <section className="panel"><h1>请先运行要理问答 SQL</h1><p className="notice"><code>supabase/010_catechism_learning_mvp.sql</code></p><p className="error">{learnerError.message}</p></section>;
   const learner = learners?.find((row) => row.id === params.learner) ?? learners?.[0];
   if (!learner) return <section className="empty panel"><h1>还没有孩子档案</h1><Link className="primary" href="/parent">去创建</Link></section>;
   const today = localDateInTimezone(learner.timezone);

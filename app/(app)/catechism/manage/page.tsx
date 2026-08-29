@@ -3,6 +3,7 @@ import { CatechismCollectionForm } from "@/components/catechism-collection-form"
 import { CatechismImportForm } from "@/components/catechism-import-form";
 import { createClient } from "@/lib/supabase/server";
 import { loadAccessContext } from "@/lib/access";
+import { displayCatechismTitle } from "@/lib/catechism";
 import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
@@ -36,7 +37,10 @@ export default async function CatechismManagePage({ searchParams }: { searchPara
     supabase.from("learner_catechism_collections").select("learner_id,collection_id").eq("assignment_status", "active"),
   ]);
   if (collectionError || itemError) return <section className="panel"><h1>管理页还差数据库脚本</h1><p className="lede">请在 Supabase SQL Editor 整段运行下面的文件，然后刷新。</p><p className="notice"><code>supabase/010_catechism_learning_mvp.sql</code></p><p className="error">{collectionError?.message ?? itemError?.message}</p></section>;
-  const collectionRows = collections ?? [];
+  const collectionRows = (collections ?? []).map((collection) => ({
+    ...collection,
+    title: displayCatechismTitle(collection.title),
+  }));
   const itemRows = items ?? [];
   const selectedCollection = collectionRows.find((row) => row.id === params.collection);
   const query = (params.q ?? "").trim().slice(0, 100);

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { toggleWorkspaceAssignment } from "@/lib/admin-actions";
 import { loadAccessContext } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
+import { displayCatechismTitle } from "@/lib/catechism";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +11,7 @@ const modules = {
   hanzi: { label: "汉字册", table: "content_packages", assignmentTable: "learner_content_packages", resourceKey: "package_id" },
   poem: { label: "诗词册", table: "poem_collections", assignmentTable: "learner_poem_collections", resourceKey: "collection_id" },
   music: { label: "音乐内容", table: "music_items", assignmentTable: "learner_music_items", resourceKey: "item_id" },
-  catechism: { label: "问答册", table: "catechism_collections", assignmentTable: "learner_catechism_collections", resourceKey: "collection_id" },
+  catechism: { label: "要理问答册", table: "catechism_collections", assignmentTable: "learner_catechism_collections", resourceKey: "collection_id" },
 } as const;
 
 export default async function AdminAssignmentsPage({ searchParams }: { searchParams: Promise<{ learner?: string; module?: string }> }) {
@@ -38,7 +39,8 @@ export default async function AdminAssignmentsPage({ searchParams }: { searchPar
       <section className="panel"><div className="library-header"><div><h2>{learner.display_name} · {moduleMeta.label}</h2><p className="library-meta">已分配 {activeIds.size} / {resources?.length ?? 0} 份</p></div></div>
         {!resources?.length ? <p className="notice">还没有可分配的内容，请先到资源库审核并发布。</p> : <div className="assignment-list">{resources.map((resource) => {
           const active = activeIds.has(resource.id);
-          return <article className={active ? "assigned" : ""} key={resource.id}><span>{active ? "✓" : "○"}</span><div><h3>{resource.title}</h3><p>{active ? "正在学习" : "尚未分配"}</p></div><form action={toggleWorkspaceAssignment}><input type="hidden" name="learner_id" value={learner.id} /><input type="hidden" name="resource_type" value={moduleKey} /><input type="hidden" name="resource_id" value={resource.id} /><input type="hidden" name="active" value={String(!active)} /><button className={active ? "secondary compact" : "primary compact"}>{active ? "取消分配" : "分配"}</button></form></article>;
+          const title = moduleKey === "catechism" ? displayCatechismTitle(resource.title) : resource.title;
+          return <article className={active ? "assigned" : ""} key={resource.id}><span>{active ? "✓" : "○"}</span><div><h3>{title}</h3><p>{active ? "正在学习" : "尚未分配"}</p></div><form action={toggleWorkspaceAssignment}><input type="hidden" name="learner_id" value={learner.id} /><input type="hidden" name="resource_type" value={moduleKey} /><input type="hidden" name="resource_id" value={resource.id} /><input type="hidden" name="active" value={String(!active)} /><button className={active ? "secondary compact" : "primary compact"}>{active ? "取消分配" : "分配"}</button></form></article>;
         })}</div>}
       </section>
     </>}

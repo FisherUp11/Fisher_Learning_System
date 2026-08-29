@@ -46,7 +46,7 @@ const moduleLinks = [
   { href: "/learn", label: "汉字学习", description: "一字一字，建立认读记忆", mark: "字" },
   { href: "/poems", label: "诗词背诵", description: "记录背诵次数与掌握评分", mark: "诗" },
   { href: "/music", label: "音乐天地", description: "听、唱、辨音与节奏练习", mark: "乐" },
-  { href: "/catechism", label: "儿童信仰问答", description: "中英双语，一问一答记真理", mark: "问" },
+  { href: "/catechism", label: "要理问答", description: "中英双语，一问一答记真理", mark: "问" },
   { href: "/rewards", label: "小芽贴纸册", description: "认真完成，积累贴纸兑换礼物", mark: "贴" },
 ];
 

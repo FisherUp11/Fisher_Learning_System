@@ -95,6 +95,13 @@ function message(error: { message?: string } | null, fallback: string) {
   return error?.message || fallback;
 }
 
+/**
+ * 兼容早期已经导入数据库的旧标题，只调整展示文字，不修改主键或历史记录。
+ */
+export function displayCatechismTitle(title: string) {
+  return title.replaceAll("儿童信仰问答", "要理问答").replaceAll("信仰问答", "要理问答");
+}
+
 export function localDateInTimezone(timezone = "Asia/Shanghai", date = new Date()) {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: timezone,
@@ -129,7 +136,7 @@ export async function loadCatechismProgress(supabase: SupabaseClient, learnerId:
   const rawItems = ((itemRows ?? []) as ItemRow[]).filter((row) => publishedIds.has(row.collection_id));
   if (!rawItems.length) {
     return {
-      collections: publishedCollections.map((row) => ({ ...row, englishTitle: row.english_title, linkedAt: links.find((link) => link.collection_id === row.id)?.linked_at ?? "" })),
+      collections: publishedCollections.map((row) => ({ ...row, title: displayCatechismTitle(row.title), englishTitle: row.english_title, linkedAt: links.find((link) => link.collection_id === row.id)?.linked_at ?? "" })),
       items: [] as CatechismProgress[],
     };
   }
@@ -144,7 +151,7 @@ export async function loadCatechismProgress(supabase: SupabaseClient, learnerId:
 
   const collections: CatechismCollection[] = publishedCollections.map((row) => ({
     id: row.id,
-    title: row.title,
+    title: displayCatechismTitle(row.title),
     englishTitle: row.english_title,
     status: row.status,
     linkedAt: links.find((link) => link.collection_id === row.id)?.linked_at ?? "",

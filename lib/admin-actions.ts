@@ -97,7 +97,7 @@ const resources = {
   hanzi: { table: "content_packages", label: "汉字册", assignmentTable: "learner_content_packages", resourceKey: "package_id" },
   poem: { table: "poem_collections", label: "诗词册", assignmentTable: "learner_poem_collections", resourceKey: "collection_id" },
   music: { table: "music_items", label: "音乐内容", assignmentTable: "learner_music_items", resourceKey: "item_id" },
-  catechism: { table: "catechism_collections", label: "问答册", assignmentTable: "learner_catechism_collections", resourceKey: "collection_id" },
+  catechism: { table: "catechism_collections", label: "要理问答册", assignmentTable: "learner_catechism_collections", resourceKey: "collection_id" },
 } as const;
 
 export async function reviewWorkspaceResource(formData: FormData) {

@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { CatechismItemForm } from "@/components/catechism-item-form";
 import { createClient } from "@/lib/supabase/server";
 import { loadAccessContext } from "@/lib/access";
+import { displayCatechismTitle } from "@/lib/catechism";
 
 export const dynamic = "force-dynamic";
 type Params = Promise<{ itemId: string }>;
@@ -20,7 +21,7 @@ export default async function CatechismItemEditPage({ params }: { params: Params
   const { data: collection } = await supabase.from("catechism_collections").select("title,english_title").eq("id", item.collection_id).maybeSingle();
   return <div className="catechism-editor-page">
     <Link className="back-link" href={`/catechism/manage?collection=${item.collection_id}`}>← 返回问答管理</Link>
-    <header className="hero"><p className="eyebrow">第 {item.sort_order} 问 · {item.item_key}</p><h1>修正中英文问答</h1><p className="lede">{collection?.title}{collection?.english_title ? ` · ${collection.english_title}` : ""}</p></header>
+    <header className="hero"><p className="eyebrow">第 {item.sort_order} 问 · {item.item_key}</p><h1>修正中英文问答</h1><p className="lede">{collection?.title ? displayCatechismTitle(collection.title) : ""}{collection?.english_title ? ` · ${collection.english_title}` : ""}</p></header>
     <section className="panel"><p className="notice">保存只更新文本和显示状态，不会清除任何孩子已经产生的阶段、练习次数或日期记录。已有练习的问题建议使用“归档”，不要直接从数据库删除。</p><CatechismItemForm item={item} /></section>
   </div>;
 }

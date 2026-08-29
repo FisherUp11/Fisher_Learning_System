@@ -21,7 +21,7 @@ export function CatechismImportForm({ learners, isAdmin = false }: { learners: L
 
   return <form className="catechism-import-form" action={action} ref={formRef}>
     <div className="catechism-form-grid">
-      <label>中文问答册名称<input name="collection_title" defaultValue="儿童信仰问答" required maxLength={120} /></label>
+      <label>中文问答册名称<input name="collection_title" defaultValue="要理问答" required maxLength={120} /></label>
       <label>英文名称<input name="english_title" defaultValue="First Catechism: Biblical Truth for God’s Children" maxLength={180} /></label>
       <label>内容来源<input name="source_note" defaultValue="First Catechism: Biblical Truth for God’s Children" maxLength={500} /></label>
       <label>授权说明<input name="license_note" defaultValue="已获得应用内家庭学习使用授权" maxLength={500} /></label>

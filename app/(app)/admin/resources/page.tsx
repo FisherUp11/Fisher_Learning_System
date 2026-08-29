@@ -3,11 +3,12 @@ import { reviewWorkspaceResource } from "@/lib/admin-actions";
 import { loadAccessContext } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
 import { DuplicateResourceCleanup } from "@/components/duplicate-resource-cleanup";
+import { displayCatechismTitle } from "@/lib/catechism";
 
 export const dynamic = "force-dynamic";
 
 type Resource = { id: string; title: string; status: string; review_status: string; created_at: string; submitted_for_learner_id: string | null; fingerprint: string | null; kind: "hanzi" | "poem" | "music" | "catechism"; preview: string };
-const labels = { hanzi: "汉字册", poem: "诗词册", music: "音乐", catechism: "问答册" } as const;
+const labels = { hanzi: "汉字册", poem: "诗词册", music: "音乐", catechism: "要理问答册" } as const;
 const musicLabels: Record<string, string> = { song: "唱一唱", instrument: "辨声音", rhythm: "打节奏" };
 
 function relationValue(value: unknown, key: string) {
@@ -57,7 +58,7 @@ export default async function AdminResourcesPage() {
     ...(music.data ?? []).map((row) => ({ ...row, kind: "music" as const, preview: `${musicLabels[row.item_type] ?? "音乐"}${row.category ? ` · ${row.category}` : ""}` })),
     ...(catechism.data ?? []).map((row) => {
       const values = (catechismPreviews.get(row.id) ?? []).filter(Boolean);
-      return { ...row, kind: "catechism" as const, preview: `${values.length} 问${values.length ? ` · ${values.slice(0, 3).join("、")}${values.length > 3 ? "…" : ""}` : ""}` };
+      return { ...row, title: displayCatechismTitle(row.title), kind: "catechism" as const, preview: `${values.length} 问${values.length ? ` · ${values.slice(0, 3).join("、")}${values.length > 3 ? "…" : ""}` : ""}` };
     }),
   ].sort((left, right) => right.created_at.localeCompare(left.created_at));
   const fingerprintCounts = resources.reduce((counts, resource) => {

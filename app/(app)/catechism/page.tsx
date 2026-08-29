@@ -38,9 +38,9 @@ export default async function CatechismPage({ searchParams }: { searchParams: Se
   const { data: { user } } = await supabase.auth.getUser();
   const access = user ? await loadAccessContext(supabase, user.id) : null;
   const { data: learners, error: learnerError } = await supabase.from("learner_profiles").select("id,display_name,timezone,catechism_daily_new_limit,catechism_review_limit").order("created_at");
-  if (learnerError) return <section className="panel"><h1>儿童信仰问答还差最后一步</h1><p className="lede">请先在 Supabase SQL Editor 运行数据库脚本，再刷新页面。</p><p className="notice"><code>supabase/010_catechism_learning_mvp.sql</code></p><p className="error">{learnerError.message}</p></section>;
+  if (learnerError) return <section className="panel"><h1>要理问答还差最后一步</h1><p className="lede">请先在 Supabase SQL Editor 运行数据库脚本，再刷新页面。</p><p className="notice"><code>supabase/010_catechism_learning_mvp.sql</code></p><p className="error">{learnerError.message}</p></section>;
   const learner = learners?.find((row) => row.id === params.learner) ?? learners?.[0];
-  if (!learner) return <section className="empty panel"><span className="empty-mark">问</span><h1>先创建孩子档案</h1><p className="lede">创建孩子后，就能分配儿童信仰问答并记录每次背诵。</p><Link className="primary" href="/parent">去家长页</Link></section>;
+  if (!learner) return <section className="empty panel"><span className="empty-mark">问</span><h1>先创建孩子档案</h1><p className="lede">创建孩子后，就能分配要理问答并记录每次背诵。</p><Link className="primary" href="/parent">去家长页</Link></section>;
 
   let loaded: Awaited<ReturnType<typeof loadCatechismProgress>>;
   try {
@@ -68,7 +68,7 @@ export default async function CatechismPage({ searchParams }: { searchParams: Se
   const due = items.filter((item) => item.totalAttempts > 0 && item.nextReviewDate && item.nextReviewDate <= today).length;
 
   return <div>
-    <header className="hero catechism-hero"><p className="eyebrow">Faith & memory</p><h1>儿童信仰问答</h1><p className="lede">中英文一起问，先让孩子口头回答，再揭晓答案。家长判断“背出来了”或“还要再背”，系统负责安排下一次。</p></header>
+    <header className="hero catechism-hero"><p className="eyebrow">Catechism & memory</p><h1>要理问答</h1><p className="lede">中英文一起问，先让孩子口头回答，再揭晓答案。家长判断“背出来了”或“还要再背”，系统负责安排下一次。</p></header>
     <section className="catechism-switch panel">
       <form action="/catechism" method="get" className="learner-switch"><label>查看哪位孩子？<select name="learner" defaultValue={learner.id}>{learners?.map((row) => <option value={row.id} key={row.id}>{row.display_name}</option>)}</select></label><button className="secondary" type="submit">切换</button></form>
     </section>

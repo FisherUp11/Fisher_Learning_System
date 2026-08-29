@@ -33,7 +33,7 @@
 7. 再运行 [supabase/007_queue_count_and_memory_image.sql](./supabase/007_queue_count_and_memory_image.sql)，补齐联想图版本所需的回答函数；后续 `014` 会再升级为按不同汉字统计的动态双确认。
 8. 再运行 [supabase/008_poem_recitation_mvp.sql](./supabase/008_poem_recitation_mvp.sql)，启用诗词册、每次背诵打卡、可选评分和背诵日期记录。
 9. 再运行 [supabase/009_music_learning_mvp.sql](./supabase/009_music_learning_mvp.sql)，启用“唱一唱 / 辨声音 / 打节奏”、孩子分配、每次练习历史和音乐记忆阶段。
-10. 再运行 [supabase/010_catechism_learning_mvp.sql](./supabase/010_catechism_learning_mvp.sql)，启用儿童信仰问答、多问答册、双语内容、每日新问/复习设置和记忆阶段。
+10. 再运行 [supabase/010_catechism_learning_mvp.sql](./supabase/010_catechism_learning_mvp.sql)，启用要理问答、多问答册、双语内容、每日新问/复习设置和记忆阶段。
 11. 再运行 [supabase/011_priority_character_learning.sql](./supabase/011_priority_character_learning.sql)，启用孩子级重点字、跨全部字册优先学习、重点筛选和统计。它不修改答错降级或复习间隔。
 12. 再运行 [supabase/012_reward_sticker_module.sql](./supabase/012_reward_sticker_module.sql)，启用小芽贴纸册、成长星、家长手工贴纸、礼物兑换和撤销。它不修改任何学习模块的复习规则。
 13. 再运行 [supabase/013_fix_get_today_queue_session_id_ambiguity.sql](./supabase/013_fix_get_today_queue_session_id_ambiguity.sql)，修复跨日带入未完成汉字时的 `session_id is ambiguous`；它只替换队列函数，不改学习数据。
@@ -111,7 +111,7 @@ select
 
 若已更新到音乐学习版本，请再运行 [supabase/009_music_learning_mvp.sql](./supabase/009_music_learning_mvp.sql)。它只新增音乐专用表、RLS 和一个练习 RPC，不修改汉字/诗词数据。文件本体放在 Cloudflare R2，数据库仅保存对象键与文件元数据。
 
-若已更新到儿童信仰问答版本，请再运行 [supabase/010_catechism_learning_mvp.sql](./supabase/010_catechism_learning_mvp.sql)。它会给孩子档案增加默认“每天 3 个新问题、最多 10 个到期复习”的独立设置，并新增五张问答专用表、RLS 与 `record_catechism_attempt` RPC；不会修改汉字、诗词或音乐历史。
+若已更新到要理问答版本，请再运行 [supabase/010_catechism_learning_mvp.sql](./supabase/010_catechism_learning_mvp.sql)。它会给孩子档案增加默认“每天 3 个新问题、最多 10 个到期复习”的独立设置，并新增五张问答专用表、RLS 与 `record_catechism_attempt` RPC；不会修改汉字、诗词或音乐历史。
 
 若已更新到汉字重点字版本，请再运行 [supabase/011_priority_character_learning.sql](./supabase/011_priority_character_learning.sql)。它会新增 `learner_character_priorities` 和原子批量保存 RPC，并替换 `get_today_queue` / `get_library_rows` 的当前版本。重点字只改变候选顺序：不会提前于 `due_at` 复习，不会增加每日新字总量，也不会修改 `answer_queue_item` 或已有学习历史。前端和 `011` 必须一起上线，否则“册”会明确提示先运行脚本。
 
@@ -230,7 +230,7 @@ npm run dev
 12. 到“家长”页下载 `poems-template.csv`，用模板中的 3 首先试跑或填入第一批 28 首后上传；在顶部“学习模块”打开“诗词背诵”，点进一首诗，连续点击两次“今天背过一次”，确认页面显示 2 条记录、Supabase `poem_recitation_attempts` 也有同一日期的 2 行。再试一次“暂不评分”，确认该行保留且标为未评分。
 13. 打开“诗境”，选择孩子和一首诗，完成或提前结束一局；确认 `poem_game_sessions` 新增 1 行、`poem_game_attempts` 有逐题记录。家长评分后，原诗词详情页也新增一次带分背诵记录。手机尺寸应自动切到轻量背诗模式。
 14. 按 [Cloudflare R2 保姆级配置教程](./10_Cloudflare_R2保姆级配置教程.md) 创建私有 Bucket、CORS 和 Token；在“学习模块 → 音乐天地 → 家长管理”创建一首测试歌曲，上传 MP3、分配孩子并发布；在孩子页播放后点一次练习结果，确认 `music_practice_attempts` 新增 1 行。
-15. 到“家长 → 儿童信仰问答”下载 CSV 模板，先导入模板中的 2 问并发布；打开“问一问”，确认中英文分别朗读、答案揭晓后才能判断。对同一问连续两次点“背出来了”，确认 `catechism_attempts` 同日保留 2 行但阶段只升级一次；随后“单独练这一问”点“还要再背”，确认历史新增且答错降级一次。
+15. 到“家长 → 要理问答”下载 CSV 模板，先导入模板中的 2 问并发布；打开“问一问”，确认中英文分别朗读、答案揭晓后才能判断。对同一问连续两次点“背出来了”，确认 `catechism_attempts` 同日保留 2 行但阶段只升级一次；随后“单独练这一问”点“还要再背”，确认历史新增且答错降级一次。
 16. 打开“奖励管理”，新增一个 10 枚贴纸的测试礼物；完成当天全部汉字卡，确认仅出现一次贴纸庆祝且 `reward_ledger` 只有一条当天 `hanzi_daily`。同一首诗当天打卡两次应只加一颗成长星；同一首歌仅听不加星；每天第三个不同的诗词/音乐项目保存练习但不再加星。累计三颗星后应自动发 1 枚贴纸。
 17. 在“奖励管理”给今天的数学作业加 1 枚，再重复提交，余额只能增加一次；测试一次礼物兑换，确认扣除正确，再点撤销，确认余额返还且原兑换记录显示“已撤销”。完整验收见 [小芽贴纸册说明](./13_奖励贴纸模块说明.md)。
 18. 用旧账号打开“学习空间”，确认它是 owner，旧孩子、字册和历史数量没有变少。
@@ -308,7 +308,7 @@ from public.learner_poem_line_states order by updated_at desc limit 20;
 
 如果表能查询但网页仍提示 schema cache，等待十几秒后刷新，并确认 Supabase Data API 暴露 `public` schema。`018` 已显式给 `authenticated` 最小读取和函数执行权限。
 
-### 信仰问答页提示缺少表、列或 RPC
+### 要理问答页提示缺少表、列或 RPC
 
 完整运行 [supabase/010_catechism_learning_mvp.sql](./supabase/010_catechism_learning_mvp.sql)，不要只运行建表部分。运行后可在 SQL Editor 检查：
 
@@ -370,7 +370,7 @@ column reference "session_id" is ambiguous
 - 识字：`content_packages`、`characters`、`package_characters`、`learner_profiles`、`learning_states`、`learning_attempts`、`daily_sessions`、`daily_session_items`、`daily_character_progress`；
 - 诗词：`poem_collections`、`poems`、`learner_poem_collections`、`poem_recitation_attempts`；
 - 音乐：`music_items`、`music_assets`、`learner_music_items`、`music_learning_states`、`music_practice_attempts`；
-- 信仰问答：`catechism_collections`、`catechism_items`、`learner_catechism_collections`、`catechism_learning_states`、`catechism_attempts`。
+- 要理问答：`catechism_collections`、`catechism_items`、`learner_catechism_collections`、`catechism_learning_states`、`catechism_attempts`。
 - 奖励：`reward_accounts`、`reward_ledger`、`reward_growth_events`、`reward_catalog_items`、`reward_redemptions`。
 - 空间与用户：`learning_workspaces`、`workspace_members`、`workspace_user_profiles`、`families`、`family_members`、`workspace_invitations`、`workspace_audit_events`。
 
