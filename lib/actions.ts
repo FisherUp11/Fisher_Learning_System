@@ -609,6 +609,17 @@ export async function importPoems(formData: FormData) {
     .single();
   if (collectionError || !collection) throw new Error(collectionError?.message ?? "创建诗词册失败");
 
+  const failPoemImport = async (message: string): Promise<never> => {
+    const { error: cleanupError } = await supabase
+      .from("poem_collections")
+      .delete()
+      .eq("id", collection.id);
+    if (cleanupError) {
+      throw new Error(`${message}；自动清理未完成诗词册时也失败：${cleanupError.message}`);
+    }
+    throw new Error(`${message}；系统已自动清理本次未完成的诗词册，可以安全地重新上传同一份 CSV`);
+  };
+
   const imported: Array<{ id: string; poem_key: string }> = [];
   for (let index = 0; index < poems.length; index += 100) {
     const batch = poems.slice(index, index + 100);
@@ -618,7 +629,7 @@ export async function importPoems(formData: FormData) {
       .select("id,poem_key")
       .eq("workspace_id", access.workspaceId)
       .in("poem_key", keys);
-    if (existingError) throw new Error(existingError.message);
+    if (existingError) await failPoemImport(existingError.message);
     imported.push(...(existing ?? []));
     const existingKeys = new Set((existing ?? []).map((poem) => poem.poem_key));
     const missing = batch.filter((poem) => !existingKeys.has(poem.poem_key));
@@ -636,20 +647,20 @@ export async function importPoems(formData: FormData) {
         updated_at: new Date().toISOString(),
       })))
       .select("id,poem_key");
-    if (error) throw new Error(error.message);
+    if (error) await failPoemImport(error.message);
     imported.push(...(data ?? []));
   }
   const idsByKey = new Map(imported.map((poem) => [poem.poem_key, poem.id]));
   const items = poems.map((poem) => ({ collection_id: collection.id, poem_id: idsByKey.get(poem.poem_key), sequence: poem.sequence }));
-  if (items.some((item) => !item.poem_id)) throw new Error("导入后无法找到部分诗词，请重新上传");
+  if (items.some((item) => !item.poem_id)) await failPoemImport("导入后无法找到部分诗词");
   const { error: itemError } = await supabase.from("poem_collection_items").insert(items);
-  if (itemError) throw new Error(itemError.message);
+  if (itemError) await failPoemImport(`诗词目录关联失败：${itemError.message}`);
 
   if (access.isAdmin) {
     const { error: linkError } = await supabase
       .from("learner_poem_collections")
       .upsert({ learner_id: learnerId, collection_id: collection.id, assigned_by: user.id, assignment_status: "active", unassigned_at: null });
-    if (linkError) throw new Error(`诗词册已创建，但无法关联到孩子：${linkError.message}`);
+    if (linkError) await failPoemImport(`诗词册无法关联到孩子：${linkError.message}`);
   }
 
   revalidatePath("/parent");
