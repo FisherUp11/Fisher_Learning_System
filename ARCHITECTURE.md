@@ -42,6 +42,9 @@ flowchart TB
 | `app/(app)/library/page.tsx` | 全字册掌握统计、服务端筛选与分页 | `get_library_rows` 的参数/返回字段必须与最新 SQL 同步。 |
 | `components/library-priority-manager.tsx` | 本页重点字勾选、批量保存反馈与字卡详情 | 只提交选择，不计算复习日或阶段。 |
 | `app/(app)/parent/page.tsx` | 家长档案、导入、基础进度 | 所有写入走 `lib/actions.ts`。 |
+| `components/feedback-form.tsx` | 关键保存、导入确认、处理中防连点、成功弹窗和失败反馈 | 禁用字段前捕获 `FormData`；失败不清空用户填写内容；真实成功由 Action 返回值确认。 |
+| `lib/import-safety.ts` | 汉字/诗词/问答 CSV 指纹检查、稳定导入标识、未完成草稿重试 | 使用当前用户 RLS；复用现有唯一约束，不自动删除历史重复资源。 |
+| `components/app-shell.tsx` / `components/app-shell.module.css` | 原有顶部/底部导航及即时加载反馈 | 按悬停、焦点、触摸意图预取目标，避免预取全部模块。 |
 | `app/(app)/admin/*` | 空间看板、资源审核、按孩子分配；`users/members` 为 owner 专属 | 页面、Action、RLS/RPC 都要验证角色，不只隐藏入口。 |
 | `app/account/change-password/page.tsx` | 临时密码首次登录后的强制改密 | 成功修改 Auth 密码后才清除 `must_change_password`。 |
 | `app/forgot-password/page.tsx` / `components/forgot-password-form.tsx` | 公开的密码恢复申请与 60 秒防重复提交 | 统一返回结果，不查询或泄露邮箱是否已注册。 |
@@ -57,6 +60,7 @@ flowchart TB
 | `app/api/ai/poem-game-map/route.ts` | 校验孩子/诗词分配后生成并缓存诗意地图 | Azure 不可用时返回稳定降级，不决定答案或评分。 |
 | `components/poem-recitation-form.tsx` | “今天背过一次”可重复打卡表单 | 不在客户端合并同日点击。 |
 | `app/(app)/music/page.tsx` | 音乐总览、孩子切换、类型筛选与建议 | 只展示数据库已计算的阶段和到期日。 |
+| `components/music-playlist.tsx` / `app/api/music/playlist-audio/route.ts` | 当前孩子多首歌曲的列表循环、控制与私有音频地址更新 | 播放器不创建练习历史；每次取音频验证孩子、歌曲分配、发布/审核状态，服务端签名后跳转 R2。 |
 | `app/(app)/music/[itemId]/page.tsx` | 播放、歌词/琴谱、辨音揭晓、结果打卡与历史 | 读取 R2 文件前必须验证孩子已被分配。 |
 | `app/(app)/music/manage/*` | 家长内容创建、编辑、发布、孩子分配与媒体维护 | 删除内容/资源是破坏性操作，保留二次确认。 |
 | `app/(app)/catechism/page.tsx` | 问答册概览、掌握状态、来源筛选、搜索与分页 | 汇总所有已分配问答册；不在页面计算新的学习阶段。 |
@@ -300,6 +304,8 @@ sequenceDiagram
 ## 7. Next.js 与认证边界
 
 - Server Component 默认读取数据；页面在 `(app)` 路由组内，layout 用 `auth.getUser()` 拦截未登录访问。
+- `createClient` 与 `loadAccessContext` 使用 React `cache()` 仅在当前服务端渲染请求内复用客户端和权限读取。不能改为跨请求的全局 Map、持久缓存或 `use cache`，避免账号 Cookie 和权限串用；新请求仍重新验证权限。
+- `AppShell` 通过 `onNavigate + useTransition` 显示目标页打开状态，同一目标等待中避免重复导航；保留正常链接地址和新标签打开方式。预取只在悬停、聚焦或触摸时触发，并在短时间内去重；`loading.tsx` 提供服务端读取期间的页面占位。
 - `proxy.ts` 每个请求刷新 Supabase SSR cookie，会话响应强制 `Cache-Control: private, no-store`。
 - `/auth/callback` 服务于注册/邀请，并兼容旧版 recovery 模板；`/auth/recovery` 专门验证密码恢复。新版 Recovery 邮件模板使用 `SiteURL + /auth/recovery + TokenHash`，不把 token 写日志或数据库。
 - 忘记密码前端直接调用 Supabase `resetPasswordForEmail`，不传入当前浏览器的 `redirectTo`；邮件链接统一由模板从正式 `SiteURL` 构造。Supabase Auth 通过 Resend Custom SMTP 发信；前端、Vercel 和浏览器都不持有 Resend API Key。
@@ -310,6 +316,12 @@ sequenceDiagram
 - `/api/speech`、`/api/ai/*` 都先校验登录，并且只在服务器读取 Azure 变量。
 - `/api/music/assets/upload-url` 在 Node.js Route Handler 中校验登录、内容归属、MIME 与大小，再返回单个对象的短时 PUT URL。
 - R2 SDK 只在签名/删除时延迟初始化；因此未配置 R2 时仍可构建、登录并使用汉字/诗词模块。
+
+### 关键保存与 CSV 导入反馈
+
+`FeedbackForm` 沿用现有字段与布局，在用户提交时先捕获完整 `FormData`，再禁用字段；导入先打开包含名称、文件、孩子的确认对话框。同步 ref 锁阻止连点，等待超过 8 秒会继续显示“仍在处理中”，不自动发起第二次写入。成功或重复内容通过弹窗确认，错误保留表单内容供修正或重试。普通学习打卡仍遵循原有“每次练习独立记录”规则，不能使用 CSV 去重策略合并学习历史。
+
+三类 CSV 导入通过内容指纹检查当前 RLS 可见的已有资源，并为同账号相同内容生成稳定 `code`；现有 `UNIQUE(created_by, code)` 约束处理同账号并发重试。新资源先为导入草稿，内容完整后才审核/发布；同一用户、同一稳定标识的未完成草稿允许重试补齐。已完成资源不重复新建；分配和审核仍使用原有权限。跨账号不可见资源、不同版本文本或真实不同内容不应被模糊匹配合并。旧重复数据和历史半成品不自动删除，管理员按资源管理提示处理。本轮无需新增数据库表、SQL 或环境变量。
 
 ## 8. 环境变量与部署边界
 
@@ -345,7 +357,7 @@ sequenceDiagram
 ### 诗词背诵记录（当前已实现）
 
 - 诗词模块目前是独立的“内容 + 记录”模型：`poem_recitation_attempts` 允许同日多行，`recited_local_date` 是孩子时区的真实练习日期，`score` 可为 null。
-- 首次和后续 CSV 都会创建独立诗词册并关联到所选孩子；页面默认汇总所有导入批次，并可按来源筛选。
+- 首次和后续新增内容会创建来源诗词册并按权限关联到所选孩子；相同内容优先复用已有诗词册，避免重复导入。页面默认汇总全部批次，并可按来源筛选。
 - `018` 新增独立诗词游戏场次、逐题事实、逐句状态和地图缓存；仍没有把诗词接入汉字的 `get_today_queue` / `answer_queue_item`，这是刻意的边界。
 - `record_poem_game_result` 原子写入整局证据并计算逐句 `mastery_score/next_due_at`；游戏帧循环不访问数据库。`rate_poem_game_session` 才把家长 1–10 分写回原有背诵记录，并保持幂等。
 - AI 地图 Route Handler 先验证当前会话、孩子和已分配诗词，再读取 Azure 变量；生成失败时使用本地稳定蓝图。AI 不产生标准答案、不判断孩子会不会背。
@@ -355,6 +367,8 @@ sequenceDiagram
 
 - 内容类型为 `song / instrument / rhythm`，分别对应“唱一唱 / 辨声音 / 打节奏”。封面、乐器图和节奏谱都可空；歌曲可维护最多 5 张统一命名的“琴谱”。
 - 每条内容当前只保留 1 个主音频：一条辨音记录对应一种要辨认的声音。如果有两个 MP3 要检查两种声音，应建立两条辨音内容，让各自拥有独立的记忆阶段和历史。播放器会循环播放当前音频。
+- 音乐总览的“全部 / 唱一唱”增加多选歌单，按勾选顺序列表循环；歌单只保存在当前页面内存，切换孩子或离开页面会停止播放。更改勾选后需点击“播放所选，更新歌单”才替换当前播放队列。
+- 歌单复用一个 `<audio>` 元素。每次切歌请求 `/api/music/playlist-audio`，服务器校验当前孩子的有效分配及歌曲已发布、已审核，再以不可缓存的 307 跳转到短时 R2 签名地址；避免长时间循环后沿用过期签名。播放失败可重试本首或跳过，不能自动记为练习成功。
 - 歌曲结果有“只听过 / 跟着唱 / 提示下会唱 / 独立会唱”；只听过不升阶。辨音与节奏采用二值结果，答错降两级并第二天再练。
 - 阶段 0–7 的正向间隔为 1/1/3/7/14/30/60/90 天；阶段 7 再次成功后间隔 180 天。该算法是家庭学习建议，不是音乐能力评价。
 - 每次点击都追加 `music_practice_attempts`；同一天练习多次就有多行。乐器实际猜测放在可选 `guess_note`，不强制填写。

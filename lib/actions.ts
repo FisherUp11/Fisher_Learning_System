@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { createClient } from "@/lib/supabase/server";
 import { claimHanziCompletionReward, registerActivityReward } from "@/lib/reward-service";
 import { loadAccessContext } from "@/lib/access";
+import { checkImportWrite, existingImportMessage, finishImportCollection, importFailure, ImportProblem, prepareImportCollection, type ImportResult } from "@/lib/import-safety";
 
 export type Learner = {
   id: string;
@@ -419,6 +420,7 @@ function parseCsv(text: string): string[][] {
     }
     cell += char;
   }
+  if (quoted) throw new ImportProblem("CSV 中有未闭合的双引号，请修正后再导入");
   row.push(cell.trim());
   if (row.some(Boolean)) rows.push(row);
   return rows;
@@ -428,243 +430,261 @@ function pick(record: Record<string, string>, key: string) {
   return (record[key] ?? "").trim();
 }
 
-export async function importCharacters(formData: FormData) {
-  const { supabase, user } = await authenticatedClient();
-  const access = await loadAccessContext(supabase, user.id);
-  if (!access) throw new Error("当前账号还没有学习空间");
-  const learnerId = String(formData.get("learner_id") ?? "");
-  const title = String(formData.get("package_title") ?? "学前识字包").trim().slice(0, 60);
-  const file = formData.get("csv_file");
-  if (!learnerId || !(file instanceof File) || file.size === 0) throw new Error("请选择孩子并上传 CSV 文件");
-  if (file.size > 2_000_000) throw new Error("CSV 请控制在 2MB 内");
+export async function importCharacters(formData: FormData): Promise<ImportResult> {
+  try {
+    const { supabase, user } = await authenticatedClient();
+    const access = await loadAccessContext(supabase, user.id);
+    if (!access) throw new ImportProblem("当前账号还没有学习空间");
+    const learnerId = String(formData.get("learner_id") ?? "");
+    const title = String(formData.get("package_title") ?? "学前识字包").trim().slice(0, 60);
+    const file = formData.get("csv_file");
+    if (!learnerId || !(file instanceof File) || file.size === 0) throw new ImportProblem("请选择孩子并上传 CSV 文件");
+    if (!title) throw new ImportProblem("请填写学习包名称");
+    if (file.size > 2_000_000) throw new ImportProblem("CSV 请控制在 2MB 内");
 
-  const rows = parseCsv(await file.text());
-  if (rows.length < 2) throw new Error("CSV 至少应包含表头和一行汉字");
-  const headers = rows[0].map((header) => header.replace(/^\uFEFF/, "").trim());
-  for (const required of ["character", "pinyin_marked", "meaning"]) {
-    if (!headers.includes(required)) throw new Error(`CSV 缺少必填列：${required}`);
-  }
-  const seen = new Set<string>();
-  const characters: ParsedCharacter[] = rows.slice(1).map((cells, index) => {
-    const record = Object.fromEntries(headers.map((header, cellIndex) => [header, cells[cellIndex] ?? ""]));
-    const character = pick(record, "character");
-    const pinyinMarked = pick(record, "pinyin_marked");
-    const meaning = pick(record, "meaning");
-    if (!/^[\u3400-\u9fff]$/u.test(character)) throw new Error(`第 ${index + 2} 行：character 必须是一个汉字`);
-    if (!pinyinMarked || !meaning) throw new Error(`第 ${index + 2} 行：拼音和释义不能为空`);
-    if (seen.has(character)) throw new Error(`第 ${index + 2} 行：汉字“${character}”重复`);
-    seen.add(character);
-    const suppliedSequence = Number(pick(record, "sequence"));
-    return {
-      character,
-      pinyin_marked: pinyinMarked,
-      meaning,
-      word_one: pick(record, "word_1") || null,
-      word_two: pick(record, "word_2") || null,
-      example_sentence: pick(record, "example_sentence") || null,
-      sequence: Number.isFinite(suppliedSequence) && suppliedSequence > 0 ? Math.floor(suppliedSequence) : index + 1,
-    };
-  });
-
-  const { data: learner, error: learnerError } = await supabase
-    .from("learner_profiles")
-    .select("id")
-    .eq("id", learnerId)
-    .single();
-  if (learnerError || !learner) throw new Error("找不到这个孩子档案");
-
-  const code = `package-${Date.now()}`;
-  const fingerprint = createHash("sha256")
-    .update(characters.map((item) => [item.character, item.pinyin_marked, item.meaning, item.word_one ?? "", item.word_two ?? "", item.example_sentence ?? "", item.sequence].join("|")).join("\n"))
-    .digest("hex");
-  const { data: packageRow, error: packageError } = await supabase
-    .from("content_packages")
-    .insert({
-      created_by: user.id,
-      workspace_id: access.workspaceId,
-      submitted_for_learner_id: learnerId,
-      code,
-      title,
-      status: access.isAdmin ? "published" : "draft",
-      review_status: access.isAdmin ? "approved" : "pending_review",
-      fingerprint,
-      approved_by: access.isAdmin ? user.id : null,
-      approved_at: access.isAdmin ? new Date().toISOString() : null,
-    })
-    .select("id")
-    .single();
-  if (packageError || !packageRow) throw new Error(packageError?.message ?? "创建学习包失败");
-
-  const imported: Array<{ id: string; character: string }> = [];
-  for (let index = 0; index < characters.length; index += 100) {
-    const batch = characters.slice(index, index + 100);
-    const { data: existing, error: existingError } = await supabase
-      .from("characters")
-      .select("id,character")
-      .eq("workspace_id", access.workspaceId)
-      .in("character", batch.map((item) => item.character));
-    if (existingError) throw new Error(existingError.message);
-    const existingInBatch = existing ?? [];
-    imported.push(...existingInBatch);
-    const existingCharacters = new Set(existingInBatch.map((item) => item.character));
-    const missing = batch.filter((item) => !existingCharacters.has(item.character));
-    if (missing.length) {
-      const { data, error } = await supabase.from("characters").insert(missing.map((item) => ({
-        created_by: user.id,
-        workspace_id: access.workspaceId,
-        character: item.character,
-        pinyin_marked: item.pinyin_marked,
-        meaning: item.meaning,
-        word_one: item.word_one,
-        word_two: item.word_two,
-        example_sentence: item.example_sentence,
-      }))).select("id,character");
-      if (error) throw new Error(error.message);
-      imported.push(...(data ?? []));
+    const rows = parseCsv(await file.text());
+    if (rows.length < 2) throw new ImportProblem("CSV 至少应包含表头和一行汉字");
+    const headers = rows[0].map((header) => header.replace(/^\uFEFF/, "").trim());
+    for (const required of ["character", "pinyin_marked", "meaning"]) {
+      if (!headers.includes(required)) throw new ImportProblem(`CSV 缺少必填列：${required}`);
     }
-  }
-  const idsByCharacter = new Map(imported.map((item) => [item.character, item.id]));
-  const joins = characters.map((item) => ({ package_id: packageRow.id, character_id: idsByCharacter.get(item.character), sequence: item.sequence }));
-  if (joins.some((item) => !item.character_id)) throw new Error("导入后无法找到部分汉字，请重新上传");
-  const { error: joinError } = await supabase.from("package_characters").insert(joins);
-  if (joinError) throw new Error(joinError.message);
+    const seen = new Set<string>();
+    const seenSequences = new Set<number>();
+    const characters: ParsedCharacter[] = rows.slice(1).map((cells, index) => {
+      const record = Object.fromEntries(headers.map((header, cellIndex) => [header, cells[cellIndex] ?? ""]));
+      const character = pick(record, "character");
+      const pinyinMarked = pick(record, "pinyin_marked");
+      const meaning = pick(record, "meaning");
+      if (!/^[\u3400-\u9fff]$/u.test(character)) throw new ImportProblem(`第 ${index + 2} 行：character 必须是一个汉字`);
+      if (!pinyinMarked || !meaning) throw new ImportProblem(`第 ${index + 2} 行：拼音和释义不能为空`);
+      if (pinyinMarked.length > 40 || meaning.length > 100) throw new ImportProblem(`第 ${index + 2} 行：拼音最多 40 字，释义最多 100 字`);
+      if (seen.has(character)) throw new ImportProblem(`第 ${index + 2} 行：汉字“${character}”重复`);
+      seen.add(character);
+      const suppliedSequence = Number(pick(record, "sequence"));
+      const sequence = Number.isFinite(suppliedSequence) && suppliedSequence > 0 ? Math.floor(suppliedSequence) : index + 1;
+      if (seenSequences.has(sequence)) throw new ImportProblem(`第 ${index + 2} 行：sequence“${sequence}”重复，请为每个字填写不同顺序`);
+      seenSequences.add(sequence);
+      return {
+        character,
+        pinyin_marked: pinyinMarked,
+        meaning,
+        word_one: pick(record, "word_1") || null,
+        word_two: pick(record, "word_2") || null,
+        example_sentence: pick(record, "example_sentence") || null,
+        sequence,
+      };
+    });
 
-  if (access.isAdmin) {
-    const { error: packageLinkError } = await supabase
-      .from("learner_content_packages")
-      .upsert({ learner_id: learnerId, package_id: packageRow.id, assigned_by: user.id, assignment_status: "active", unassigned_at: null });
-    if (packageLinkError) throw new Error(`字册已创建，但无法关联到孩子：${packageLinkError.message}`);
-    const { error: updateError } = await supabase.from("learner_profiles").update({ active_package_id: packageRow.id }).eq("id", learnerId);
-    if (updateError) throw new Error(updateError.message);
+    const { data: learner, error: learnerError } = await supabase
+      .from("learner_profiles")
+      .select("id,families!inner(workspace_id)")
+      .eq("id", learnerId)
+      .eq("families.workspace_id", access.workspaceId)
+      .single();
+    if (learnerError || !learner) throw new ImportProblem("找不到有权限导入的孩子档案");
+
+    const hashCharacters = (items: ParsedCharacter[]) => createHash("sha256").update(items.map((item) => [item.character, item.pinyin_marked, item.meaning, item.word_one ?? "", item.word_two ?? "", item.example_sentence ?? "", item.sequence].join("|")).join("\n")).digest("hex");
+    const prepared = await prepareImportCollection({
+      supabase, table: "content_packages", itemTable: "package_characters", itemForeignKey: "package_id",
+      workspaceId: access.workspaceId, userId: user.id, expectedCount: characters.length,
+      fingerprint: hashCharacters([...characters].sort((a, b) => a.sequence - b.sequence)), legacyFingerprint: hashCharacters(characters),
+      values: {
+        submitted_for_learner_id: learnerId,
+        title,
+      },
+    });
+    let packageRow = prepared.collection;
+
+    if (!prepared.complete) {
+      const imported: Array<{ id: string; character: string }> = [];
+      for (let index = 0; index < characters.length; index += 100) {
+        const batch = characters.slice(index, index + 100);
+        const { data: existing, error: existingError } = await supabase
+          .from("characters")
+          .select("id,character")
+          .eq("workspace_id", access.workspaceId)
+          .in("character", batch.map((item) => item.character));
+        checkImportWrite(existingError, "检查汉字内容失败");
+        const existingInBatch = existing ?? [];
+        imported.push(...existingInBatch);
+        const existingCharacters = new Set(existingInBatch.map((item) => item.character));
+        const missing = batch.filter((item) => !existingCharacters.has(item.character));
+        if (missing.length) {
+          const { error } = await supabase.from("characters").upsert(missing.map((item) => ({
+            created_by: user.id,
+            workspace_id: access.workspaceId,
+            character: item.character,
+            pinyin_marked: item.pinyin_marked,
+            meaning: item.meaning,
+            word_one: item.word_one,
+            word_two: item.word_two,
+            example_sentence: item.example_sentence,
+          })), { onConflict: "workspace_id,character", ignoreDuplicates: true });
+          checkImportWrite(error, "保存汉字内容失败");
+          const { data: saved, error: savedError } = await supabase.from("characters").select("id,character")
+            .eq("workspace_id", access.workspaceId).in("character", missing.map((item) => item.character));
+          checkImportWrite(savedError, "检查已保存汉字失败");
+          imported.push(...(saved ?? []));
+        }
+      }
+      const idsByCharacter = new Map(imported.map((item) => [item.character, item.id]));
+      const joins = characters.map((item) => ({ package_id: packageRow.id, character_id: idsByCharacter.get(item.character), sequence: item.sequence }));
+      if (joins.some((item) => !item.character_id)) throw new ImportProblem("导入后无法找到部分汉字，请用同一份文件重试");
+      const { error: joinError } = await supabase.from("package_characters").upsert(joins, { onConflict: "package_id,character_id", ignoreDuplicates: true });
+      checkImportWrite(joinError, "保存字册目录失败");
+    }
+    if (prepared.resumable) packageRow = await finishImportCollection(supabase, "content_packages", packageRow, access.isAdmin, access.isAdmin, user.id);
+
+    const canAssign = access.isAdmin && packageRow.status === "published" && packageRow.review_status === "approved";
+    if (canAssign) {
+      const { error: packageLinkError } = await supabase
+        .from("learner_content_packages")
+        .upsert({ learner_id: learnerId, package_id: packageRow.id, assigned_by: user.id, assignment_status: "active", unassigned_at: null });
+      checkImportWrite(packageLinkError, "字册已保存，但关联孩子失败");
+      const { error: updateError } = await supabase.from("learner_profiles").update({ active_package_id: packageRow.id }).eq("id", learnerId);
+      checkImportWrite(updateError, "字册已保存，但设置当前字册失败");
+    }
+    revalidatePath("/learn");
+    revalidatePath("/parent");
+    revalidatePath("/library");
+    revalidatePath("/admin");
+    revalidatePath("/admin/resources");
+    revalidatePath("/admin/assignments");
+    return prepared.complete && !prepared.resumable
+      ? { status: "duplicate", message: existingImportMessage(packageRow, canAssign, "字册") }
+      : { status: "success", message: canAssign ? `已成功导入 ${characters.length} 个汉字，并关联到所选孩子。` : `已提交 ${characters.length} 个汉字，等待管理员审核和分配。` };
+  } catch (error) {
+    return importFailure(error);
   }
-  revalidatePath("/learn");
-  revalidatePath("/parent");
-  revalidatePath("/library");
 }
 
-export async function importPoems(formData: FormData) {
-  const { supabase, user } = await authenticatedClient();
-  const access = await loadAccessContext(supabase, user.id);
-  if (!access) throw new Error("当前账号还没有学习空间");
-  const learnerId = String(formData.get("learner_id") ?? "");
-  const title = String(formData.get("poem_collection_title") ?? "第一批古诗词").trim().slice(0, 80);
-  const file = formData.get("poem_csv_file");
-  if (!learnerId || !(file instanceof File) || file.size === 0) throw new Error("请选择孩子并上传诗词 CSV 文件");
-  if (!title) throw new Error("请填写诗词册名称");
-  if (file.size > 2_000_000) throw new Error("CSV 请控制在 2MB 内");
+export async function importPoems(formData: FormData): Promise<ImportResult> {
+  try {
+    const { supabase, user } = await authenticatedClient();
+    const access = await loadAccessContext(supabase, user.id);
+    if (!access) throw new ImportProblem("当前账号还没有学习空间");
+    const learnerId = String(formData.get("learner_id") ?? "");
+    const title = String(formData.get("poem_collection_title") ?? "第一批古诗词").trim().slice(0, 80);
+    const file = formData.get("poem_csv_file");
+    if (!learnerId || !(file instanceof File) || file.size === 0) throw new ImportProblem("请选择孩子并上传诗词 CSV 文件");
+    if (!title) throw new ImportProblem("请填写诗词册名称");
+    if (file.size > 2_000_000) throw new ImportProblem("CSV 请控制在 2MB 内");
 
-  const rows = parseCsv(await file.text());
-  if (rows.length < 2) throw new Error("CSV 至少应包含表头和一首诗词");
-  const headers = rows[0].map((header) => header.replace(/^\uFEFF/, "").trim());
-  for (const required of ["poem_key", "title", "author", "content"]) {
-    if (!headers.includes(required)) throw new Error(`CSV 缺少必填列：${required}`);
-  }
-
-  const seen = new Set<string>();
-  const poems: ParsedPoem[] = rows.slice(1).map((cells, index) => {
-    const record = Object.fromEntries(headers.map((header, cellIndex) => [header, cells[cellIndex] ?? ""]));
-    const poemKey = pick(record, "poem_key");
-    const poemTitle = pick(record, "title");
-    const author = pick(record, "author");
-    const dynasty = pick(record, "dynasty") || null;
-    const content = pick(record, "content").replace(/\\n/g, "\n");
-    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(poemKey)) throw new Error(`第 ${index + 2} 行：poem_key 只能使用字母、数字、下划线或短横线`);
-    if (!poemTitle || !author || !content) throw new Error(`第 ${index + 2} 行：标题、作者和正文不能为空`);
-    if (poemTitle.length > 80 || author.length > 50 || (dynasty?.length ?? 0) > 30 || content.length > 4000) throw new Error(`第 ${index + 2} 行：有字段超过长度限制`);
-    if (seen.has(poemKey)) throw new Error(`第 ${index + 2} 行：poem_key“${poemKey}”重复`);
-    seen.add(poemKey);
-    const suppliedSequence = Number(pick(record, "sequence"));
-    return {
-      poem_key: poemKey,
-      title: poemTitle,
-      author,
-      dynasty,
-      content,
-      sequence: Number.isFinite(suppliedSequence) && suppliedSequence > 0 ? Math.floor(suppliedSequence) : index + 1,
-    };
-  });
-
-  const { data: learner, error: learnerError } = await supabase
-    .from("learner_profiles")
-    .select("id")
-    .eq("id", learnerId)
-    .single();
-  if (learnerError || !learner) throw new Error("找不到这个孩子档案");
-
-  const { data: collection, error: collectionError } = await supabase
-    .from("poem_collections")
-    .insert({
-      created_by: user.id,
-      workspace_id: access.workspaceId,
-      submitted_for_learner_id: learnerId,
-      code: `poems-${Date.now()}`,
-      title,
-      status: access.isAdmin ? "published" : "draft",
-      review_status: access.isAdmin ? "approved" : "pending_review",
-      fingerprint: createHash("sha256").update(poems.map((poem) => [poem.poem_key, poem.title, poem.author, poem.dynasty ?? "", poem.content, poem.sequence].join("|")).join("\n")).digest("hex"),
-      approved_by: access.isAdmin ? user.id : null,
-      approved_at: access.isAdmin ? new Date().toISOString() : null,
-    })
-    .select("id")
-    .single();
-  if (collectionError || !collection) throw new Error(collectionError?.message ?? "创建诗词册失败");
-
-  const failPoemImport = async (message: string): Promise<never> => {
-    const { error: cleanupError } = await supabase
-      .from("poem_collections")
-      .delete()
-      .eq("id", collection.id);
-    if (cleanupError) {
-      throw new Error(`${message}；自动清理未完成诗词册时也失败：${cleanupError.message}`);
+    const rows = parseCsv(await file.text());
+    if (rows.length < 2) throw new ImportProblem("CSV 至少应包含表头和一首诗词");
+    const headers = rows[0].map((header) => header.replace(/^\uFEFF/, "").trim());
+    for (const required of ["poem_key", "title", "author", "content"]) {
+      if (!headers.includes(required)) throw new ImportProblem(`CSV 缺少必填列：${required}`);
     }
-    throw new Error(`${message}；系统已自动清理本次未完成的诗词册，可以安全地重新上传同一份 CSV`);
-  };
 
-  const imported: Array<{ id: string; poem_key: string }> = [];
-  for (let index = 0; index < poems.length; index += 100) {
-    const batch = poems.slice(index, index + 100);
-    const keys = batch.map((poem) => poem.poem_key);
-    const { data: existing, error: existingError } = await supabase
-      .from("poems")
-      .select("id,poem_key")
-      .eq("workspace_id", access.workspaceId)
-      .in("poem_key", keys);
-    if (existingError) await failPoemImport(existingError.message);
-    imported.push(...(existing ?? []));
-    const existingKeys = new Set((existing ?? []).map((poem) => poem.poem_key));
-    const missing = batch.filter((poem) => !existingKeys.has(poem.poem_key));
-    if (!missing.length) continue;
-    const { data, error } = await supabase
-      .from("poems")
-      .insert(missing.map((poem) => ({
-        created_by: user.id,
-        workspace_id: access.workspaceId,
-        poem_key: poem.poem_key,
-        title: poem.title,
-        author: poem.author,
-        dynasty: poem.dynasty,
-        content: poem.content,
-        updated_at: new Date().toISOString(),
-      })))
-      .select("id,poem_key");
-    if (error) await failPoemImport(error.message);
-    imported.push(...(data ?? []));
+    const seen = new Set<string>();
+    const seenSequences = new Set<number>();
+    const poems: ParsedPoem[] = rows.slice(1).map((cells, index) => {
+      const record = Object.fromEntries(headers.map((header, cellIndex) => [header, cells[cellIndex] ?? ""]));
+      const poemKey = pick(record, "poem_key");
+      const poemTitle = pick(record, "title");
+      const author = pick(record, "author");
+      const dynasty = pick(record, "dynasty") || null;
+      const content = pick(record, "content").replace(/\\n/g, "\n");
+      if (!/^[a-zA-Z0-9_-]{1,100}$/.test(poemKey)) throw new ImportProblem(`第 ${index + 2} 行：poem_key 只能使用字母、数字、下划线或短横线`);
+      if (!poemTitle || !author || !content) throw new ImportProblem(`第 ${index + 2} 行：标题、作者和正文不能为空`);
+      if (poemTitle.length > 80 || author.length > 50 || (dynasty?.length ?? 0) > 30 || content.length > 4000) throw new ImportProblem(`第 ${index + 2} 行：有字段超过长度限制`);
+      if (seen.has(poemKey)) throw new ImportProblem(`第 ${index + 2} 行：poem_key“${poemKey}”重复`);
+      seen.add(poemKey);
+      const suppliedSequence = Number(pick(record, "sequence"));
+      const sequence = Number.isFinite(suppliedSequence) && suppliedSequence > 0 ? Math.floor(suppliedSequence) : index + 1;
+      if (seenSequences.has(sequence)) throw new ImportProblem(`第 ${index + 2} 行：sequence“${sequence}”重复，请为每首诗填写不同顺序`);
+      seenSequences.add(sequence);
+      return {
+        poem_key: poemKey,
+        title: poemTitle,
+        author,
+        dynasty,
+        content,
+        sequence,
+      };
+    });
+
+    const { data: learner, error: learnerError } = await supabase
+      .from("learner_profiles")
+      .select("id,families!inner(workspace_id)")
+      .eq("id", learnerId)
+      .eq("families.workspace_id", access.workspaceId)
+      .single();
+    if (learnerError || !learner) throw new ImportProblem("找不到有权限导入的孩子档案");
+
+    const hashPoems = (items: ParsedPoem[]) => createHash("sha256").update(items.map((poem) => [poem.poem_key, poem.title, poem.author, poem.dynasty ?? "", poem.content, poem.sequence].join("|")).join("\n")).digest("hex");
+    const prepared = await prepareImportCollection({
+      supabase, table: "poem_collections", itemTable: "poem_collection_items", itemForeignKey: "collection_id",
+      workspaceId: access.workspaceId, userId: user.id, expectedCount: poems.length,
+      fingerprint: hashPoems([...poems].sort((a, b) => a.sequence - b.sequence)), legacyFingerprint: hashPoems(poems),
+      values: {
+        submitted_for_learner_id: learnerId,
+        title,
+      },
+    });
+    let collection = prepared.collection;
+
+    if (!prepared.complete) {
+      const imported: Array<{ id: string; poem_key: string }> = [];
+      for (let index = 0; index < poems.length; index += 100) {
+        const batch = poems.slice(index, index + 100);
+        const keys = batch.map((poem) => poem.poem_key);
+        const { data: existing, error: existingError } = await supabase
+          .from("poems")
+          .select("id,poem_key")
+          .eq("workspace_id", access.workspaceId)
+          .in("poem_key", keys);
+        checkImportWrite(existingError, "检查诗词内容失败");
+        imported.push(...(existing ?? []));
+        const existingKeys = new Set((existing ?? []).map((poem) => poem.poem_key));
+        const missing = batch.filter((poem) => !existingKeys.has(poem.poem_key));
+        if (!missing.length) continue;
+        const { error } = await supabase
+          .from("poems")
+          .upsert(missing.map((poem) => ({
+            created_by: user.id,
+            workspace_id: access.workspaceId,
+            poem_key: poem.poem_key,
+            title: poem.title,
+            author: poem.author,
+            dynasty: poem.dynasty,
+            content: poem.content,
+            updated_at: new Date().toISOString(),
+          })), { onConflict: "workspace_id,poem_key", ignoreDuplicates: true });
+        checkImportWrite(error, "保存诗词内容失败");
+        const { data: saved, error: savedError } = await supabase.from("poems").select("id,poem_key")
+          .eq("workspace_id", access.workspaceId).in("poem_key", missing.map((poem) => poem.poem_key));
+        checkImportWrite(savedError, "检查已保存诗词失败");
+        imported.push(...(saved ?? []));
+      }
+      const idsByKey = new Map(imported.map((poem) => [poem.poem_key, poem.id]));
+      const items = poems.map((poem) => ({ collection_id: collection.id, poem_id: idsByKey.get(poem.poem_key), sequence: poem.sequence }));
+      if (items.some((item) => !item.poem_id)) throw new ImportProblem("导入后无法找到部分诗词，请用同一份文件重试");
+      const { error: itemError } = await supabase.from("poem_collection_items").upsert(items, { onConflict: "collection_id,poem_id", ignoreDuplicates: true });
+      checkImportWrite(itemError, "保存诗词目录失败");
+    }
+    if (prepared.resumable) collection = await finishImportCollection(supabase, "poem_collections", collection, access.isAdmin, access.isAdmin, user.id);
+
+    const canAssign = access.isAdmin && collection.status === "published" && collection.review_status === "approved";
+    if (canAssign) {
+      const { error: linkError } = await supabase
+        .from("learner_poem_collections")
+        .upsert({ learner_id: learnerId, collection_id: collection.id, assigned_by: user.id, assignment_status: "active", unassigned_at: null });
+      checkImportWrite(linkError, "诗词册已保存，但关联孩子失败");
+    }
+
+    revalidatePath("/parent");
+    revalidatePath("/poems");
+    revalidatePath("/admin");
+    revalidatePath("/admin/resources");
+    revalidatePath("/admin/assignments");
+    return prepared.complete && !prepared.resumable
+      ? { status: "duplicate", message: existingImportMessage(collection, canAssign, "诗词册") }
+      : { status: "success", message: canAssign ? `已成功导入 ${poems.length} 首诗词，并关联到所选孩子。` : `已提交 ${poems.length} 首诗词，等待管理员审核和分配。` };
+  } catch (error) {
+    return importFailure(error);
   }
-  const idsByKey = new Map(imported.map((poem) => [poem.poem_key, poem.id]));
-  const items = poems.map((poem) => ({ collection_id: collection.id, poem_id: idsByKey.get(poem.poem_key), sequence: poem.sequence }));
-  if (items.some((item) => !item.poem_id)) await failPoemImport("导入后无法找到部分诗词");
-  const { error: itemError } = await supabase.from("poem_collection_items").insert(items);
-  if (itemError) await failPoemImport(`诗词目录关联失败：${itemError.message}`);
-
-  if (access.isAdmin) {
-    const { error: linkError } = await supabase
-      .from("learner_poem_collections")
-      .upsert({ learner_id: learnerId, collection_id: collection.id, assigned_by: user.id, assignment_status: "active", unassigned_at: null });
-    if (linkError) await failPoemImport(`诗词册无法关联到孩子：${linkError.message}`);
-  }
-
-  revalidatePath("/parent");
-  revalidatePath("/poems");
 }
 
 function localDateInTimezone(timezone: string) {

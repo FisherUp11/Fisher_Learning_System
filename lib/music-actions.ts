@@ -63,7 +63,7 @@ function assertMediaMutable(access: { isAdmin: boolean }, item: { status: string
   }
 }
 
-export async function createMusicItem(formData: FormData) {
+async function createMusicItemEntry(formData: FormData) {
   const { supabase, user } = await authenticatedMusicClient();
   const access = await loadAccessContext(supabase, user.id);
   if (!access) throw new Error("当前账号还没有学习空间");
@@ -90,7 +90,15 @@ export async function createMusicItem(formData: FormData) {
   }).select("id").single();
   if (error || !data) throw new Error(error?.message ?? "创建失败");
   revalidatePath("/music/manage");
-  redirect(`/music/manage/${data.id}`);
+  return { status: "success", message: `“${title}”已创建为草稿，接下来可以上传音频、图片和维护资料。`, redirectTo: `/music/manage/${data.id}` };
+}
+
+export async function createMusicItem(formData: FormData) {
+  try {
+    return await createMusicItemEntry(formData);
+  } catch (error) {
+    return { status: "error", message: error instanceof Error ? error.message : "创建没有完成，请稍后重试。" };
+  }
 }
 
 export async function updateMusicItem(_previousState: MusicSaveState, formData: FormData): Promise<MusicSaveState> {
@@ -180,12 +188,16 @@ export async function registerMusicAsset(input: {
   if (!allowedForItem[item.item_type as MusicItemType].includes(input.assetType)) throw new Error("这种媒体不属于当前内容类型");
   if (!input.objectKey.startsWith(`music/${user.id}/${input.itemId}/`)) throw new Error("媒体文件路径不属于当前内容");
   if (!Number.isFinite(input.byteSize) || input.byteSize <= 0 || input.byteSize > 104_857_600) throw new Error("文件大小不正确");
-  const { data: existing, error: existingError } = await supabase.from("music_assets").select("id,asset_type,sequence").eq("item_id", input.itemId).order("sequence", { ascending: false });
+  const { data: existing, error: existingError } = await supabase.from("music_assets").select("id,asset_type,sequence,object_key").eq("item_id", input.itemId).order("sequence", { ascending: false });
   if (existingError) throw new Error(existingError.message);
+  if ((existing ?? []).some((asset) => asset.object_key === input.objectKey && asset.asset_type === input.assetType)) {
+    revalidatePath(`/music/manage/${input.itemId}`);
+    return;
+  }
   if (input.assetType === "score" && (existing ?? []).filter((asset) => asset.asset_type === "score").length >= 5) throw new Error("每首歌曲最多维护 5 张琴谱");
   if (["audio", "cover", "instrument_image", "rhythm_sheet", "demo_audio"].includes(input.assetType) && (existing ?? []).some((asset) => asset.asset_type === input.assetType)) throw new Error("这个位置已有文件，请先删除再上传新文件");
   const nextSequence = Math.max(0, ...(existing ?? []).filter((asset) => asset.asset_type === input.assetType).map((asset) => asset.sequence)) + 1;
-  const { error } = await supabase.from("music_assets").insert({
+  const { error } = await supabase.from("music_assets").upsert({
     item_id: input.itemId,
     asset_type: input.assetType,
     object_key: input.objectKey,
@@ -194,7 +206,7 @@ export async function registerMusicAsset(input: {
     byte_size: Math.floor(input.byteSize),
     label: input.label?.trim().slice(0, 60) || null,
     sequence: nextSequence,
-  });
+  }, { onConflict: "item_id,object_key", ignoreDuplicates: true });
   if (error) throw new Error(error.message);
   revalidatePath(`/music/manage/${input.itemId}`);
   revalidatePath(`/music/${input.itemId}`);

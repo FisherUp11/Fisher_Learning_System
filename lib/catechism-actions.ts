@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { localDateInTimezone, type CatechismAttemptResult } from "@/lib/catechism";
 import type { CatechismFormState } from "@/lib/catechism-form-state";
 import { assertAdmin, loadAccessContext } from "@/lib/access";
+import { checkImportWrite, existingImportMessage, finishImportCollection, prepareImportCollection } from "@/lib/import-safety";
 
 async function authenticatedClient() {
   const supabase = await createClient();
@@ -73,8 +74,9 @@ export async function importCatechismCollection(_previousState: CatechismFormSta
 
     const { data: ownedLearners, error: learnerError } = await supabase
       .from("learner_profiles")
-      .select("id")
-      .in("id", learnerIds);
+      .select("id,families!inner(workspace_id)")
+      .in("id", learnerIds)
+      .eq("families.workspace_id", access.workspaceId);
     if (learnerError) throw new Error(learnerError.message);
     if ((ownedLearners?.length ?? 0) !== learnerIds.length) throw new Error("有孩子档案不属于当前家长账号");
 
@@ -111,43 +113,44 @@ export async function importCatechismCollection(_previousState: CatechismFormSta
       return { item_key: itemKey, sort_order: sequence, section_title: sectionTitle, question_zh: questionZh, question_en: questionEn, answer_zh: answerZh, answer_en: answerEn, scripture_reference: scriptureReference, parent_note: parentNote, status: "active" };
     });
 
-    const { data: collection, error: collectionError } = await supabase
-      .from("catechism_collections")
-      .insert({
-        created_by: user.id,
-        workspace_id: access.workspaceId,
+    const hashItems = (rows: typeof items) => createHash("sha256").update(rows.map((item) => [item.item_key, item.sort_order, item.section_title ?? "", item.question_zh, item.answer_zh, item.question_en, item.answer_en, item.scripture_reference ?? "", item.parent_note ?? ""].join("|")).join("\n")).digest("hex");
+    const prepared = await prepareImportCollection({
+      supabase, table: "catechism_collections", itemTable: "catechism_items", itemForeignKey: "collection_id",
+      workspaceId: access.workspaceId, userId: user.id, expectedCount: items.length,
+      fingerprint: hashItems([...items].sort((a, b) => a.sort_order - b.sort_order)), legacyFingerprint: hashItems(items),
+      values: {
         submitted_for_learner_id: learnerIds[0],
-        code: `catechism-${crypto.randomUUID()}`,
         title,
         english_title: englishTitle,
         source_note: sourceNote,
         license_note: licenseNote,
-        status: canPublishNow ? "published" : "draft",
-        review_status: access.isAdmin ? "approved" : "pending_review",
-        fingerprint: createHash("sha256").update(items.map((item) => [item.item_key, item.sort_order, item.section_title ?? "", item.question_zh, item.answer_zh, item.question_en, item.answer_en, item.scripture_reference ?? "", item.parent_note ?? ""].join("|")).join("\n")).digest("hex"),
-        approved_by: access.isAdmin ? user.id : null,
-        approved_at: access.isAdmin ? new Date().toISOString() : null,
-      })
-      .select("id")
-      .single();
-    if (collectionError || !collection) throw new Error(collectionError?.message ?? "创建问答册失败");
-    const { error: itemError } = await supabase.from("catechism_items").insert(items.map((item) => ({ ...item, collection_id: collection.id })));
-    if (itemError) throw new Error(itemError.message);
-    if (canPublishNow) {
-      const { error: linkError } = await supabase.from("learner_catechism_collections").insert(learnerIds.map((learnerId) => ({
+      },
+    });
+    let collection = prepared.collection;
+    if (!prepared.complete) {
+      const { error: itemError } = await supabase.from("catechism_items").upsert(items.map((item) => ({ ...item, collection_id: collection.id })), { onConflict: "collection_id,item_key", ignoreDuplicates: true });
+      checkImportWrite(itemError, "保存问答内容失败");
+    }
+    if (prepared.resumable) collection = await finishImportCollection(supabase, "catechism_collections", collection, access.isAdmin, canPublishNow, user.id);
+    const canAssign = canPublishNow && collection.status === "published" && collection.review_status === "approved";
+    if (canAssign) {
+      const { error: linkError } = await supabase.from("learner_catechism_collections").upsert(learnerIds.map((learnerId) => ({
         learner_id: learnerId,
         collection_id: collection.id,
         assigned_by: user.id,
         assignment_status: "active",
+        unassigned_at: null,
       })));
-      if (linkError) throw new Error(`问答册已创建，但关联孩子失败：${linkError.message}`);
+      checkImportWrite(linkError, "问答册已保存，但关联孩子失败");
     }
 
     revalidatePath("/parent");
     revalidatePath("/catechism");
     revalidatePath("/catechism/study");
     revalidatePath("/catechism/manage");
-    return { status: "success", message: canPublishNow ? `已导入 ${items.length} 问，并关联到 ${learnerIds.length} 位孩子。` : access.isAdmin ? `已导入 ${items.length} 问为草稿；发布后再分配给孩子。` : `已提交 ${items.length} 问，等待管理员审核和分配。`, savedAt: new Date().toISOString() };
+    revalidatePath("/admin/resources");
+    revalidatePath("/admin/assignments");
+    return { status: "success", message: prepared.complete && !prepared.resumable ? existingImportMessage(collection, canAssign, "问答册") : canAssign ? `已导入 ${items.length} 问，并关联到 ${learnerIds.length} 位孩子。` : access.isAdmin ? `已导入 ${items.length} 问为草稿；发布后再分配给孩子。` : `已提交 ${items.length} 问，等待管理员审核和分配。`, savedAt: new Date().toISOString() };
   } catch (error) {
     return failure(error);
   }

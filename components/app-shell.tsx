@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import styles from "./app-shell.module.css";
 
 const hanziLinks = [
   { href: "/learn", label: "学一学", icon: "芽" },
@@ -54,6 +55,11 @@ export function AppShell({ email, isAdmin, isOwner, children }: { email: string;
   const pathname = usePathname();
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [isNavigating, startNavigation] = useTransition();
+  const [navigationTarget, setNavigationTarget] = useState({ href: "", label: "" });
+  const menuRef = useRef<HTMLDivElement>(null);
+  const menuTriggerRef = useRef<HTMLButtonElement>(null);
+  const prefetchedAt = useRef(new Map<string, number>());
   const navigationLinks = useMemo(() => pathname.startsWith("/admin")
     ? adminLinks.filter((link) => !link.ownerOnly || isOwner)
       : pathname.startsWith("/catechism")
@@ -67,35 +73,67 @@ export function AppShell({ email, isAdmin, isOwner, children }: { email: string;
     ? [...moduleLinks, { href: "/admin", label: "管理中心", description: "家庭、内容审核和孩子分配", mark: "管" }]
     : moduleLinks, [isAdmin]);
 
-  // 这三个页面是家庭内的高频切换页。进入应用后轻量预取一次，iPhone 上点“芽/册/家”时无需再等路由代码和首个 RSC 请求开始。
+  // 只预取用户即将访问的目标，避免同时读取所有模块，挤占当前页面的数据库请求。
+  function prefetchTarget(href: string) {
+    if (href === pathname) return;
+    const now = Date.now();
+    if (now - (prefetchedAt.current.get(href) ?? 0) < 30000) return;
+    prefetchedAt.current.set(href, now);
+    router.prefetch(href);
+  }
+
+  function navigateTo(href: string, label: string, event: { preventDefault(): void }) {
+    event.preventDefault();
+    if (isNavigating && navigationTarget.href === href) return;
+    setMenuOpen(false);
+    setNavigationTarget({ href, label });
+    startNavigation(() => router.push(href));
+  }
+
   useEffect(() => {
-    for (const link of [...navigationLinks, ...availableModules]) {
-      if (link.href !== pathname) router.prefetch(link.href);
+    if (!menuOpen) return;
+    function closeOutside(event: PointerEvent) {
+      if (event.target instanceof Node && !menuRef.current?.contains(event.target)) setMenuOpen(false);
     }
-  }, [availableModules, navigationLinks, pathname, router]);
+    function closeWithEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setMenuOpen(false);
+        menuTriggerRef.current?.focus();
+      }
+    }
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", closeWithEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      document.removeEventListener("keydown", closeWithEscape);
+    };
+  }, [menuOpen]);
 
   return (
     <main className="shell">
       <header className="topbar">
-        <Link href="/learn" className="brand" aria-label="字芽首页">
+        <Link href="/learn" prefetch={false} className={`brand ${styles.control}`} aria-label="字芽首页" onPointerEnter={() => prefetchTarget("/learn")} onFocus={() => prefetchTarget("/learn")} onTouchStart={() => prefetchTarget("/learn")} onNavigate={(event) => navigateTo("/learn", "学一学", event)}>
           <span className="brand-mark">字</span>
           <span>字芽</span>
         </Link>
-        <div className="module-picker">
-          <button className="module-trigger" type="button" aria-expanded={menuOpen} aria-controls="learning-modules" onClick={() => setMenuOpen((open) => !open)}>学习模块 <span aria-hidden="true">{menuOpen ? "⌃" : "⌄"}</span></button>
+        <div className="module-picker" ref={menuRef}>
+          <button ref={menuTriggerRef} className={`module-trigger ${styles.control}`} type="button" aria-expanded={menuOpen} aria-controls="learning-modules" onClick={() => setMenuOpen((open) => !open)}>学习模块 <span aria-hidden="true">{menuOpen ? "⌃" : "⌄"}</span></button>
           {menuOpen && <div className="module-menu" id="learning-modules">
             <p>选择学习内容</p>
-            {availableModules.map((link) => <Link key={link.href} href={link.href} className={pathname.startsWith(link.href) ? "active" : ""} onClick={() => setMenuOpen(false)}><span>{link.mark}</span><strong>{link.label}<small>{link.description}</small></strong></Link>)}
+            {availableModules.map((link) => <Link key={link.href} href={link.href} prefetch={false} className={`${styles.control} ${pathname.startsWith(link.href) ? "active" : ""}`} aria-current={pathname.startsWith(link.href) ? "page" : undefined} onPointerEnter={() => prefetchTarget(link.href)} onFocus={() => prefetchTarget(link.href)} onTouchStart={() => prefetchTarget(link.href)} onNavigate={(event) => navigateTo(link.href, link.label, event)}><span>{link.mark}</span><strong>{link.label}<small>{link.description}</small></strong></Link>)}
           </div>}
         </div>
         <span className="account">{email}</span>
       </header>
+      <div className={styles.navigationStatus} role="status" aria-live="polite" aria-atomic="true">
+        {isNavigating && <span><i className={styles.spinner} aria-hidden="true" />正在打开{navigationTarget.label}…</span>}
+      </div>
       <section className="page">{children}</section>
       <nav className="bottom-nav" aria-label="主导航">
         {navigationLinks.map((link) => (
-          <Link key={link.href} href={link.href} prefetch className={`nav-link ${pathname === link.href || (link.href.endsWith("/manage") && pathname.startsWith(`${link.href}/`)) ? "active" : ""}`}>
-            <span className="nav-icon" aria-hidden="true">{link.icon}</span>
-            <span>{link.label}</span>
+          <Link key={link.href} href={link.href} prefetch={false} className={`nav-link ${styles.control} ${pathname === link.href || (link.href.endsWith("/manage") && pathname.startsWith(`${link.href}/`)) ? "active" : ""} ${isNavigating && navigationTarget.href === link.href ? styles.pending : ""}`} aria-current={pathname === link.href ? "page" : undefined} aria-busy={isNavigating && navigationTarget.href === link.href} onPointerEnter={() => prefetchTarget(link.href)} onFocus={() => prefetchTarget(link.href)} onTouchStart={() => prefetchTarget(link.href)} onNavigate={(event) => navigateTo(link.href, link.label, event)}>
+            <span className="nav-icon" aria-hidden="true">{isNavigating && navigationTarget.href === link.href ? <i className={styles.spinner} /> : link.icon}</span>
+            <span>{isNavigating && navigationTarget.href === link.href ? "打开中…" : link.label}</span>
           </Link>
         ))}
       </nav>

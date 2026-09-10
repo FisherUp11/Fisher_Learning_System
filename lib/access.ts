@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { cache } from "react";
 
 export type WorkspaceRole = "owner" | "admin" | "parent";
 
@@ -13,7 +14,8 @@ export type AccessContext = {
   familyId: string | null;
 };
 
-export async function loadAccessContext(
+// 布局和页面读取同一账号权限时，在一次渲染内只查询一次；新的请求仍重新校验权限。
+export const loadAccessContext = cache(async function loadAccessContext(
   supabase: SupabaseClient,
   userId: string,
 ): Promise<AccessContext | null> {
@@ -43,7 +45,7 @@ export async function loadAccessContext(
     isOwner: membership.role === "owner",
     familyId: familyMemberships?.[0]?.family_id ?? null,
   };
-}
+});
 
 export function assertAdmin(access: AccessContext | null): asserts access is AccessContext {
   if (!access?.isAdmin) throw new Error("只有学习空间管理员可以执行这项操作");

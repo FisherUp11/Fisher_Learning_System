@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { loadAccessContext } from "@/lib/access";
 import { loadLearnerDashboard } from "@/lib/dashboard";
 import { CatechismImportForm } from "@/components/catechism-import-form";
+import { FeedbackForm } from "@/components/feedback-form";
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +41,7 @@ export default async function ParentPage({ searchParams }: { searchParams: Promi
       <section className="panel">
         <h2>已有孩子 · 学习设置</h2>
         {hasLearners ? <div className="child-settings-list">{learners?.map((learner) => (
-          <form action={updateLearnerSettings} className="child-settings" key={learner.id}>
+          <FeedbackForm action={updateLearnerSettings} className="child-settings" key={learner.id} pendingLabel="正在保存孩子的设置…" successMessage={`${learner.display_name} 的设置已保存。汉字每日量将在明天生成任务时采用新设置。`}>
             <input type="hidden" name="learner_id" value={learner.id} />
             <div className="child-settings-head"><span className="child-sprout" aria-hidden="true">🌱</span><span><strong>{learner.display_name}</strong><small>{learner.active_package_id ? "已有学习包" : "尚未导入字册"}</small></span></div>
             <div className="settings-fields">
@@ -55,33 +56,33 @@ export default async function ParentPage({ searchParams }: { searchParams: Promi
             <button className="secondary" type="submit">保存 {learner.display_name} 的设置</button>
             {learner.active_package_id && <a className="text-button" href={`/library?learner=${learner.id}`}>{access.isAdmin ? "查看 / 修正" : "查看 / 标重点"} {learner.display_name} 的字库</a>}
             {learner.parent_user_id === user.id && <DeleteLearnerForm learnerId={learner.id} learnerName={learner.display_name} hasActivePackage={Boolean(learner.active_package_id)} />}
-          </form>
+          </FeedbackForm>
         ))}</div> : <p className="notice">还没有孩子档案；请先在下方创建，再导入汉字。</p>}
       </section>
 
       <section className="panel">
         <h2>创建新的孩子档案</h2>
         <p className="small muted">只有新增孩子时才填写这里；已有孩子请在上方直接调整昵称和每日新字数。20–50 个适合刚开始时快速筛查已认识的字，完成一轮后建议调回 8–10 个。注意：每个新字当天还会有一次强化确认，因此 50 个新字最多可能形成约 100 次卡片回答。</p>
-        <form action={createLearner} className="form-grid" style={{ marginTop: 18 }}>
+        <FeedbackForm action={createLearner} className="form-grid" style={{ marginTop: 18 }} resetOnSuccess pendingLabel="正在创建孩子档案…" successMessage="孩子档案已创建，可以在上方查看和调整设置。">
           <label>孩子昵称<input name="display_name" required maxLength={24} placeholder="例如：小满" /></label>
           <label>每天新字数量<select name="daily_new_limit" defaultValue="5"><option value="3">3 个（慢一点）</option><option value="5">5 个（推荐）</option><option value="8">8 个（快一些）</option><option value="10">10 个（稳定学习）</option><option value="20">20 个（冲刺筛查）</option><option value="30">30 个（冲刺筛查）</option><option value="40">40 个（快速摸底）</option><option value="50">50 个（快速摸底）</option></select></label>
           <label>要理问答 · 每天新问题<input name="catechism_daily_new_limit" type="number" min="1" max="20" step="1" defaultValue="3" /></label>
           <label>要理问答 · 每天复习上限<input name="catechism_review_limit" type="number" min="1" max="50" step="1" defaultValue="10" /></label>
           <button className="secondary" type="submit">创建孩子档案</button>
-        </form>
+        </FeedbackForm>
       </section>
 
       <section className="panel">
         <h2>导入字册</h2>
         {!access.isAdmin && <p className="notice">家长导入后会先进入“待审核”；管理员检查并分配后，才会进入孩子的学习队列。</p>}
         <p className="notice">CSV 必填列：<code>character,pinyin_marked,meaning</code>。可选列：<code>word_1,word_2,example_sentence,sequence</code>。先用 samples 里的 30 字试跑。</p>
-        {hasLearners ? <form action={importCharacters} className="form-grid" style={{ marginTop: 16 }}>
+        {hasLearners ? <FeedbackForm action={importCharacters} className="form-grid" style={{ marginTop: 16 }} clearFileOnSuccess pendingLabel="正在校验并导入汉字，请稍候…" confirm={{ title: "确认导入这份字册？", description: access.isAdmin ? "核对文件与孩子后再确认，已有学习记录会保留。" : "确认后将提交给管理员审核。" }}>
           <label>这份字册导入给哪位孩子<select name="learner_id" required defaultValue={learners?.[0]?.id}>{learners?.map((learner) => <option key={learner.id} value={learner.id}>{learner.display_name} · 每天新字 {learner.daily_new_limit} 个</option>)}</select></label>
           <label>学习包名称<input name="package_title" defaultValue="学前汉字" required /></label>
           <label>CSV 文件<input name="csv_file" type="file" accept=".csv,text/csv" required /></label>
           <p className="small muted">{access.isAdmin ? "导入后会直接分配给所选孩子，并与他已有的字册叠加；其他孩子和原有学习记录不变。" : "导入后先等待审核，管理员会看到你建议分配的孩子；审核前不会进入学习队列。"}</p>
           <button className="primary" type="submit">校验并导入</button>
-        </form> : <p className="muted">创建孩子档案后可以导入。</p>}
+        </FeedbackForm> : <p className="muted">创建孩子档案后可以导入。</p>}
       </section>
 
       <section className="panel">
@@ -89,13 +90,13 @@ export default async function ParentPage({ searchParams }: { searchParams: Promi
         {!access.isAdmin && <p className="notice">这份诗词册会提交给管理员审核，不会立即分配。</p>}
         <p className="notice">CSV 必填列：<code>poem_key,title,author,content</code>。可选列：<code>dynasty,sequence</code>。<code>poem_key</code> 是空间内的稳定编号；重复编号会复用已有正文，避免家长导入覆盖公共内容，孩子原有打卡记录始终保留。</p>
         <div className="template-download"><span>先下载模板，填好第一批 28 首后再上传。</span><a className="text-button" href="/samples/poems-template.csv" download>下载诗词 CSV 模板</a></div>
-        {hasLearners ? <form action={importPoems} className="form-grid" style={{ marginTop: 16 }}>
+        {hasLearners ? <FeedbackForm action={importPoems} className="form-grid" style={{ marginTop: 16 }} clearFileOnSuccess pendingLabel="正在校验并导入诗词，请稍候…" confirm={{ title: "确认导入这份诗词册？", description: access.isAdmin ? "核对文件与孩子后再确认，已有背诵记录会保留。" : "确认后将提交给管理员审核。" }}>
           <label>这份诗词册导入给哪位孩子<select name="learner_id" required defaultValue={learners?.[0]?.id}>{learners?.map((learner) => <option key={learner.id} value={learner.id}>{learner.display_name}</option>)}</select></label>
           <label>诗词册名称<input name="poem_collection_title" defaultValue="第一批古诗词（28首）" required maxLength={80} /></label>
           <label>CSV 文件<input name="poem_csv_file" type="file" accept=".csv,text/csv" required /></label>
-          <p className="small muted">每次导入都会保留为一份来源诗词册，并叠加显示在“诗词背诵”中；以后新增诗词时，孩子已打卡的诗词不会消失。</p>
+          <p className="small muted">新增内容会保留为来源诗词册，并叠加显示在“诗词背诵”中；完全相同的内容会识别为已导入，已有打卡记录保留。</p>
           <button className="primary" type="submit">校验并导入诗词</button>
-        </form> : <p className="muted">创建孩子档案后可以导入。</p>}
+        </FeedbackForm> : <p className="muted">创建孩子档案后可以导入。</p>}
       </section>
 
       <section className="panel">

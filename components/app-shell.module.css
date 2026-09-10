@@ -1,0 +1,80 @@
+.control {
+  touch-action: manipulation;
+}
+
+.control:focus-visible {
+  outline: 3px solid var(--leaf-bright);
+  outline-offset: 3px;
+}
+
+.control:active {
+  opacity: .72;
+}
+
+.pending {
+  color: var(--leaf);
+  background: var(--leaf-soft);
+}
+
+.navigationStatus {
+  position: fixed;
+  z-index: 45;
+  left: 50%;
+  top: calc(12px + env(safe-area-inset-top));
+  transform: translateX(-50%);
+  pointer-events: none;
+  max-width: calc(100vw - 32px);
+}
+
+.navigationStatus > span {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 17px;
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  color: var(--leaf);
+  background: #fffdf8;
+  box-shadow: 0 8px 24px rgba(53, 93, 69, .14);
+  font: 700 14px/1.35 ui-sans-serif, system-ui, sans-serif;
+}
+
+.spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+
+.loadingDetails {
+  display: grid;
+  gap: 12px;
+  width: min(100%, 280px);
+}
+
+.loadingLines {
+  display: grid;
+  gap: 8px;
+}
+
+.loadingLines span {
+  height: 9px;
+  border-radius: 9px;
+  background: var(--leaf-soft);
+}
+
+.loadingLines span:last-child {
+  width: 64%;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation: none; }
+}

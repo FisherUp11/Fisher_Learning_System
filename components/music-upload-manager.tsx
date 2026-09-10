@@ -1,8 +1,9 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { registerMusicAsset, type MusicItemType } from "@/lib/music-actions";
+import { FeedbackForm } from "@/components/feedback-form";
 
 const choices: Record<MusicItemType, Array<{ value: string; label: string; accept: string }>> = {
   song: [
@@ -31,40 +32,41 @@ function inferredContentType(file: File) {
 
 export function MusicUploadManager({ itemId, itemType, r2Configured }: { itemId: string; itemType: MusicItemType; r2Configured: boolean }) {
   const router = useRouter();
-  const formRef = useRef<HTMLFormElement>(null);
-  const [isPending, startTransition] = useTransition();
-  const [message, setMessage] = useState("");
   const [assetType, setAssetType] = useState(choices[itemType][0].value);
+  const uploadedFile = useRef<{ file: File; assetType: string; objectKey: string } | null>(null);
   const selected = choices[itemType].find((choice) => choice.value === assetType) ?? choices[itemType][0];
 
-  function upload(formData: FormData) {
-    setMessage("");
-    startTransition(async () => {
-      try {
-        const file = formData.get("file");
-        if (!(file instanceof File) || !file.size) throw new Error("请先选择文件");
-        const contentType = inferredContentType(file);
-        const response = await fetch("/api/music/assets/upload-url", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId, assetType, fileName: file.name, contentType, byteSize: file.size }) });
-        const payload = await response.json() as { uploadUrl?: string; objectKey?: string; error?: string };
-        if (!response.ok || !payload.uploadUrl || !payload.objectKey) throw new Error(payload.error ?? "无法取得上传地址");
-        const uploaded = await fetch(payload.uploadUrl, { method: "PUT", headers: { "Content-Type": contentType }, body: file });
-        if (!uploaded.ok) throw new Error(`上传到 R2 失败（${uploaded.status}），请检查 CORS 与环境变量`);
-        await registerMusicAsset({ itemId, assetType, objectKey: payload.objectKey, originalName: file.name, contentType, byteSize: file.size, label: String(formData.get("label") ?? "") });
-        formRef.current?.reset();
-        setMessage("上传完成，已经加入内容页。");
-        router.refresh();
-      } catch (error) {
-        setMessage(error instanceof Error ? error.message : "上传失败");
-      }
-    });
+  async function upload(formData: FormData) {
+    const file = formData.get("file");
+    const uploadAssetType = String(formData.get("asset_type"));
+    if (!(file instanceof File) || !file.size) throw new Error("请先选择文件");
+    const contentType = inferredContentType(file);
+    const previous = uploadedFile.current;
+    let objectKey = previous && previous.assetType === uploadAssetType
+      && previous.file.name === file.name && previous.file.size === file.size
+      && previous.file.lastModified === file.lastModified && previous.file.type === file.type
+      ? previous.objectKey : undefined;
+    if (!objectKey) {
+      const response = await fetch("/api/music/assets/upload-url", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId, assetType: uploadAssetType, fileName: file.name, contentType, byteSize: file.size }) });
+      const payload = await response.json() as { uploadUrl?: string; objectKey?: string; error?: string };
+      if (!response.ok || !payload.uploadUrl || !payload.objectKey) throw new Error(payload.error ?? "无法取得上传地址");
+      const uploaded = await fetch(payload.uploadUrl, { method: "PUT", headers: { "Content-Type": contentType }, body: file });
+      if (!uploaded.ok) throw new Error(`上传到 R2 失败（${uploaded.status}），请检查 CORS 与环境变量`);
+      objectKey = payload.objectKey;
+      // Keep the uploaded object for a same-page retry if registration loses its response.
+      uploadedFile.current = { file, assetType: uploadAssetType, objectKey };
+    }
+    await registerMusicAsset({ itemId, assetType: uploadAssetType, objectKey, originalName: file.name, contentType, byteSize: file.size, label: String(formData.get("label") ?? "") });
+    uploadedFile.current = null;
+    router.refresh();
+    return { status: "success", message: `“${file.name}”已上传并加入内容页。` };
   }
 
   if (!r2Configured) return <p className="notice">尚未配置 Cloudflare R2。请先完成 <code>10_Cloudflare_R2保姆级配置教程.md</code>，再回来上传 MP3 和图片。</p>;
-  return <form ref={formRef} className="music-upload-form" action={upload}>
+  return <FeedbackForm className="music-upload-form" action={upload} clearFileOnSuccess successTitle="上传完成" pendingLabel="上传中，请保持页面打开…" confirm={{ title: "确认上传这个文件？", description: `上传位置：${selected.label}`, confirmLabel: "确认上传" }}>
     <label>上传到哪里<select name="asset_type" value={assetType} onChange={(event) => setAssetType(event.target.value)}>{choices[itemType].map((choice) => <option value={choice.value} key={choice.value}>{choice.label}</option>)}</select></label>
-    <label>选择文件<input name="file" type="file" accept={selected.accept} required /></label>
+    <label>选择文件<input name="file" type="file" accept={selected.accept} required onChange={() => { uploadedFile.current = null; }} /></label>
     {(assetType === "score" || assetType === "rhythm_sheet") && <label>图片说明（可选）<input name="label" maxLength={60} placeholder={assetType === "score" ? "例如：吉他谱 1、钢琴谱" : "例如：四分音符练习"} /></label>}
-    <button className="primary" type="submit" disabled={isPending}>{isPending ? "上传中，请不要关闭页面…" : "上传文件"}</button>
-    {message && <p className={message.startsWith("上传完成") ? "success" : "error"}>{message}</p>}
-  </form>;
+    <button className="primary" type="submit">上传文件</button>
+  </FeedbackForm>;
 }
