@@ -33,6 +33,25 @@ export function checkImportWrite(error: { code?: string; message: string } | nul
   throw new ImportProblem(`${context}。本次内容暂未全部完成，请用同一份文件重试，系统会继续检查已有内容。`);
 }
 
+export async function retryImportDatabaseCall<T extends { error: { code?: string; message: string } | null }>(
+  operation: () => PromiseLike<T>,
+  attempts = 2,
+) {
+  let lastResult: T | null = null;
+  let lastThrown: unknown = null;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      lastResult = await operation();
+      if (!lastResult.error) return lastResult;
+    } catch (error) {
+      lastThrown = error;
+    }
+    if (attempt + 1 < attempts) await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  if (lastResult) return lastResult;
+  throw lastThrown ?? new ImportProblem("数据库连接暂时中断，请用同一份文件重试。");
+}
+
 export async function prepareImportCollection(input: {
   supabase: SupabaseClient;
   table: "content_packages" | "poem_collections" | "catechism_collections";

@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { createClient } from "@/lib/supabase/server";
 import { claimHanziCompletionReward, registerActivityReward } from "@/lib/reward-service";
 import { loadAccessContext } from "@/lib/access";
-import { checkImportWrite, existingImportMessage, finishImportCollection, importFailure, ImportProblem, prepareImportCollection, type ImportResult } from "@/lib/import-safety";
+import { checkImportWrite, existingImportMessage, finishImportCollection, importFailure, ImportProblem, prepareImportCollection, retryImportDatabaseCall, type ImportResult } from "@/lib/import-safety";
 
 export type Learner = {
   id: string;
@@ -530,8 +530,15 @@ export async function importCharacters(formData: FormData): Promise<ImportResult
       const idsByCharacter = new Map(imported.map((item) => [item.character, item.id]));
       const joins = characters.map((item) => ({ package_id: packageRow.id, character_id: idsByCharacter.get(item.character), sequence: item.sequence }));
       if (joins.some((item) => !item.character_id)) throw new ImportProblem("导入后无法找到部分汉字，请用同一份文件重试");
-      const { error: joinError } = await supabase.from("package_characters").upsert(joins, { onConflict: "package_id,character_id", ignoreDuplicates: true });
+      // This idempotent write is safe to retry when a mobile connection drops after
+      // the shared character rows have already been saved.
+      const { error: joinError } = await retryImportDatabaseCall(() => supabase.from("package_characters")
+        .upsert(joins, { onConflict: "package_id,character_id", ignoreDuplicates: true }));
       checkImportWrite(joinError, "保存字册目录失败");
+      const { count: directoryCount, error: directoryCountError } = await retryImportDatabaseCall(() => supabase
+        .from("package_characters").select("*", { count: "exact", head: true }).eq("package_id", packageRow.id));
+      checkImportWrite(directoryCountError, "核对字册目录失败");
+      if (directoryCount !== characters.length) throw new ImportProblem(`字册目录只保存了 ${directoryCount ?? 0}/${characters.length} 个汉字，请用同一份文件重试。`);
     }
     if (prepared.resumable) packageRow = await finishImportCollection(supabase, "content_packages", packageRow, access.isAdmin, access.isAdmin, user.id);
 
@@ -661,8 +668,13 @@ export async function importPoems(formData: FormData): Promise<ImportResult> {
       const idsByKey = new Map(imported.map((poem) => [poem.poem_key, poem.id]));
       const items = poems.map((poem) => ({ collection_id: collection.id, poem_id: idsByKey.get(poem.poem_key), sequence: poem.sequence }));
       if (items.some((item) => !item.poem_id)) throw new ImportProblem("导入后无法找到部分诗词，请用同一份文件重试");
-      const { error: itemError } = await supabase.from("poem_collection_items").upsert(items, { onConflict: "collection_id,poem_id", ignoreDuplicates: true });
+      const { error: itemError } = await retryImportDatabaseCall(() => supabase.from("poem_collection_items")
+        .upsert(items, { onConflict: "collection_id,poem_id", ignoreDuplicates: true }));
       checkImportWrite(itemError, "保存诗词目录失败");
+      const { count: directoryCount, error: directoryCountError } = await retryImportDatabaseCall(() => supabase
+        .from("poem_collection_items").select("*", { count: "exact", head: true }).eq("collection_id", collection.id));
+      checkImportWrite(directoryCountError, "核对诗词目录失败");
+      if (directoryCount !== poems.length) throw new ImportProblem(`诗词目录只保存了 ${directoryCount ?? 0}/${poems.length} 首，请用同一份文件重试。`);
     }
     if (prepared.resumable) collection = await finishImportCollection(supabase, "poem_collections", collection, access.isAdmin, access.isAdmin, user.id);
 

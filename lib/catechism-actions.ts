@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { localDateInTimezone, type CatechismAttemptResult } from "@/lib/catechism";
 import type { CatechismFormState } from "@/lib/catechism-form-state";
 import { assertAdmin, loadAccessContext } from "@/lib/access";
-import { checkImportWrite, existingImportMessage, finishImportCollection, prepareImportCollection } from "@/lib/import-safety";
+import { checkImportWrite, existingImportMessage, finishImportCollection, prepareImportCollection, retryImportDatabaseCall } from "@/lib/import-safety";
 
 async function authenticatedClient() {
   const supabase = await createClient();
@@ -128,8 +128,13 @@ export async function importCatechismCollection(_previousState: CatechismFormSta
     });
     let collection = prepared.collection;
     if (!prepared.complete) {
-      const { error: itemError } = await supabase.from("catechism_items").upsert(items.map((item) => ({ ...item, collection_id: collection.id })), { onConflict: "collection_id,item_key", ignoreDuplicates: true });
+      const { error: itemError } = await retryImportDatabaseCall(() => supabase.from("catechism_items")
+        .upsert(items.map((item) => ({ ...item, collection_id: collection.id })), { onConflict: "collection_id,item_key", ignoreDuplicates: true }));
       checkImportWrite(itemError, "保存问答内容失败");
+      const { count: directoryCount, error: directoryCountError } = await retryImportDatabaseCall(() => supabase
+        .from("catechism_items").select("*", { count: "exact", head: true }).eq("collection_id", collection.id));
+      checkImportWrite(directoryCountError, "核对问答目录失败");
+      if (directoryCount !== items.length) throw new Error(`问答目录只保存了 ${directoryCount ?? 0}/${items.length} 问，请用同一份文件重试。`);
     }
     if (prepared.resumable) collection = await finishImportCollection(supabase, "catechism_collections", collection, access.isAdmin, canPublishNow, user.id);
     const canAssign = canPublishNow && collection.status === "published" && collection.review_status === "approved";

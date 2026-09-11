@@ -132,7 +132,7 @@ function harness(role = "owner") {
       if (id === "@/lib/reward-service" || id === "@/lib/catechism") return {};
       return require(id);
     };
-    vm.runInNewContext(compiled, { module: fixtureModule, exports: fixtureModule.exports, require: customRequire, console: { error: () => {} }, File, FormData, crypto, Date, Map, Set }, { filename });
+    vm.runInNewContext(compiled, { module: fixtureModule, exports: fixtureModule.exports, require: customRequire, console: { error: () => {} }, File, FormData, crypto, Date, Map, Set, setTimeout }, { filename });
     return fixtureModule.exports;
   }
   const actions = load("lib/actions.ts");
@@ -194,6 +194,7 @@ for (const scenario of cases) {
   test(`${scenario.name}: failed content write remains unpublished and resumes same book`, async () => {
     const app = harness();
     app.failures.push({ table: scenario.itemTable, operation: "upsert" });
+    app.failures.push({ table: scenario.itemTable, operation: "upsert" });
     const failed = await scenario.run(app, scenario.makeForm());
     assert.equal(failed.status, "error");
     const draftId = app.tables[scenario.table][0].id;
@@ -203,6 +204,15 @@ for (const scenario of cases) {
     assert.notEqual(retried.status, "error", retried.message);
     assert.equal(app.tables[scenario.table].length, 1);
     assert.equal(app.tables[scenario.table][0].id, draftId);
+    assert.equal(app.tables[scenario.itemTable].length, 2);
+    assert.equal(app.tables[scenario.table][0].status, "published");
+  });
+  test(`${scenario.name}: one transient directory failure is retried without leaving an empty book`, async () => {
+    const app = harness();
+    app.failures.push({ table: scenario.itemTable, operation: "upsert" });
+    const result = await scenario.run(app, scenario.makeForm());
+    assert.notEqual(result.status, "error", result.message);
+    assert.equal(app.tables[scenario.table].length, 1);
     assert.equal(app.tables[scenario.itemTable].length, 2);
     assert.equal(app.tables[scenario.table][0].status, "published");
   });
@@ -271,3 +281,26 @@ for (const scenario of cases) {
     assert.equal(app.tables[scenario.table].length, 0);
   });
 }
+
+test("汉字: 第三学期大班真实 CSV 导入 37 个字且可安全重试", async () => {
+  const app = harness();
+  const csv = fs.readFileSync(path.join(root, "samples/第三学期大班汉字_去重新增_365-401.csv"), "utf8");
+  const makeForm = () => {
+    const form = new FormData();
+    form.set("learner_id", "child-a");
+    form.set("package_title", "大班第三学期新增字");
+    form.set("csv_file", new File([csv], "第三学期大班汉字_去重新增_365-401.csv", { type: "text/csv" }));
+    return form;
+  };
+
+  const imported = await app.actions.importCharacters(makeForm());
+  assert.equal(imported.status, "success", imported.message);
+  assert.equal(app.tables.content_packages.length, 1);
+  assert.equal(app.tables.package_characters.length, 37);
+  assert.equal(app.tables.content_packages[0].status, "published");
+
+  const retried = await app.actions.importCharacters(makeForm());
+  assert.equal(retried.status, "duplicate", retried.message);
+  assert.equal(app.tables.content_packages.length, 1);
+  assert.equal(app.tables.package_characters.length, 37);
+});
