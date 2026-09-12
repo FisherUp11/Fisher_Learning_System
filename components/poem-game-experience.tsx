@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DesktopPoemTankGame } from "@/components/desktop-poem-tank-game";
 import { MobilePoemGame } from "@/components/mobile-poem-game";
 import { RewardCelebration } from "@/components/reward-celebration";
 import { ratePoemGameSession, recordPoemGameResult } from "@/lib/poem-game-actions";
-import { proceduralPoemMap, type PoemGameHistoryRow, type PoemGamePoem, type PoemGameSummary, type PoemMapBlueprint } from "@/lib/poem-game";
+import { POEM_GAME_DIFFICULTIES, proceduralPoemMap, type PoemGameDifficulty, type PoemGameHistoryRow, type PoemGamePoem, type PoemGameSummary, type PoemMapBlueprint } from "@/lib/poem-game";
 import { rewardProgressMessage, type RewardOutcome } from "@/lib/reward-types";
 
 function resultAccuracy(summary: PoemGameSummary) {
@@ -33,7 +33,29 @@ export function PoemGameExperience({ learnerId, learnerName, poem, distractorLin
   const [rated, setRated] = useState(false);
   const [runKey, setRunKey] = useState(0);
   const [gameActive, setGameActive] = useState(false);
+  const [difficulty, setDifficulty] = useState<PoemGameDifficulty>("normal");
+  const [generatingImage, setGeneratingImage] = useState(false);
+  const [imageMessage, setImageMessage] = useState("");
+  const [sceneImage, setSceneImage] = useState<string | null>(null);
+  const imageLock = useRef(false);
+  const imageController = useRef<AbortController | null>(null);
+  useEffect(() => () => imageController.current?.abort(), []);
   const mode = preferredMode === "auto" ? (isNarrow ? "mobile" : "desktop") : preferredMode;
+
+  async function generateSceneImage() {
+    if (imageLock.current || gameActive) return;
+    imageLock.current = true;
+    const controller = new AbortController(); imageController.current = controller;
+    const deadline = window.setTimeout(() => controller.abort(), 115_000);
+    setGeneratingImage(true); setImageMessage("正在把这首诗画成场景，通常需要半分钟到两分钟…");
+    try {
+      const response = await fetch("/api/ai/poem-game-map", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ learnerId, poemId: poem.id, generateImage: true }), signal: controller.signal });
+      const payload = await response.json() as { image?: string; error?: string };
+      if (!response.ok || !payload.image?.startsWith("data:image/png;base64,")) throw new Error(payload.error ?? "暂时未能生成绘本背景");
+      setSceneImage(payload.image); setImageMessage("专属绘本已准备好，出发后就能进入诗里的世界。");
+    } catch (error) { setImageMessage(error instanceof Error && error.name !== "AbortError" && error.name !== "TimeoutError" ? error.message : "这次绘画已停止，可以直接使用诗意场景开始。"); }
+    finally { window.clearTimeout(deadline); imageLock.current = false; setGeneratingImage(false); }
+  }
 
   useEffect(() => {
     const query = window.matchMedia("(max-width: 759px)");
@@ -134,11 +156,16 @@ export function PoemGameExperience({ learnerId, learnerName, poem, distractorLin
       <div><p className="eyebrow">Today&apos;s poem mission</p><h2>{learnerName} · 《{poem.title}》</h2><p>{blueprint.brief}</p></div>
       <div className="poem-game-mode-switch" aria-label="游戏模式"><button type="button" disabled={gameActive} className={mode === "desktop" ? "active" : ""} onClick={() => setPreferredMode("desktop")}>电脑完整玩法</button><button type="button" disabled={gameActive} className={mode === "mobile" ? "active" : ""} onClick={() => setPreferredMode("mobile")}>手机轻量背诗</button></div>
       <span className={`poem-map-status ${blueprint.source === "ai" ? "ai" : ""}`}>{mapStatus}</span>
+      {!summary && mode === "desktop" && <div className="poem-adventure-setup">
+        <div className="poem-difficulty-picker" aria-label="选择游戏难度">{(Object.keys(POEM_GAME_DIFFICULTIES) as PoemGameDifficulty[]).map((level) => <button key={level} type="button" disabled={gameActive} aria-pressed={difficulty === level} className={difficulty === level ? "selected" : ""} onClick={() => setDifficulty(level)}><span>{level === "easy" ? "一" : level === "normal" ? "二" : "三"}</span><strong>{POEM_GAME_DIFFICULTIES[level].label}<small>最多 {POEM_GAME_DIFFICULTIES[level].minutes} 分钟</small></strong><p>{POEM_GAME_DIFFICULTIES[level].description}</p></button>)}</div>
+        <div className="poem-art-controls"><div><strong>走进《{poem.title}》的画里</strong><p>按诗意绘制专属背景；也可以直接用现成场景出发。</p></div><button type="button" className="secondary compact" disabled={gameActive || generatingImage || !!sceneImage} onClick={() => void generateSceneImage()}>{generatingImage ? "正在绘制…" : sceneImage ? "绘本背景已就绪" : "✧ 生成 AI 绘本背景"}</button></div>
+        {imageMessage && <p className="notice" role="status">{imageMessage}</p>}
+      </div>}
     </section>
 
     {!summary && (mode === "desktop"
-      ? <DesktopPoemTankGame key={`desktop-${poem.id}-${runKey}`} poem={poem} distractorLines={distractorLines} blueprint={blueprint} onStart={() => setGameActive(true)} onFinish={saveResult} />
-      : <MobilePoemGame key={`mobile-${poem.id}-${runKey}`} poem={poem} distractorLines={distractorLines} onStart={() => setGameActive(true)} onFinish={saveResult} />)}
+      ? <DesktopPoemTankGame key={`desktop-${poem.id}-${runKey}-${difficulty}`} poem={poem} distractorLines={distractorLines} blueprint={{ ...blueprint, backgroundImage: sceneImage ?? proceduralPoemMap(poem).backgroundImage }} difficulty={difficulty} onStart={() => { setPreferredMode("desktop"); setGameActive(true); }} onFinish={saveResult} />
+      : <MobilePoemGame key={`mobile-${poem.id}-${runKey}`} poem={poem} distractorLines={distractorLines} onStart={() => { setPreferredMode("mobile"); setGameActive(true); }} onFinish={saveResult} />)}
 
     {summary && <section className="poem-game-result panel">
       <span className="poem-result-medal">守</span>

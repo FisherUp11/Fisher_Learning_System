@@ -1,5 +1,12 @@
 export type PoemGameMode = "desktop" | "mobile";
 
+export type PoemGameDifficulty = "easy" | "normal" | "challenge";
+export const POEM_GAME_DIFFICULTIES = {
+  easy: { label: "轻松探索", minutes: 5, enemySpeed: 38, enemyCount: 2, shotInterval: 3.2, targetSpeed: 0, options: 2, battleSeconds: 7, description: "静止诗堡 · 两个选项 · 更多护盾" },
+  normal: { label: "诗境冒险", minutes: 6, enemySpeed: 54, enemyCount: 3, shotInterval: 2.5, targetSpeed: 18, options: 3, battleSeconds: 9, description: "移动诗堡 · 三个选项 · 经典闯关" },
+  challenge: { label: "小小守卫", minutes: 7, enemySpeed: 72, enemyCount: 4, shotInterval: 1.8, targetSpeed: 30, options: 3, battleSeconds: 11, description: "更快的迷雾 · 隐藏诗卷 · 回忆挑战" },
+} as const;
+
 export type PoemGameStage = "warmup" | "exposure" | "choice" | "order" | "boss" | "mobile";
 
 export type PoemGamePoem = {
@@ -22,6 +29,7 @@ export type PoemMapBlueprint = {
   landmarks: string[];
   weather: "petals" | "stars" | "ripples" | "dust" | "fireflies" | "snow";
   source: "procedural" | "ai";
+  backgroundImage?: string;
 };
 
 export type PoemGameAttemptInput = {
@@ -81,6 +89,8 @@ export function splitPoemLines(content: string) {
 
 export function proceduralPoemMap(poem: Pick<PoemGamePoem, "title" | "content">): PoemMapBlueprint {
   const text = `${poem.title}${poem.content}`;
+  if (/洞庭/.test(text)) return { name: "洞庭秋月", brief: "月光与湖水相映，远处的小山像白银盘里的一枚青螺。", tags: ["秋月", "湖面", "青山"], palette: ["#507b91", "#223854", "#e9deac", "#75958b"], landmarks: ["秋月", "平静湖水", "青螺般的山"], weather: "ripples", source: "procedural", backgroundImage: "/poem-game/dongting-moon.png" };
+  if (/牧童.*黄牛/.test(text)) return { name: "牧童林间", brief: "牧童骑着黄牛唱歌，听见树上的蝉，忽然安静下来。", tags: ["牧童", "黄牛", "鸣蝉"], palette: ["#89a883", "#526f59", "#e9c56f", "#a8ba8b"], landmarks: ["林间小路", "黄牛", "树梢鸣蝉"], weather: "fireflies", source: "procedural" };
   if (/[春花鸟柳草蜂啼]/u.test(text)) return { name: "春日诗园", brief: "花树、鸟鸣与曲径组成一座适合慢慢寻找诗句的庭院。", tags: ["花树", "鸟鸣", "晨光"], palette: ["#315c43", "#1c3829", "#e7a86a", "#7fae83"], landmarks: ["花树", "飞鸟", "小池"], weather: "petals", source: "procedural" };
   if (/[月夜星霜]/u.test(text)) return { name: "月下诗庭", brief: "银蓝月色落在石径上，安静的远山守护着诗句。", tags: ["月光", "夜色", "远山"], palette: ["#29415b", "#17293c", "#d7dcae", "#6685a0"], landmarks: ["圆月", "窗影", "松林"], weather: "stars", source: "procedural" };
   if (/[江河湖海潭舟水波]/u.test(text)) return { name: "清波水城", brief: "河流穿过战场，桥与水纹把诗句连成一条路。", tags: ["清波", "小桥", "远帆"], palette: ["#31705f", "#1b443d", "#e9eee0", "#6ca5a0"], landmarks: ["河流", "木桥", "荷叶"], weather: "ripples", source: "procedural" };
