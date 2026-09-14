@@ -304,7 +304,8 @@ sequenceDiagram
 ## 7. Next.js 与认证边界
 
 - Server Component 默认读取数据；页面在 `(app)` 路由组内，layout 用 `auth.getUser()` 拦截未登录访问。
-- `createClient` 与 `loadAccessContext` 使用 React `cache()` 仅在当前服务端渲染请求内复用客户端和权限读取。不能改为跨请求的全局 Map、持久缓存或 `use cache`，避免账号 Cookie 和权限串用；新请求仍重新验证权限。
+- 服务端 `createClient` 每次调用都从当前请求重新读取 Cookie，不缓存带会话的 Supabase 客户端；`loadAccessContext` 只在当前渲染内复用同一客户端的权限读取。不能改为跨请求的全局 Map、持久缓存或 `use cache`，避免账号 Cookie 和权限串用。
+- 邮箱密码登录成功后使用完整页面跳转进入受保护路由，确保浏览器写完 Supabase 会话 Cookie 后服务端才开始渲染；不要连续调用 `router.replace()` 与 `router.refresh()` 制造登录前后请求竞争。
 - `AppShell` 通过 `onNavigate + useTransition` 显示目标页打开状态，同一目标等待中避免重复导航；保留正常链接地址和新标签打开方式。预取只在悬停、聚焦或触摸时触发，并在短时间内去重；`loading.tsx` 提供服务端读取期间的页面占位。
 - `proxy.ts` 每个请求刷新 Supabase SSR cookie，会话响应强制 `Cache-Control: private, no-store`。
 - `/auth/callback` 服务于注册/邀请，并兼容旧版 recovery 模板；`/auth/recovery` 专门验证密码恢复。新版 Recovery 邮件模板使用 `SiteURL + /auth/recovery + TokenHash`，不把 token 写日志或数据库。

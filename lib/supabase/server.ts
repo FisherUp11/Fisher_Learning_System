@@ -1,6 +1,5 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
-import { cache } from "react";
 
 function getPublicKey() {
   const key =
@@ -11,8 +10,8 @@ function getPublicKey() {
   return key;
 }
 
-// React cache 仅在当前服务端渲染请求内复用，不能跨请求/跨账号共享带 Cookie 的客户端。
-export const createClient = cache(async function createClient() {
+// 每次调用都从当前请求重新读取 Cookie。认证客户端不能复用旧请求的 Cookie 快照。
+export async function createClient() {
   const cookieStore = await cookies();
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   if (!url) throw new Error("缺少 NEXT_PUBLIC_SUPABASE_URL");
@@ -31,4 +30,4 @@ export const createClient = cache(async function createClient() {
       },
     },
   });
-});
+}

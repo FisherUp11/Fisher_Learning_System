@@ -2,11 +2,9 @@
 
 import { FormEvent, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 export function LoginForm({ nextPath = "/learn" }: { nextPath?: string }) {
-  const router = useRouter();
   const [isSignup, setIsSignup] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
@@ -30,17 +28,25 @@ export function LoginForm({ nextPath = "/learn" }: { nextPath?: string }) {
       ? await supabase.auth.signUp({ email, password, options: { emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}` } })
       : await supabase.auth.signInWithPassword({ email, password });
 
-    setLoading(false);
     if (result.error) {
+      setLoading(false);
       setMessage(result.error.message);
       return;
     }
     if (isSignup && !result.data.session) {
+      setLoading(false);
       setMessage("注册成功，请到邮箱确认后再回来登录。 ");
       return;
     }
-    router.replace(nextPath);
-    router.refresh();
+    if (!result.data.session) {
+      setLoading(false);
+      setMessage("登录已通过，但没有建立会话。请刷新页面后重试。");
+      return;
+    }
+
+    // 使用完整页面导航，保证 Supabase 写入的 Cookie 在受保护页面渲染前已经可见。
+    // router.replace() 紧接 router.refresh() 会产生竞争请求，服务端可能先读到登录前的空 Cookie。
+    window.location.replace(nextPath);
   }
 
   return (
