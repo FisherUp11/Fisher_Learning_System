@@ -1,0 +1,67 @@
+.root { --adult-line: #dfe5d9; display: grid; gap: 20px; padding-bottom: 20px; }
+.root button:disabled { opacity: .55; cursor: wait; }
+.root button:focus-visible, .root a:focus-visible, .root input:focus-visible, .root select:focus-visible, .root textarea:focus-visible { outline: 3px solid #cc963b; outline-offset: 3px; }
+.hero { display: flex; justify-content: space-between; align-items: end; gap: 24px; padding: 24px 0 12px; }
+.hero h1 { font-size: clamp(32px, 5vw, 48px); margin: 12px 0; }
+.hero p { margin: 0; color: var(--muted); line-height: 1.7; max-width: 600px; }
+.eyebrow { color: var(--leaf); font: 700 11px/1.5 ui-sans-serif, sans-serif; letter-spacing: .18em; }
+.profiles { display: flex; flex-wrap: wrap; gap: 6px; padding: 5px; border: 1px solid var(--line); border-radius: 18px; background: #fffcf6; }
+.profiles button { min-height: 44px; padding: 10px 22px; border: 0; border-radius: 13px; background: transparent; color: var(--muted); white-space: nowrap; }
+.profiles .selected { color: #fffaf1; background: var(--leaf); }
+.card { padding: clamp(18px, 3vw, 30px); border: 1px solid var(--line); border-radius: 24px; background: #fffdf8; }
+.card h2, .card h3 { margin: 0 0 12px; }
+.card h2 { font-size: 24px; }
+.card h3 { font-size: 19px; }
+.card p { line-height: 1.7; }
+.muted { color: var(--muted); font-size: 14px; line-height: 1.7; }
+.banner { padding: 16px 20px; border: 1px solid #c8ddc8; border-radius: 16px; background: #edf4e9; line-height: 1.65; white-space: pre-wrap; }
+.error { border-color: #e6b6a5; background: #fff1e9; color: #91422e; }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.between { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; border: 1px solid var(--line); border-radius: 20px; overflow: hidden; background: var(--line); }
+.metrics > div { padding: 20px; background: #f6f3e9; }
+.metrics strong { display: block; color: var(--leaf); font: 500 36px/1.3 Georgia, serif; }
+.metrics span { color: var(--muted); font-size: 13px; }
+.button { min-height: 46px; padding: 10px 18px; border: 1px solid var(--adult-line); border-radius: 13px; background: #edf3e8; color: var(--leaf); font-weight: 700; }
+.primary { background: var(--leaf); border-color: var(--leaf); color: white; }
+.quiet { background: transparent; }
+.danger { color: #a44028; background: #fff4ee; border-color: #e6cabd; }
+.form { display: grid; gap: 15px; }
+.form label { display: grid; gap: 7px; font-size: 14px; font-weight: 600; }
+.root input:not([type=checkbox]), .root select, .root textarea { width: 100%; min-height: 46px; padding: 11px 13px; border: 1px solid var(--line); border-radius: 12px; color: var(--ink); background: #fff; font: 16px/1.6 ui-sans-serif, sans-serif; }
+.root textarea { resize: vertical; }
+.root input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--leaf); }
+.check { display: flex !important; align-items: center; gap: 8px; }
+.days { display: flex; flex-wrap: wrap; gap: 8px; }
+.days label { display: flex; align-items: center; gap: 4px; padding: 9px; border: 1px solid var(--line); border-radius: 10px; }
+.progress { height: 9px; border-radius: 6px; overflow: hidden; background: #ebece1; margin: 18px 0; }
+.progress > div { height: 100%; background: #527b54; transition: width .3s; }
+.amount { font: 500 40px/1.2 Georgia, serif; color: var(--leaf); }
+.amount small { font: 14px/1.5 ui-sans-serif, sans-serif; color: var(--muted); }
+.calendar { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
+.calendar > div { display: grid; gap: 5px; min-height: 68px; padding: 10px 4px; border: 1px solid var(--line); border-radius: 12px; text-align: center; font: 13px/1.4 ui-sans-serif, sans-serif; }
+.calendar .achieved { background: #dcebd6; border-color: #aec5a3; color: #355d45; }
+.calendar .activeDay { background: #fbefd8; border-color: #ddc596; }
+.list { display: grid; gap: 12px; }
+.listItem { padding: 18px 0; border-bottom: 1px solid var(--line); }
+.listItem:last-child { border-bottom: 0; }
+.badge { display: inline-block; padding: 4px 10px; border-radius: 99px; background: #edf1e6; color: var(--leaf); font-size: 12px; line-height: 1.6; }
+.empty { text-align: center; padding: 38px 20px; }
+.empty strong { display: block; margin-bottom: 12px; font-size: 24px; }
+.details { border-top: 1px solid var(--line); padding-top: 14px; margin-top: 18px; }
+.details summary { cursor: pointer; color: var(--leaf); padding: 10px 0; font-weight: 600; }
+.document { white-space: pre-wrap; line-height: 1.85; overflow-wrap: anywhere; max-height: 440px; overflow: auto; padding: 16px; background: #f5f2e7; border-radius: 14px; font-size: 16px; }
+.lessonEditor { display: grid; gap: 16px; margin-top: 16px; }
+.task { padding: clamp(22px, 5vw, 48px); background: #fffdf8; border: 1px solid var(--line); border-radius: 28px; }
+.task h2 { font-size: clamp(23px, 4vw, 32px); line-height: 1.55; margin: 18px 0 24px; font-weight: 500; }
+.taskList { display: flex; flex-wrap: wrap; gap: 7px; }
+.taskList button { width: 36px; height: 36px; border: 1px solid var(--line); background: #fffdf8; color: var(--muted); border-radius: 50%; }
+.taskList .current { border-color: var(--leaf); color: white; background: var(--leaf); }
+.taskList .done { background: #e1ecdb; color: var(--leaf); }
+.audio { width: 100%; margin: 12px 0; }
+.recording { background: #a44028; color: white; }
+.skeleton { min-height: 180px; display: grid; place-content: center; color: var(--muted); background: #f5f2e7; border-radius: 24px; }
+.tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 650px) { .hero { align-items: start; flex-direction: column; gap: 16px; } .grid { grid-template-columns: 1fr; } .metrics > div { padding: 15px 10px; } .metrics strong { font-size: 28px; } .between { flex-wrap: wrap; } .calendar { gap: 4px; } .calendar > div { font-size: 11px; min-height: 59px; } }
+@media (prefers-reduced-motion: reduce) { .progress > div { transition: none; } }

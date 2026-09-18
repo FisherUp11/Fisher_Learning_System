@@ -394,3 +394,11 @@ column reference "session_id" is ambiguous
 ## 9. 升级原则
 
 开始新增模块、录音或 AI 审核前，先阅读 [ARCHITECTURE.md](./ARCHITECTURE.md)。不要直接在生产库临时修改复习函数：复习规则、编号 SQL 迁移、前端文案与测试案例必须同时改。问答模块尤其不能直接写 `catechism_learning_states` 或改删 `catechism_attempts`。
+
+## 10. 019 升级：成人运动与会议英语
+
+此升级独立于儿童学习和登录系统。备份后在 SQL Editor 完整运行 `supabase/019_parent_growth.sql`，再部署代码；不重跑旧迁移、不关闭 RLS、不需要 Edge Functions。后续备份还需包含全部 `adult_*` 表，特别是计划快照、目标版本与逐次记录。
+
+复用现有 Azure OpenAI 和 Azure Speech 服务端变量。可选新增 `R2_ADULT_BUCKET_NAME` 为独立私有缓存桶；不配置也能先用。若更换 R2 凭据，务必保留对原音乐桶的访问权限。密码恢复、Resend、Supabase URL 和原音乐桶名不需要改变。
+
+按 [21_亲子坚持与会议英语使用与配置.md](./21_亲子坚持与会议英语使用与配置.md) 完成逐步配置和真实浏览器验收。没有运行 019 时新模块显示初始化提示，原模块保持可用。录音需要 HTTPS 或本机 localhost；务必在上线设备上验证麦克风权限和转写。

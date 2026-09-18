@@ -5,6 +5,7 @@ import Link from "next/link";
 import { answerQueueItem, loadTodayQueue, type Learner, type QueueItem } from "@/lib/actions";
 import { RewardCelebration } from "@/components/reward-celebration";
 import type { RewardOutcome } from "@/lib/reward-types";
+import { ParentGrowthInvitation } from "@/components/parent-growth-invitation";
 
 function kindLabel(kind: QueueItem["queue_kind"]) {
   if (kind === "new" || kind === "new_reinforcement") return "今天的新朋友";
@@ -273,7 +274,7 @@ export function LearningExperience({ learner }: { learner: Learner }) {
   if (error && !current) return <section className="panel"><p className="error">{error}</p><button className="secondary" onClick={() => void refreshQueue()}>重新加载</button></section>;
   if (!current && syncing && todayProgress.remaining > 0) return <section className="empty panel"><span className="empty-mark">🌱</span><h1>正在准备下一张</h1><p className="lede">刚才的字已经放到后面，稍后再独立认一认。</p></section>;
   if (!current) {
-    return <section className="empty panel"><span className="empty-mark">🌱</span><h1>今天完成啦！</h1><p className="lede">今天的汉字都独立认出来了，慢慢记住最厉害。</p>{earnedReward && <p className="reward-complete-note">一枚“识字小达人”贴纸已经放进贴纸册。</p>}<button className="secondary" onClick={() => void refreshQueue()}>看看有没有新任务</button>{earnedReward && <RewardCelebration learnerId={learner.id} reward={earnedReward} message="今天的汉字都独立认出来啦！一枚“识字小达人”贴纸住进贴纸册啦！" />}</section>;
+    return <section className="empty panel"><span className="empty-mark">🌱</span><h1>今天完成啦！</h1><p className="lede">今天的汉字都独立认出来了，慢慢记住最厉害。</p>{earnedReward && <p className="reward-complete-note">一枚“识字小达人”贴纸已经放进贴纸册。</p>}<button className="secondary" onClick={() => void refreshQueue()}>看看有没有新任务</button><ParentGrowthInvitation />{earnedReward && <RewardCelebration learnerId={learner.id} reward={earnedReward} message="今天的汉字都独立认出来啦！一枚“识字小达人”贴纸住进贴纸册啦！" />}</section>;
   }
 
   const percentage = todayProgress.total > 0

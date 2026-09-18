@@ -411,3 +411,78 @@ owner 是 admin 的严格超集；只有 owner 可管理账号、邀请和永久
 ```
 
 并要求 Agent 完成真实检查：`npm run lint`、`npm run build`、移动端浏览器验收；若修改 SQL，使用两个测试家长账号验证跨家庭 RLS。
+
+## 11. 成人运动与会议英语（019，2026-09-18）
+
+### 11.1 模块隔离与入口
+
+使用现有 Next.js App Router、Supabase SSR 会话与 Azure REST 接口，不增加框架、登录体系、Edge Functions 或 service role 调用。`app/(app)/together/[[...section]]` 提供今天/记录/设置，`app/(app)/english/[[...section]]` 提供练习/资料/积累。`app-shell` 只新增顶层模块和对应底部导航。
+
+`AdultHub` 是交互入口：请求完成前禁用重复提交、显示成功/失败、保存后刷新当前数据；切换参与者时保留账号私有边界。英语面板按需加载。儿童学习完成页只增加可关闭的 `ParentGrowthInvitation`，它使用本机启用偏好，不增加儿童保存链路上的网络依赖，也不发额外贴纸。
+
+### 11.2 数据和权限
+
+所有新增表位于 `supabase/019_parent_growth.sql`，使用 `adult_` 前缀。这里的 `owner_id` 指数据所属 Auth 用户，**不是工作空间的 owner 角色**。每表开启仅 `auth.uid()` 可访问的 RLS，并用包含 owner 的复合外键防止跨账号挂接。
+
+| 表组 | 职责 |
+| --- | --- |
+| `adult_profiles` | 同账号爸爸/妈妈等成人档案，英语偏好 |
+| `adult_exercise_goals / adult_goal_versions` | 固定运动单位与按生效日期保存的目标版本 |
+| `adult_exercise_logs` | 逐次打卡、实际日期与撤销时间 |
+| `adult_english_sources / adult_english_lessons` | 私有会议原文、生成/草稿/发布版本 |
+| `adult_english_concepts / adult_english_lesson_concepts` | 账号内按表达+意思去重的学习点与来源 |
+| `adult_english_plans / adult_english_attempts` | 档案每日任务快照、逐次作答事实 |
+| `adult_english_states` | 档案×表达×听力/口语的复习状态 |
+| `adult_ai_jobs` | AI 请求 ID、状态、结果、模型及 token 用量（服务有返回时） |
+
+新模块的账号私有 RLS 不使用儿童空间 admin/owner 通读策略，不把会议资源放进公共资源分配表。成人同账号档案互相可见；不同登录账号隔离。账号的 active workspace membership 在 API 中校验。RLS 主要保护跨账号隔离，认证账号对自己的表有写权限；本模块不是强防作弊考试系统，也不宣称服务器审核过的成绩无法由高级用户改写。数据库管理员仍有底层权限。
+
+### 11.3 API 与事务
+
+- `lib/adult-learning.ts`：无副作用类型、北京时间日历、目标快照/统计、课程结构校验、队列、掌握标签。不能引入服务器密钥。
+- `lib/adult-server.ts`：会话鉴权、输入检查、分页读取、命令编排、Azure JSON 生成与反馈。读取分页避免 Supabase 默认 1000 行造成无提示截断，当前仍将账号范围数据加载后在 UI 分页，适合家庭规模；大规模应改服务端列表分页和聚合。
+- `/api/adult`：客户端 GET 加载、POST 命令，不缓存私有响应。同源校验、长度限制、鉴权在服务端，不信任前端传来的 owner。
+- `/api/adult/media`：读取已授权任务或课程中的文本朗读，接收单声道 PCM16/16kHz 短录音转写；不允许任意外链抓取。语音转写与 plan/task 绑定，修改转写标记 corrected。
+- `/api/adult/family`：按需汇总当前账号自己孩子近 30 天学习日期，不查询其他家庭，不阻塞成人或儿童保存。
+- `adult_save_goal` RPC：锁定档案；首次当天生效，已有目标仅写次日起版本，历史计算不变。
+- `adult_log_exercise` RPC：归属、日期范围检查；请求 UUID 保证普通网络重试幂等，真实第二次运动使用新 UUID。
+- `adult_publish_lesson` RPC：原子发布、表达去重和来源关联，重复发布无重复关系。
+- `adult_record_attempt` RPC：锁定计划，按请求 UUID 追加记录并原子更新状态；同日独立答对不重复升级。
+- `adult_delete_source` RPC：原子删除源资料及含相关课程的整份计划，清除孤立表达/状态和账号 AI 缓存；保留其他账号和运动表。
+
+RPC 为 `SECURITY INVOKER`、固定空 search_path、显式限定表名并撤销匿名执行权。与儿童模块某些受限 definer 函数不同，不套用其角色策略。
+
+### 11.4 课程、复习与幂等
+
+原文按标准化正文 hash 去重。生成任务先入库，生成内容必须通过结构和原文引文检查，家长人工修改草稿后发布。发布版本不覆盖，计划记录完整题目快照，未来改资料不影响旧题目。
+
+生成 job 与课程同一 UUID。AI 结果先持久化；若写草稿失败，重试从完成结果恢复，不再次生成；已有编辑草稿不会被恢复逻辑覆盖。运行中任务 90 秒内拒绝重复执行；过期任务使用条件更新重新占用。这个机制减少常见重复调用，不是分布式任务队列或严格计费 exactly-once 保证。近 24 小时 200 项新 AI/语音任务提供应用层保护，并非原子全局计费限额。
+
+每日档案/日期唯一（Asia/Shanghai），已有计划优先返回。到期技能优先，未到期技能不会作为新表达重复出题，听力和口语分别建立状态；达到到期上限时减少新表达。标准/精简/小测由用户选，修改偏好不重建当日快照。
+
+口语独立证据要求本题未改写语音转写、无提示和 AI 内容答对。听力可用文字解释。自评、修正转写和提示不增加独立成功日。阶段 0～5，正向间隔 1/3/7/14/30 天，同日最多因成功升一级；明显错误降一级并当日到期，其他非独立尝试缩短至最多次日。稳定掌握还要求 3 个独立成功日期及至少一次 7 天间隔回忆。普通听力理解/情境题保留逐次历史，不强行映射某个表达的掌握。
+
+AI 只评价文字内容，不能从转写文本推断发音或口音。练习通过率与发音、CEFR 水平分开，不以播放音频充当有效学习。
+
+### 11.5 音频与敏感资料生命周期
+
+录音在浏览器录制、转为短 WAV，服务器转发 Azure 后不持久化原始文件；转写文本和作答记录写数据库。`lib/adult-media.ts` 合成朗读，正常/慢速按账号+声音+速度+文本 hash 缓存。可选 `R2_ADULT_BUCKET_NAME` 必须是独立私有桶，复用现有 R2 凭据，绝不回退到 `R2_BUCKET_NAME` 音乐桶。未配置时直接 TTS 可用。
+
+音频走登录鉴权后的服务器响应，`private, no-store`，浏览器使用短生命周期 object URL。永久删除资料先清理账号私有合成缓存，再执行数据库事务；清理失败时不删除数据库，便于重试。共享缓存清理会使该账号其他会议的音频重新生成。删除含源资料的整份计划会连同同计划其他题历史删除，UI 明确提示，平时停用用归档。
+
+目前没有运行中生成与删除的跨服务分布式锁，勿并发删除正在生成的源资料；正式扩大多用户规模前可增加 tombstone、后台清理队列和分桶专用凭据。不要为简化缓存把会议内容改成公共资源。
+
+### 11.6 验证与后续修改
+
+`scripts/test-parent-growth.cjs` 纯逻辑测试可直接运行；设置 `PGLITE_MODULE` 指向本地安装的 `@electric-sql/pglite` 后，会在一次性本地库执行迁移两遍并测试 RLS、复合外键、目标版本、幂等、发布、复习和删除隔离，不连接线上 Supabase。PGlite 仅为测试工具，没有加入应用依赖。
+
+```sh
+node --test scripts/test-parent-growth.cjs
+node --test scripts/test-resource-imports.cjs scripts/test-poem-tank.cjs
+npm run lint
+npm run build
+```
+
+`scripts/check-parent-azure.cjs` 只有显式 `--live` 才发送虚构句子测试 Azure，可能产生少量费用，不使用真实纪要。浏览器测试部分使用模拟 API；尚需部署后进行真实登录、麦克风、完整作答与第二账号验收，详见 21 号文档。后续不要把模拟流程通过写成生产验收完成。
+
+以后添加儿童英语需单独设计 learner 和家长授权，不直接复用成人私有档案。修改新模块优先阅读本章节、21 号文档和 019 SQL；原儿童的 001–018 规则保持原有文档定义。
