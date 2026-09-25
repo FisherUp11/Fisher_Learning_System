@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { loadAccessContext } from "@/lib/access";
 import { addDays, localDay, makeTasks, normalizeText, validateLesson, type AdultProfile, type ConceptState, type EnglishConcept, type EnglishLesson, type DailyPlan, type MeetingSource } from "@/lib/adult-learning";
 import { clearAdultAudioCache } from "@/lib/adult-media";
+import { validateSource, wordCount } from "@/lib/english-listening";
 
 export async function adultContext() {
   const db = await createClient();
@@ -14,7 +15,7 @@ export async function adultContext() {
 }
 export function checked<T>(result: { data: T; error: { message: string; code?: string } | null }): NonNullable<T> {
   if (result.error) {
-    if (result.error.code === "42P01" || result.error.code === "PGRST205" || result.error.code === "PGRST202") throw new Error("新模块尚未初始化，请先在 Supabase 运行 supabase/019_parent_growth.sql。原有模块不受影响。");
+    if (["42P01", "42703", "PGRST205", "PGRST202", "PGRST204"].includes(result.error.code ?? "")) throw new Error("成人模块尚未升级完成，请在 Supabase 依次运行 019_parent_growth.sql、020_english_listening_courses.sql（supabase 文件夹）。原有儿童模块不受影响。");
     throw new Error(result.error.message);
   }
   // Mutations without .select() legitimately return null; callers ignore that return.
@@ -35,7 +36,7 @@ export function numberValue(value: unknown, min: number, max: number, integer = 
 }
 function hash(value: string) { return createHash("sha256").update(value).digest("hex"); }
 type Context = Awaited<ReturnType<typeof adultContext>>;
-async function allRows<T>(read: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string; code?: string } | null }>): Promise<T[]> {
+export async function allRows<T>(read: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string; code?: string } | null }>): Promise<T[]> {
   const result: T[] = [];
   for (let from = 0; from < 100000; from += 500) {
     const rows = checked(await read(from, from + 499)) ?? [];
@@ -66,14 +67,17 @@ export async function loadAdultData(ctx: Context, area: string, profileId?: stri
   }
   const results = await Promise.all([
     allRows((from, to) => db.from("adult_english_sources").select("*").eq("owner_id", user.id).order("created_at", { ascending: false }).order("id").range(from, to)),
-    allRows((from, to) => db.from("adult_english_lessons").select("*").eq("owner_id", user.id).order("created_at", { ascending: false }).order("id").range(from, to)),
+    allRows((from, to) => db.from("adult_english_lessons").select("*").eq("owner_id", user.id).eq("format_version", 1).order("created_at", { ascending: false }).order("id").range(from, to)),
     allRows((from, to) => db.from("adult_english_concepts").select("*").eq("owner_id", user.id).order("phrase").order("id").range(from, to)),
     allRows((from, to) => db.from("adult_english_lesson_concepts").select("*").eq("owner_id", user.id).order("lesson_id").order("concept_id").range(from, to)),
     allRows((from, to) => db.from("adult_english_states").select("*").eq("profile_id", profile.id).order("concept_id").order("skill").range(from, to)),
     db.from("adult_english_plans").select("*").eq("profile_id", profile.id).eq("local_date", today).maybeSingle(),
     allRows((from, to) => db.from("adult_english_attempts").select("*").eq("profile_id", profile.id).gte("local_date", addDays(today, -29)).order("created_at", { ascending: false }).order("id").range(from, to)),
   ]);
-  return { profiles, profile, today, sources: results[0], lessons: results[1], concepts: results[2], links: results[3], states: results[4], plan: checked(results[5]), attempts: results[6] };
+  const lessonIds = new Set(results[1].map(l => l.id));
+  const links = results[3].filter(l => lessonIds.has(l.lesson_id));
+  const conceptIds = new Set(links.map(l => l.concept_id));
+  return { profiles, profile, today, sources: results[0], lessons: results[1], concepts: results[2].filter(c => conceptIds.has(c.id)), links, states: results[4].filter(s => conceptIds.has(s.concept_id)), plan: checked(results[5]), attempts: results[6] };
 }
 
 export async function callAdultAI(system: string, input: unknown) {
@@ -108,6 +112,7 @@ export async function reserveJob(ctx: Context, id: string, kind: string) {
 }
 
 export async function adultCommand(ctx: Context, action: string, b: Record<string, unknown>) {
+  if (action.startsWith("listen-")) return (await import("@/lib/english-listening-server")).listeningCommand(ctx, action, b);
   const { db, user } = ctx;
   if (action === "profile") {
     const name = textValue(b.name, 30);
@@ -140,7 +145,7 @@ export async function adultCommand(ctx: Context, action: string, b: Record<strin
     return { message: "已撤销，统计同步更新；原记录保留更正痕迹。" };
   }
   if (action === "source") {
-    const body = textValue(b.body, 30000, 20); if (body.split(/\s+/).length > 3000) throw new Error("请先选取不超过 3000 个英文词的片段");
+    const body = validateSource(textValue(b.body, 150000, 20));
     const contentHash = hash(normalizeText(body));
     const previous = checked(await db.from("adult_english_sources").select("id").eq("owner_id", user.id).eq("content_hash", contentHash).maybeSingle());
     if (previous) return { id: previous.id, message: "这份正文已经导入，请使用资料库中的原材料，无需重复导入。" };
@@ -163,8 +168,10 @@ export async function adultCommand(ctx: Context, action: string, b: Record<strin
     const profile = await ownedProfile(ctx, b.profile_id);
     const source = checked(await db.from("adult_english_sources").select("*").eq("id", uuid(b.source_id)).eq("owner_id", user.id).single()) as MeetingSource;
     if (source.archived) throw new Error("请先恢复已归档资料");
+    if (wordCount(source.body) > 3000) throw new Error("这份长纪要请到新版会议资料中分节生成，旧版口语课程只支持较短材料。");
     const id = uuid(b.id);
     const existing = checked(await db.from("adult_english_lessons").select("*").eq("id", id).eq("owner_id", user.id).maybeSingle());
+    if (existing && existing.format_version !== 1) throw new Error("请使用新版听力课程的预览与编辑入口");
     if (existing && existing.source_id !== source.id) throw new Error("生成任务与资料不匹配");
     if (existing?.status === "published") return { id, message: "这版课程已发布；重新生成请创建新版本。" };
     const cached = await reserveJob(ctx, id, "lesson");
@@ -196,7 +203,7 @@ export async function adultCommand(ctx: Context, action: string, b: Record<strin
     }
   }
   if (action === "publish" || action === "draft") {
-    const lesson = checked(await db.from("adult_english_lessons").select("source_id,status").eq("id", uuid(b.id)).eq("owner_id", user.id).single());
+    const lesson = checked(await db.from("adult_english_lessons").select("source_id,status").eq("id", uuid(b.id)).eq("owner_id", user.id).eq("format_version",1).single());
     if (action === "publish" && lesson.status === "published") return { message: "这版课程已发布，不需要重复提交。" };
     if (lesson.status !== "draft") throw new Error("已发布课程不可覆盖，需重新生成新版本");
     const source = checked(await db.from("adult_english_sources").select("body").eq("id", lesson.source_id).single());

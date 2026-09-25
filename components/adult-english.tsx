@@ -5,9 +5,15 @@ import { masteryLabel, type EnglishLesson, type LessonContent, type MeetingSourc
 import type { PanelProps, RunCommand } from "./adult-hub";
 import { EnglishStudy } from "./adult-english-study";
 import s from "./adult-growth.module.css";
+import { ListeningPanel } from "./english-listening-panel";
+import { wordCount } from "@/lib/english-listening";
 
 const statusLabels = { generating: "生成中", failed: "生成失败，可重试", draft: "待预览草稿", published: "已加入学习", archived: "已归档" };
 export function EnglishPanel(props: PanelProps) {
+  if (!props.tab.startsWith("legacy")) return <ListeningPanel {...props} />;
+  return <><div className={s.banner}>旧版课程与口语历史保留在这里。<Link href="/english">返回新版听力学习 →</Link><div className={s.row}><Link href="/english/legacy">旧练习</Link><Link href="/english/legacy-materials">旧资料</Link><Link href="/english/legacy-progress">旧积累</Link></div></div><LegacyEnglishPanel {...props} tab={props.tab === "legacy" ? "today" : props.tab.replace("legacy-", "")} /></>;
+}
+function LegacyEnglishPanel(props: PanelProps) {
   const { data, tab, run, pending } = props;
   const [query, setQuery] = useState(""); const [filter, setFilter] = useState("all"); const [sourceFilter, setSourceFilter] = useState(""); const [page, setPage] = useState(0);
   const attempts = data.attempts ?? [], states = data.states ?? [];
@@ -44,13 +50,13 @@ function Pagination({ page, count, size, setPage }: { page: number; count: numbe
   if (count <= size) return null;
   return <div className={s.row}><button className={s.button} disabled={page === 0} onClick={() => setPage(page - 1)}>上一页</button><span>{page + 1} / {Math.ceil(count / size)}</span><button className={s.button} disabled={(page + 1) * size >= count} onClick={() => setPage(page + 1)}>下一页</button></div>;
 }
-function SourceForm({ run, pending, today }: { run: RunCommand; pending: boolean; today: string }) {
+export function SourceForm({ run, pending, today, action = "source" }: { run: RunCommand; pending: boolean; today: string; action?: string }) {
   const [body, setBody] = useState(""); const [fileError, setFileError] = useState("");
-  return <form className={s.form} onSubmit={async e => { e.preventDefault(); const form = e.currentTarget; const f = new FormData(form); if (!confirm("保存这份纪要到当前账号的私有资料库？相同正文会自动检查重复。")) return; const result = await run("source", { title: f.get("title"), body, meeting_date: f.get("date"), priority: f.get("priority") === "on" }); if (result) { setBody(""); form.reset(); } }}>
+  return <form className={s.form} onSubmit={async e => { e.preventDefault(); const form = e.currentTarget; const f = new FormData(form); if (!confirm("保存这份纪要到当前账号的私有资料库？相同正文会自动检查重复。")) return; const result = await run(action, { title: f.get("title"), body, meeting_date: f.get("date"), priority: f.get("priority") === "on" }); if (result) { setBody(""); form.reset(); } }}>
     <div className={s.grid}><label>会议标题<input name="title" required maxLength={120} placeholder="例如：本周项目进度讨论" /></label><label>会议日期<input name="date" type="date" defaultValue={today} required /></label></div>
-    <label>上传 UTF-8 TXT（也可以直接粘贴）<input type="file" accept=".txt,text/plain" disabled={pending} onChange={async e => { setFileError(""); const f = e.target.files?.[0]; if (!f) return; try { if (f.size > 120000) throw new Error("文件过大，请先截取一段纪要"); setBody(new TextDecoder("utf-8", { fatal: true }).decode(await f.arrayBuffer()).replace(/^\uFEFF/, "")); } catch (e) { setFileError(e instanceof Error ? e.message : "请使用 UTF-8 TXT 文件"); } }} /></label>
-    <label>英文纪要（20～30,000 字符，最多约 3,000 个英文词）<textarea rows={8} required minLength={20} maxLength={30000} value={body} onChange={e => setBody(e.target.value)} placeholder="粘贴你有权使用的会议片段。先去掉敏感信息；长会议可以按主题分成几份资料。" /></label>
-    <label className={s.check}><input type="checkbox" name="priority" />近期会议要用到，优先练习</label>{fileError && <p role="alert" className={s.error}>{fileError}</p>}<button disabled={pending} className={`${s.button} ${s.primary}`}>确认并保存资料</button>
+    <label>上传 UTF-8 TXT（也可以直接粘贴）<input type="file" accept=".txt,text/plain" disabled={pending} onChange={async e => { setFileError(""); const f = e.target.files?.[0]; if (!f) return; try { if (f.size > 650000) throw new Error("文件过大，最多支持 150,000 字符的 UTF-8 文本"); setBody(new TextDecoder("utf-8", { fatal: true }).decode(await f.arrayBuffer()).replace(/^\uFEFF/, "")); } catch (e) { setFileError(e instanceof Error ? e.message : "请使用 UTF-8 TXT 文件"); } }} /></label>
+    <label>英文纪要（最多 15,000 英文词，同时不超过 150,000 字符）<textarea rows={8} required minLength={20} maxLength={150000} value={body} onChange={e => setBody(e.target.value)} placeholder="粘贴已脱敏且有权使用的会议纪要，保留段落和标点，系统会按段落与完整句子分节。" /></label><p className={s.muted}>{wordCount(body).toLocaleString("en-US")} / 15,000 英文词 · {body.length.toLocaleString("en-US")} / 150,000 字符</p>
+    <label className={s.check}><input type="checkbox" name="priority" />近期会议要用到，优先练习</label>{fileError && <p role="alert" className={s.error}>{fileError}</p>}<button disabled={pending || wordCount(body)>15000 || body.length>150000} className={`${s.button} ${s.primary}`}>确认并保存资料</button>
   </form>;
 }
 function SourceCard({ source, lessons, profileId, run, pending }: { source: MeetingSource; lessons: EnglishLesson[]; profileId: string; run: RunCommand; pending: boolean }) {

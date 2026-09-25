@@ -402,3 +402,13 @@ column reference "session_id" is ambiguous
 复用现有 Azure OpenAI 和 Azure Speech 服务端变量。可选新增 `R2_ADULT_BUCKET_NAME` 为独立私有缓存桶；不配置也能先用。若更换 R2 凭据，务必保留对原音乐桶的访问权限。密码恢复、Resend、Supabase URL 和原音乐桶名不需要改变。
 
 按 [21_亲子坚持与会议英语使用与配置.md](./21_亲子坚持与会议英语使用与配置.md) 完成逐步配置和真实浏览器验收。没有运行 019 时新模块显示初始化提示，原模块保持可用。录音需要 HTTPS 或本机 localhost；务必在上线设备上验证麦克风权限和转写。
+
+## 11. 020 升级：长纪要分节听力与词句复习（2026-09-25）
+
+已安装成人模块的项目：备份 → 在 SQL Editor 完整运行 [020_english_listening_courses.sql](./supabase/020_english_listening_courses.sql) → 更新代码并重新部署。首次启用成人模块先 019 后 020。不要删除旧表，不必重跑 001～018；没有部署新代码的线上网站不会自动显示新版。
+
+本轮沿用现有 Azure 文本/Speech 环境变量和可选私有成人 R2，不需要更换模型、域名、Resend 或 Supabase URL。新版不要求麦克风权限。历史口语入口保留。
+
+CLI 镜像 `supabase/migrations/20260925081549_adult_listening_courses.sql` 与 020 相同，手动运行只选 020。仓库尚未迁入完整 CLI 历史，不能把这一份文件当成空库完整初始化脚本。
+
+升级后的详细配置、推荐规则、旧资料分节与 7 项真实使用验收见 [22_会议英语听力与词句学习升级说明.md](./22_会议英语听力与词句学习升级说明.md)。本轮自动化检查未连接生产数据库；线上迁移、部署与真实设备音频验收仍需执行。

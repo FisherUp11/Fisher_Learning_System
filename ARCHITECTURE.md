@@ -486,3 +486,19 @@ npm run build
 `scripts/check-parent-azure.cjs` 只有显式 `--live` 才发送虚构句子测试 Azure，可能产生少量费用，不使用真实纪要。浏览器测试部分使用模拟 API；尚需部署后进行真实登录、麦克风、完整作答与第二账号验收，详见 21 号文档。后续不要把模拟流程通过写成生产验收完成。
 
 以后添加儿童英语需单独设计 learner 和家长授权，不直接复用成人私有档案。修改新模块优先阅读本章节、21 号文档和 019 SQL；原儿童的 001–018 规则保持原有文档定义。
+
+### 11.7 新版会议英语（020，2026-09-25）
+
+默认英语入口改为分节听力/选择题/词句复习，以上 11.3～11.4 的口语逻辑作为 legacy 保留。完整规则和验收见 [22 号说明](./22_会议英语听力与词句学习升级说明.md)，优先级高于旧规划中的英语内容。
+
+- `lib/english-listening.ts` 管理 15,000 英文词且 150,000 字符的双上限、段落/句子无损分节、三道理解题和 4～6 词句的运行时校验、选项轮换。原文保留，不一次把长文交给 AI 重新切写。
+- `lib/english-listening-server.ts` 使用现有账号鉴权/AI 任务去重。`/api/adult/listening` GET 读取目录元数据或单节详情；`/api/adult` POST 分发 `listen-*`；`/api/adult/media` 从已授权 session 快照取听力稿、解析句或词句朗读。
+- `adult_english_sections` 为原文分节；`adult_english_lessons.format_version=2` 为新版课程。旧数据默认 1，旧界面只读取 1；共享资料与表达词典，但不混淆课程 JSON 和掌握状态。
+- `adult_listening_sessions` 固定当天课程与选项，保存 `assisted` 和 `assisted_tasks`，档案×北京时间日期唯一；`adult_listening_attempts` 追加逐次作答；`adult_english_word_states` 单独保存新版词句识别阶段。新表沿用账号私有 RLS、复合归属外键，工作空间 owner/admin 没有额外通读权。
+- RPC `adult_split_source` 检查拼接后原文完整并幂等创建；`adult_listening_hint` 持久化提示；`adult_listening_answer` 按快照判题、锁行、请求 UUID 幂等、原子更新词句状态。同日最多升/降一级，1/3/7/14/30 天间隔，辅助/自评不升级，独立回忆与七天间隔另存。不是强防作弊考试。
+- 自动计划：到期词句（最多 5，尊重档案更小值）；到期总数达到 5 默认只复习；否则优先近 30 天检测到的薄弱小节、未完成/重点/较久没学的小节。可手选已发布版或只复习。当日快照不重建。尚未到期的重复词句从本次词句任务剔除。
+- 每节只允许一个 generating/draft/failed 版本，已发布版不可由 UI 原地覆盖；生成结果/job 持久化后才发布，支持网络重试恢复。目录分节每页 8 项，词句每页 12 项；数据读取仍是家庭规模的账号范围分页收集，不是无限规模的数据仓库。
+- 新版永久删除同步清除相关复习场次和旧版计划；同计划其他题记录也会删除，UI 明示。归档优先，不并发删除生成中资料。
+- 新增 `scripts/test-english-listening.cjs`；旧 `test-parent-growth.cjs` 现在在 019+020 后测试兼容性。完整本地回归需配置 PGlite 路径，否则 SQL 测试明确 skip。不得将本地或模拟检查表述为生产迁移/真实 Azure/浏览器验收。
+
+SQL Editor 使用 `supabase/020_english_listening_courses.sql`；CLI 迁移镜像同内容，后续更改必须同步并测试。不要在历史 019 中回写新版规则；CLI 全历史基线尚未建立，不可直接用本轮单份 migration 初始化空库。

@@ -68,6 +68,8 @@ test("PostgreSQL: schema, RLS, goal snapshots, atomic saves, schedules, and dele
   await db.exec(`create role anon; create role authenticated; create schema auth; create table auth.users(id uuid primary key); create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$; grant usage on schema auth to authenticated,anon; grant execute on function auth.uid() to authenticated,anon; insert into auth.users values('${A}'),('${B}');`);
   const sql = fs.readFileSync(path.join(root, "supabase/019_parent_growth.sql"), "utf8");
   await db.exec(sql); await db.exec(sql); // rerunnable without resets
+  // Exercise the old module against the upgraded database, not only its original schema.
+  await db.exec(fs.readFileSync(path.join(root, "supabase/020_english_listening_courses.sql"), "utf8"));
   const asUser = (user, callback) => db.transaction(async tx => { await tx.exec("set local role authenticated"); await tx.query("select set_config('request.jwt.claim.sub',$1,true)", [user]); return callback(tx); });
   await asUser(A, tx => tx.query("insert into public.adult_profiles(id,name) values($1,'爸爸')", [PA]));
   await asUser(B, tx => tx.query("insert into public.adult_profiles(id,name) values($1,'另一家庭')", [PB]));

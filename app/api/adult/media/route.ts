@@ -1,6 +1,7 @@
 import { adultContext, checked, ownedProfile, reserveJob, uuid } from "@/lib/adult-server";
 import { adultAudio } from "@/lib/adult-media";
 import type { DailyPlan, EnglishLesson } from "@/lib/adult-learning";
+import type { ListeningSession } from "@/lib/english-listening";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 const headers = { "Cache-Control": "private, no-store" };
@@ -33,7 +34,13 @@ export async function POST(request: Request) {
       return Response.json(result, { headers });
     }
     const b = await request.json(); let text = "";
-    if (b.plan_id) {
+    if (b.session_id) {
+      const session = checked(await ctx.db.from("adult_listening_sessions").select("*").eq("id",uuid(b.session_id)).eq("owner_id",ctx.user.id).single()) as ListeningSession;
+      const target = String(b.target ?? "summary");
+      if(target === "summary") text=session.snapshot?.summary??"";
+      else if(/^q:[0-2]$/.test(target)) text=session.snapshot?.questions[Number(target.slice(2))]?.evidence??"";
+      else if(/^[wr]:[0-9]+$/.test(target)) text=(target[0]==="w"?session.snapshot?.expressions:session.review_words)?.[Number(target.slice(2))]?.phrase??"";
+    } else if (b.plan_id) {
       const plan = checked(await ctx.db.from("adult_english_plans").select("*").eq("id", uuid(b.plan_id)).eq("owner_id", ctx.user.id).single()) as DailyPlan;
       const task = plan.tasks.find(t => t.id === b.task_id); if (!task) throw new Error("任务不存在");
       text = b.reference === true ? task.answer : task.audio;
@@ -41,7 +48,7 @@ export async function POST(request: Request) {
       const lesson = checked(await ctx.db.from("adult_english_lessons").select("*").eq("id", uuid(b.lesson_id)).eq("owner_id", ctx.user.id).single()) as EnglishLesson;
       text = lesson.content?.summary ?? "";
     }
-    if (!text || text.length > 4000) throw new Error("暂无可朗读的英文文本");
+    if (!text || text.length > 8000) throw new Error("暂无可朗读的英文文本");
     const id = uuid(b.id); await reserveJob(ctx, id, "audio"); failureJob = { db: ctx.db, id };
     const audio = await adultAudio(ctx.user.id, text, b.slow === true);
     checked(await ctx.db.from("adult_ai_jobs").update({ status: "complete", updated_at: new Date().toISOString() }).eq("id", id));

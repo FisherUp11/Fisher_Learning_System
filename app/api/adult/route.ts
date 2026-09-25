@@ -14,7 +14,7 @@ export async function POST(request: Request) {
     const origin = request.headers.get("origin");
     if (origin && new URL(origin).host !== request.headers.get("host")) return Response.json({ error: "请求来源无效" }, { status: 403, headers });
     const raw = await request.text();
-    if (raw.length > 100000) throw new Error("请求内容太大，请分段导入");
+    if (raw.length > 350000) throw new Error("请求内容太大，请分段导入");
     const body = JSON.parse(raw);
     return Response.json(await adultCommand(await adultContext(), String(body.action), body), { headers });
   } catch (e) { return Response.json({ error: e instanceof Error ? e.message : "操作未完成，请重试" }, { status: 400, headers }); }

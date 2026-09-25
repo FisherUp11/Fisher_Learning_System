@@ -5,10 +5,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ExercisePanel } from "./adult-exercise";
 import type { AdultProfile, ExerciseGoal, GoalVersion, ExerciseLog, MeetingSource, EnglishLesson, EnglishConcept, ConceptState, DailyPlan, EnglishAttempt } from "@/lib/adult-learning";
 import s from "./adult-growth.module.css";
+import type { ListeningData } from "./english-listening-panel";
+import type { ListeningAttempt } from "@/lib/english-listening";
 const EnglishPanel = dynamic(() => import("./adult-english").then(module => module.EnglishPanel), { loading: () => <div className={s.skeleton}>正在打开英语练习…</div> });
 
-export type AdultData = { profiles: AdultProfile[]; profile: AdultProfile | null; today: string; goals?: ExerciseGoal[]; versions?: GoalVersion[]; logs?: ExerciseLog[]; adultDays?: string[]; sources?: MeetingSource[]; lessons?: EnglishLesson[]; concepts?: EnglishConcept[]; links?: { lesson_id: string; concept_id: string }[]; states?: ConceptState[]; plan?: DailyPlan | null; attempts?: EnglishAttempt[] };
-export type CommandResult = { message: string; id?: string; attempt?: Pick<EnglishAttempt, "id" | "task_id" | "result" | "feedback"> };
+export type AdultData = { profiles: AdultProfile[]; profile: AdultProfile | null; today: string; goals?: ExerciseGoal[]; versions?: GoalVersion[]; logs?: ExerciseLog[]; adultDays?: string[]; sources?: MeetingSource[]; lessons?: EnglishLesson[]; concepts?: EnglishConcept[]; links?: { lesson_id: string; concept_id: string }[]; states?: ConceptState[]; plan?: DailyPlan | null; attempts?: EnglishAttempt[]; listening?: ListeningData };
+export type CommandResult = { message: string; id?: string; attempt?: Pick<EnglishAttempt, "id" | "task_id" | "result" | "feedback">; listeningAttempt?: ListeningAttempt };
 export type RunCommand = (action: string, payload: Record<string, unknown>) => Promise<CommandResult | null>;
 export type PanelProps = { data: AdultData; tab: string; run: RunCommand; pending: boolean };
 
@@ -28,7 +30,8 @@ export function AdultHub({ area, tab }: { area: "exercise" | "english"; tab: str
     const controller = new AbortController();
     let preferred = selected;
     if (!preferred) { try { preferred = localStorage.getItem("adult-profile") ?? ""; } catch { /* private browsing */ } }
-    fetch(`/api/adult?area=${area}&profile=${encodeURIComponent(preferred)}`, { cache: "no-store", signal: controller.signal }).then(async response => {
+    const endpoint=area === "english" && !tab.startsWith("legacy") ? "/api/adult/listening" : "/api/adult";
+    fetch(`${endpoint}?area=${area}&profile=${encodeURIComponent(preferred)}`, { cache: "no-store", signal: controller.signal }).then(async response => {
       const result = await response.json(); if (!response.ok) throw new Error(result.error ?? "加载失败");
       if (!controller.signal.aborted) {
         setData(result); setLoading(false);
@@ -36,13 +39,13 @@ export function AdultHub({ area, tab }: { area: "exercise" | "english"; tab: str
       }
     }).catch(e => { if (!controller.signal.aborted) { setError(e instanceof Error ? e.message : "加载失败"); setLoading(false); } });
     return () => controller.abort();
-  }, [area, selected, refresh]);
+  }, [area, tab, selected, refresh]);
   const run = useCallback<RunCommand>(async (action, payload) => {
     if (submitting.current) return null;
     submitting.current = true; setPending(true); setError(""); setNotice("");
     const key = JSON.stringify({ action, ...payload });
     const body: Record<string, unknown> = { action, ...payload };
-    if (["exercise", "generate", "attempt"].includes(action) && !body.id) {
+    if (["exercise", "generate", "attempt", "listen-generate", "listen-answer"].includes(action) && !body.id) {
       if (!requests.current.has(key)) requests.current.set(key, crypto.randomUUID());
       body.id = requests.current.get(key);
     }
@@ -80,7 +83,7 @@ export function AdultHub({ area, tab }: { area: "exercise" | "english"; tab: str
 function ProfileForm({ profile, run, pending }: { profile?: AdultProfile; run: RunCommand; pending: boolean }) {
   return <form className={s.form} onSubmit={async e => { e.preventDefault(); const form = e.currentTarget; const f = new FormData(form); const result = await run("profile", { id: profile?.id, name: f.get("name"), daily_new: f.get("daily_new"), daily_review: f.get("daily_review"), level: f.get("level") }); if (result && !profile) form.reset(); }}>
     <label>档案名称<input name="name" required maxLength={30} defaultValue={profile?.name} placeholder="爸爸 / 妈妈" /></label>
-    {profile && <div className={s.grid}><label>每日新表达（0～5）<input name="daily_new" type="number" min={0} max={5} defaultValue={profile.daily_new} required /></label><label>每日到期复习上限（1～20）<input name="daily_review" type="number" min={1} max={20} defaultValue={profile.daily_review} required /></label><label>英语练习难度<select name="level" defaultValue={profile.level}><option value="supported">需要较多中文帮助</option><option value="practical">大致听懂，开口困难</option><option value="advanced">能交流，想说得更自然</option></select></label></div>}
+    {profile && <><p className={s.muted}>新版固定 CET-6 基础，每节精选 4～6 个词句；到期复习最多 5 个（下方设得更少时尊重较小值）。新表达数量和难度选项仅用于“旧版口语与历史”。今天已开始的计划保持不变。</p><div className={s.grid}><label>旧版每日新表达（0～5）<input name="daily_new" type="number" min={0} max={5} defaultValue={profile.daily_new} required /></label><label>到期复习设置（新版最多 5 个）<input name="daily_review" type="number" min={1} max={20} defaultValue={profile.daily_review} required /></label><label>旧版口语难度<select name="level" defaultValue={profile.level}><option value="supported">需要较多中文帮助</option><option value="practical">大致听懂，开口困难</option><option value="advanced">能交流，想说得更自然</option></select></label></div></>}
     <button className={`${s.button} ${s.primary}`} disabled={pending}>{profile ? "保存设置（下次计划生效）" : "创建成人档案"}</button>
   </form>;
 }

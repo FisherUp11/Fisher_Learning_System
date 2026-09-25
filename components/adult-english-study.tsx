@@ -50,7 +50,7 @@ function TaskCard({ plan, task, attempts, run, pending, onNext, onSaved }: { pla
     {(saved || attempts.length > 0) && <div className={s.row} style={{ marginTop: 20 }}><button disabled={pending || recordBusy} className={`${s.button} ${s.primary}`} onClick={onNext}>继续下一项 / 查看完成情况 →</button>{saved && <button disabled={pending} className={s.button} onClick={() => { setSaved(false); setHinted(true); setFeedback(""); }}>本题再练一次</button>}</div>}
   </section>;
 }
-function PrivateAudio({ body }: { body: Record<string, unknown> }) {
+export function PrivateAudio({ body }: { body: Record<string, unknown> }) {
   const [slow, setSlow] = useState(true), [loop, setLoop] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(""), [src, setSrc] = useState("");
   const urls = useRef(new Map<boolean, string>()); const alive = useRef(true); const audio = useRef<HTMLAudioElement>(null);
   useEffect(() => { alive.current = true; const cache = urls.current; return () => { alive.current = false; for (const url of cache.values()) URL.revokeObjectURL(url); cache.clear(); }; }, []);
