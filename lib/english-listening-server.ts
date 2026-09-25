@@ -1,8 +1,9 @@
 import "server-only";
+import { listeningSourceInput, prepareEnglishSource } from "./english-source";
 import { createHash, randomUUID } from "node:crypto";
 import { adultCommand, adultContext, allRows, callAdultAI, checked, ownedProfile, reserveJob, uuid } from "./adult-server";
 import { addDays, localDay, normalizeText, type AdultProfile, type EnglishConcept } from "./adult-learning";
-import { rotateOptions, splitMeeting, validateListening, wordCount, type ListeningContent, type ListeningLesson, type ReviewWord, type Section, type WordState } from "./english-listening";
+import { rotateOptions, splitMeeting, validateListening, type ListeningContent, type ListeningLesson, type ReviewWord, type Section, type WordState } from "./english-listening";
 type Context = Awaited<ReturnType<typeof adultContext>>;
 const digest = (s: string) => createHash("sha256").update(s).digest("hex");
 const conceptKey = (phrase: string, meaning: string) => digest(`${normalizeText(phrase)}\n${normalizeText(meaning)}`);
@@ -29,25 +30,29 @@ export async function lessonDetail(ctx: Context, id: string) {
   const section = checked(await ctx.db.from("adult_english_sections").select("*").eq("id",lesson.section_id).single()) as Section;
   return { lesson, section };
 }
-const prompt = `你是 CET-6 基础的成人工作英语教练。根据本节原文整理一节听力课：忠实于原文事实、日期、数字、决定，不编造。正常听力稿250～350英文词；很短原文可80～200词，不为凑字数编造。保留有用的会议表达，删除无意义重复。标题为简短中文主题。选择题3道：主旨、细节、原因或行动；英文问题和英文四选一，有唯一最佳答案，干扰项合理且不得存在两个都对的答案。中文解释必须引用听力稿的原句evidence。词句4～6项，适合已有六级基础、工作会议可复用，以搭配短语为主；source_quote逐字来自输入的本节原文，example明确为新编的应用例句。词句options为四个不同中文意思，正确选项文字必须等于meaning。仅JSON：{"title":"","summary":"英文听力稿","translation":"中文辅助","questions":[{"prompt":"","translation":"中文题意","options":["A内容","B内容","C内容","D内容"],"correct":0,"explanation":"中文解析","evidence":"听力稿原句"}],"expressions":[{"phrase":"","meaning":"","example":"","source_quote":"","category":"word|phrase|sentence","options":["中文意思1","中文意思2","中文意思3","中文意思4"],"correct":0}]}。options不要附带ABCD编号。correct从0到3。`;
+const prompt = `你是 CET-6 基础的成人英语教练。根据本节英文会议纪要或课程字幕整理一节听力课：忠实于原文事实、日期、数字、决定，不编造。正常听力稿250～350英文词；很短原文可80～200词，不为凑字数编造。保留有用的原文英文表达，删除无意义重复。标题为简短中文主题。选择题3道：主旨、细节、原因或行动；英文问题和英文四选一，有唯一最佳答案，干扰项合理且不得存在两个都对的答案。中文解释必须引用听力稿的原句evidence。词句4～6项，适合已有六级基础，可用于工作或日常理解，忠实于原文题材，以搭配短语为主；source_quote逐字来自输入的本节原文，example明确为新编的应用例句。词句options为四个不同中文意思，正确选项文字必须等于meaning。仅JSON：{"title":"","summary":"英文听力稿","translation":"中文辅助","questions":[{"prompt":"","translation":"中文题意","options":["A内容","B内容","C内容","D内容"],"correct":0,"explanation":"中文解析","evidence":"听力稿原句"}],"expressions":[{"phrase":"","meaning":"","example":"","source_quote":"","category":"word|phrase|sentence","options":["中文意思1","中文意思2","中文意思3","中文意思4"],"correct":0}]}。options不要附带ABCD编号。correct从0到3。`;
+
+const bilingualInstructions = `\n输入可能来自会议纪要或课程字幕。english_source 是唯一英文事实主体；chinese_reference 和 bilingual_pairs 的中文只是译文参考，不是额外发言，不重复计算内容。中文与英文冲突时以英文为准，不根据中文补造英文事实。仅围绕原文题材，不把普通课程强行改造成商务会议。英文听力稿、英文题目、词句phrase和example不得混入中文。词句source_quote必须逐字摘自english_source，不能引用中文或回译中文。保留英文原表达中适合CET-6学习者的词、搭配和短句，优先可迁移表达；不必为了会议用途扭曲课程含义。`;
 
 export async function listeningCommand(ctx: Context, action: string, b: Record<string, unknown>): Promise<{message:string;id?:string;listeningAttempt?:import("./english-listening").ListeningAttempt}> {
   const { db, user } = ctx;
   if (action === "listen-import") {
+    if (typeof b.body !== "string" || prepareEnglishSource(b.body).englishWords < 80) throw new Error("请提供至少 80 词的独立英文正文。双语字幕请一行英文、一行中文，可交换先后顺序。");
     const saved = await adultCommand(ctx,"source",b);
     if (!saved.id) return saved;
     const source = checked(await db.from("adult_english_sources").select("body").eq("id",saved.id).single());
-    checked(await db.rpc("adult_split_source", { p_source: saved.id, p_parts: splitMeeting(source.body).map(excerpt => ({ excerpt, word_count: wordCount(excerpt) })) }));
+    checked(await db.rpc("adult_split_source", { p_source: saved.id, p_parts: splitMeeting(source.body).map(excerpt => ({ excerpt, word_count: prepareEnglishSource(excerpt).englishWords })) }));
     return { id: saved.id, message: "资料已保存并分节（重复正文沿用原资料）。打开目录，生成第 1 节即可开始。" };
   }
   if (action === "listen-split") {
     const source = checked(await db.from("adult_english_sources").select("body").eq("id",uuid(b.source_id)).eq("owner_id",user.id).single());
-    checked(await db.rpc("adult_split_source",{p_source:b.source_id,p_parts:splitMeeting(source.body).map(excerpt=>({excerpt,word_count:wordCount(excerpt)}))}));
+    checked(await db.rpc("adult_split_source",{p_source:b.source_id,p_parts:splitMeeting(source.body).map(excerpt=>({excerpt,word_count:prepareEnglishSource(excerpt).englishWords}))}));
     return { message:"分节目录已准备好，旧版课程与记录保留。" };
   }
   if (action === "listen-generate") {
     await ownedProfile(ctx,b.profile_id);
     const section = checked(await db.from("adult_english_sections").select("*").eq("id",uuid(b.section_id)).eq("owner_id",user.id).single()) as Section;
+    const learningSource = listeningSourceInput(section.excerpt!);
     const source = checked(await db.from("adult_english_sources").select("archived").eq("id",section.source_id).single());
     if (source.archived) throw new Error("请先恢复归档资料");
     const active = checked(await db.from("adult_english_lessons").select("*").eq("section_id",section.id).in("status",["generating","draft","failed"]).maybeSingle()) as ListeningLesson | null;
@@ -66,7 +71,7 @@ export async function listeningCommand(ctx: Context, action: string, b: Record<s
     const cached = await reserveJob(ctx,id,"lesson"); let durable = !!cached;
     try {
       checked(await db.from("adult_english_lessons").update({status:"generating",error:null}).eq("id",id).neq("status","published"));
-      const result = cached ? {content:cached.result,model:cached.model,usage:cached.usage} : await callAdultAI(prompt,{source:section.excerpt,level:"CET-6 基础，听力需要循序渐进"});
+      const result = cached ? {content:cached.result,model:cached.model,usage:cached.usage} : await callAdultAI(prompt + bilingualInstructions,{...learningSource,level:"CET-6 基础，听力需要循序渐进"});
       // Persist raw output too: invalid output can be inspected; a fresh retry may replace it.
       if (!cached) checked(await db.from("adult_ai_jobs").update({result:result.content,model:result.model,usage:result.usage,updated_at:new Date().toISOString()}).eq("id",id));
       const content = validateListening(result.content,section.excerpt!);

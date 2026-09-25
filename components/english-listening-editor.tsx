@@ -3,12 +3,14 @@ import { useState } from "react";
 import type { ListeningContent, ListeningLesson, Section } from "@/lib/english-listening";
 import type { RunCommand } from "./adult-hub";
 import s from "./adult-growth.module.css";
+import { EnglishSourcePreview } from "./english-source-preview";
 export function ListeningEditor({lesson,section,run,pending,onRefresh,onClose}:{lesson:ListeningLesson;section:Section;run:RunCommand;pending:boolean;onRefresh:()=>Promise<void>;onClose:()=>void}) {
  const [content,setContent]=useState<ListeningContent|null>(lesson.content??null);
  if(!content)return null;
  const editable=lesson.status==="draft";
  return <section className={`${s.card} ${s.form}`} id={`lesson-${lesson.id}`}><div className={s.between}><h2>{editable?"预览与编辑草稿":"已发布课程"}</h2><button className={s.button} onClick={onClose}>收起</button></div><p className={s.muted}>AI 整理的合成听力，不是真实会议录音。请核对事实、答案唯一性和引文。发布后不会覆盖，修订需新版本。</p>
   <details className={s.details}><summary>核对本节原文 · {section.word_count} 词</summary><div className={s.document}>{section.excerpt}</div></details>
+  <EnglishSourcePreview text={section.excerpt ?? ""} />
   <label>本节主题<input disabled={!editable||pending} value={content.title} onChange={e=>setContent({...content,title:e.target.value})}/></label>
   <label>英文听力稿<textarea disabled={!editable||pending} rows={8} value={content.summary} onChange={e=>setContent({...content,summary:e.target.value})}/></label><label>中文辅助<textarea disabled={!editable||pending} rows={4} value={content.translation} onChange={e=>setContent({...content,translation:e.target.value})}/></label>
   {content.questions.map((q,i)=><details key={i} className={s.details}><summary>理解题 {i+1} · {q.prompt}</summary><div className={s.form}>{(["prompt","translation","explanation","evidence"] as const).map(k=><label key={k}>{{prompt:"英文题目",translation:"中文题意",explanation:"中文解析",evidence:"听力稿原句依据"}[k]}<textarea disabled={!editable||pending} rows={2} value={q[k]} onChange={e=>setContent({...content,questions:content.questions.map((x,j)=>j===i?{...x,[k]:e.target.value}:x)})}/></label>)}{q.options.map((o,j)=><label key={j}>选项 {"ABCD"[j]}<input disabled={!editable||pending} value={o} onChange={e=>setContent({...content,questions:content.questions.map((x,n)=>n===i?{...x,options:x.options.map((t,m)=>m===j?e.target.value:t)}:x)})}/></label>)}<label>正确选项<select disabled={!editable||pending} value={q.correct} onChange={e=>setContent({...content,questions:content.questions.map((x,j)=>j===i?{...x,correct:Number(e.target.value)}:x)})}>{[0,1,2,3].map(n=><option key={n} value={n}>{"ABCD"[n]}</option>)}</select></label></div></details>)}

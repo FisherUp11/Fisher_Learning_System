@@ -50,7 +50,7 @@ function TaskCard({ plan, task, attempts, run, pending, onNext, onSaved }: { pla
     {(saved || attempts.length > 0) && <div className={s.row} style={{ marginTop: 20 }}><button disabled={pending || recordBusy} className={`${s.button} ${s.primary}`} onClick={onNext}>继续下一项 / 查看完成情况 →</button>{saved && <button disabled={pending} className={s.button} onClick={() => { setSaved(false); setHinted(true); setFeedback(""); }}>本题再练一次</button>}</div>}
   </section>;
 }
-export function PrivateAudio({ body }: { body: Record<string, unknown> }) {
+export function PrivateAudio({ body, label = "听一听" }: { body: Record<string, unknown>; label?: string }) {
   const [slow, setSlow] = useState(true), [loop, setLoop] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(""), [src, setSrc] = useState("");
   const urls = useRef(new Map<boolean, string>()); const alive = useRef(true); const audio = useRef<HTMLAudioElement>(null);
   useEffect(() => { alive.current = true; const cache = urls.current; return () => { alive.current = false; for (const url of cache.values()) URL.revokeObjectURL(url); cache.clear(); }; }, []);
@@ -66,7 +66,7 @@ export function PrivateAudio({ body }: { body: Record<string, unknown> }) {
       if (audio.current) { audio.current.src = url; void audio.current.play().catch(() => {}); }
     } catch (e) { if (alive.current) setError(e instanceof Error ? e.message : "播放失败，请重试"); } finally { if (alive.current) setBusy(false); }
   }
-  return <div style={{ margin: "16px 0" }}><div className={s.row}><button disabled={busy} className={s.button} onClick={() => void load()}>{busy ? "准备音频…" : "听一听"}</button><label className={s.check}><input type="checkbox" checked={slow} onChange={e => { setSlow(e.target.checked); audio.current?.pause(); setSrc(""); }} />慢速</label><label className={s.check}><input type="checkbox" checked={loop} onChange={e => setLoop(e.target.checked)} />循环播放</label></div><audio ref={audio} controls loop={loop} src={src || undefined} className={s.audio} style={{ display: src ? "block" : "none" }} preload="none" />{error && <p role="alert" className={s.muted}>{error}</p>}<span className={s.muted}>根据课程合成的语音 · 若未自动播放，请按播放器 ▶</span></div>;
+  return <div style={{ margin: "16px 0" }}><div className={s.row}><button type="button" disabled={busy} className={s.button} onClick={() => void load()}>{busy ? "准备音频…" : label}</button><label className={s.check}><input type="checkbox" checked={slow} onChange={e => { setSlow(e.target.checked); audio.current?.pause(); setSrc(""); }} />慢速</label><label className={s.check}><input type="checkbox" checked={loop} onChange={e => setLoop(e.target.checked)} />循环播放</label></div><audio ref={audio} controls loop={loop} src={src || undefined} className={s.audio} style={{ display: src ? "block" : "none" }} preload="none" />{error && <p role="alert" className={s.muted}>{error}</p>}<span className={s.muted}>合成语音 · 听后可暂停跟读，无需录音；若未自动播放，请按播放器 ▶</span></div>;
 }
 
 async function wavBlob(blob: Blob) {

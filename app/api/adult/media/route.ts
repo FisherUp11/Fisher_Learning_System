@@ -2,6 +2,7 @@ import { adultContext, checked, ownedProfile, reserveJob, uuid } from "@/lib/adu
 import { adultAudio } from "@/lib/adult-media";
 import type { DailyPlan, EnglishLesson } from "@/lib/adult-learning";
 import type { ListeningSession } from "@/lib/english-listening";
+import { listeningAudioText } from "@/lib/english-audio";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 const headers = { "Cache-Control": "private, no-store" };
@@ -34,12 +35,14 @@ export async function POST(request: Request) {
       return Response.json(result, { headers });
     }
     const b = await request.json(); let text = "";
-    if (b.session_id) {
+    if (b.concept_id) {
+      const concept = checked(await ctx.db.from("adult_english_concepts").select("phrase,example").eq("id",uuid(b.concept_id)).eq("owner_id",ctx.user.id).single());
+      if (b.field !== undefined && b.field !== "phrase" && b.field !== "example") throw new Error("朗读类型无效");
+      text = b.field === "example" ? concept.example : concept.phrase;
+    } else if (b.session_id) {
       const session = checked(await ctx.db.from("adult_listening_sessions").select("*").eq("id",uuid(b.session_id)).eq("owner_id",ctx.user.id).single()) as ListeningSession;
       const target = String(b.target ?? "summary");
-      if(target === "summary") text=session.snapshot?.summary??"";
-      else if(/^q:[0-2]$/.test(target)) text=session.snapshot?.questions[Number(target.slice(2))]?.evidence??"";
-      else if(/^[wr]:[0-9]+$/.test(target)) text=(target[0]==="w"?session.snapshot?.expressions:session.review_words)?.[Number(target.slice(2))]?.phrase??"";
+      text = listeningAudioText(session,target,b.field);
     } else if (b.plan_id) {
       const plan = checked(await ctx.db.from("adult_english_plans").select("*").eq("id", uuid(b.plan_id)).eq("owner_id", ctx.user.id).single()) as DailyPlan;
       const task = plan.tasks.find(t => t.id === b.task_id); if (!task) throw new Error("任务不存在");

@@ -72,5 +72,9 @@
 .choiceLetter { font: 600 14px ui-sans-serif, sans-serif; color: var(--leaf); }
 .choice.chosen { background: #e8f0e3; border-color: var(--leaf); }
 .choice:focus-within { outline: 2px solid var(--leaf); outline-offset: 3px; }
+.sourcePreview { padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: #f5f5eb; }
+.sourcePreview summary { cursor: pointer; padding: 10px 0; color: var(--leaf); }
+.sourcePair { padding: 10px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.sourcePair p { margin: 6px 0; line-height: 1.8; }
 @media (max-width: 650px) { .hero { align-items: start; flex-direction: column; gap: 16px; } .grid { grid-template-columns: 1fr; } .metrics > div { padding: 15px 10px; } .metrics strong { font-size: 28px; } .between { flex-wrap: wrap; } .calendar { gap: 4px; } .calendar > div { font-size: 11px; min-height: 59px; } }
 @media (prefers-reduced-motion: reduce) { .progress > div { transition: none; } }

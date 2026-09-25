@@ -15,6 +15,8 @@ function load(name) {
   return moduleObject.exports;
 }
 const { splitMeeting, wordCount, validateSource, validateListening, rotateOptions, wordLabel } = load('english-listening');
+const { prepareEnglishSource, listeningSourceInput } = load('english-source');
+const { listeningAudioText } = load('english-audio');
 const sentence = 'The team agreed to review the delivery plan before Friday. ';
 const excerpt = sentence.repeat(30);
 function lesson() { return { title: '交付计划', summary: sentence.repeat(25), translation: '讨论交付计划。', questions: Array.from({ length: 3 }, () => ({ prompt: 'What is next?', translation: '下一步是什么？', options: ['Review the plan', 'Cancel the project', 'Close the office', 'Change the supplier'], correct: 0, explanation: '团队将审核计划。', evidence: sentence.trim() })), expressions: ['review', 'delivery plan', 'agreed to', 'before Friday'].map(phrase => ({ phrase, meaning: '意思：' + phrase, example: sentence, source_quote: sentence.trim(), category: 'phrase', options: ['意思：' + phrase, '错误一', '错误二', '错误三'], correct: 0 })) }; }
@@ -38,6 +40,60 @@ test('Validation rejects fabricated evidence, ambiguous option duplicates, and m
 test('Rotating choices preserves the correct answer and does not mutate the course', () => {
   const q = lesson().questions[0]; for (let n = 0; n < 8; n++) { const rotated = rotateOptions(q, n); assert.equal(rotated.options[rotated.correct], q.options[q.correct]); } assert.equal(q.correct, 0);
   assert.equal(wordLabel({ stage: 5, independent_days: 3, spaced_success: false }), '巩固中');
+});
+
+test('Bilingual adjacent lines are paired in either order, including Chinese with English terminology', () => {
+  for (const reverse of [false,true]) {
+    const pairs = [['Please review the delivery plan.', '请审核 delivery plan。'], ['We will follow up next week.', '我们将在下周跟进。']];
+    const raw = pairs.map(p => (reverse ? [...p].reverse() : p).join('\n')).join('\n');
+    const prepared = prepareEnglishSource(raw); assert.equal(prepared.pairs.length,2);
+    assert.equal(prepared.pairs[0].english,pairs[0][0]); assert.equal(prepared.pairs[0].chinese,pairs[0][1]);
+    assert.ok(!prepared.english.includes('请审核')); assert.equal(prepared.englishWords,11);
+  }
+});
+test('Pair direction may change between blank-separated groups; wrapping and CRLF are supported', () => {
+  const raw='We will follow up\r\non Friday.\r\n我们将在星期五\r\n跟进。\r\n\r\n请确认计划。\r\nPlease confirm the plan.';
+  const p=prepareEnglishSource(raw); assert.equal(p.pairs.length,2); assert.equal(p.pairs[0].english,'We will follow up on Friday.'); assert.equal(p.pairs[1].english,'Please confirm the plan.');
+});
+test('SRT/VTT metadata is ignored for generation, not removed from the stored raw slices', () => {
+  const raw='WEBVTT\n\nNOTE private caption note\nnot spoken\n\ncue-1\n00:00:01.000 --> 00:00:03.000 align:start\n<i>Please review the plan.</i>\n请审核计划。\n\n2\n00:00:04,000 --> 00:00:06,000\n我们会跟进。\nWe will follow up.';
+  const p=prepareEnglishSource(raw); assert.equal(p.pairs.length,2); assert.ok(!p.english.includes('00:00')); assert.ok(!p.english.includes('not spoken')); assert.ok(!p.english.includes('<i>'));
+  assert.equal(p.rawUnits.join('').replace(/\s/g,''),raw.replace(/\s/g,''));
+  assert.equal(p.pairs[0].english,'Please review the plan.'); assert.equal(p.pairs[1].chinese,'我们会跟进。');
+});
+test('Long bilingual text stays lossless and no pair is divided at the 300-word lesson boundary', () => {
+  for (const reverse of [false,true]) {
+    const pairs=Array.from({length:120},(_,i)=>[`Sentence ${i}: Please review the delivery plan before our next meeting.`,`第${i}句：请在下次会议之前审核交付计划。`]);
+    const raw=pairs.map(p=>(reverse?[...p].reverse():p).join('\n')).join('\n\n');
+    const chunks=splitMeeting(raw); assert.ok(chunks.length>1);
+    assert.equal(chunks.join('').replace(/\s/g,''),raw.replace(/\s/g,''));
+    const parsed=chunks.map(prepareEnglishSource); assert.equal(parsed.reduce((n,p)=>n+p.pairs.length,0),120);
+    assert.ok(parsed.every(p=>p.englishWords<=400&&p.pairs.every(pair=>/Sentence (\d+)/.exec(pair.english)[1]===/第(\d+)句/.exec(pair.chinese)[1])));
+    assert.ok(parsed.every(p=>p.warnings.length===0));
+  }
+});
+test('Mixed-line / Chinese-only sources surface warnings rather than inventing English', () => {
+  const p=prepareEnglishSource('We will follow up tomorrow. 我们明天跟进。'); assert.ok(p.warnings.length); assert.equal(p.english,'');
+  assert.throws(()=>listeningSourceInput('这是纯中文内容。'.repeat(30)));
+  assert.throws(()=>listeningSourceInput('Too short.\n太短。'));
+  const text=Array.from({length:20},()=>sentence+'\n团队同意在周五前审核交付计划。').join('\n\n');
+  const input=listeningSourceInput(text); assert.ok(input.english_source.includes('Friday')); assert.ok(!input.english_source.includes('团队')); assert.ok(input.chinese_reference.includes('团队'));
+});
+test('Generation validation requires English audio/terms and quotes from cleaned English, not translations', () => {
+  const raw=Array.from({length:30},()=>`<i>${sentence.trim()}</i>\n团队同意在周五前审核交付计划。`).join('\n\n');
+  validateListening(lesson(),raw);
+  const chinese=lesson();chinese.summary+=' 中文混进听力。';assert.throws(()=>validateListening(chinese,raw));
+  const quoted=lesson();quoted.expressions[0].source_quote='团队同意在周五前审核交付计划。';assert.throws(()=>validateListening(quoted,raw));
+  const phrase=lesson();phrase.expressions[0].phrase='交付计划';assert.throws(()=>validateListening(phrase,raw));
+});
+test('Audio selector supports saved word/phrase and example, never arbitrary browser text or fields', () => {
+  const snapshot=lesson(),session={snapshot,review_words:[snapshot.expressions[0]]};
+  assert.equal(listeningAudioText(session,'w:0'),snapshot.expressions[0].phrase);
+  assert.equal(listeningAudioText(session,'w:0','example'),snapshot.expressions[0].example);
+  assert.equal(listeningAudioText(session,'r:0','example'),snapshot.expressions[0].example);
+  assert.equal(listeningAudioText(session,'q:0'),snapshot.questions[0].evidence);
+  assert.equal(listeningAudioText(session,'w:999'),''); assert.equal(listeningAudioText(session,'https://example.com'),'');
+  assert.throws(()=>listeningAudioText(session,'w:0','meaning'));
 });
 
 test('PostgreSQL integration: upgrade, isolation, schedules, idempotency, hints, and deletion', { skip: !process.env.PGLITE_MODULE }, async t => {

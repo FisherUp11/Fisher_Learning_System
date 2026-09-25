@@ -1,4 +1,6 @@
 "use client";
+import { EnglishSourcePreview } from "./english-source-preview";
+import { prepareEnglishSource } from "@/lib/english-source";
 import Link from "next/link";
 import { useState } from "react";
 import { masteryLabel, type EnglishLesson, type LessonContent, type MeetingSource } from "@/lib/adult-learning";
@@ -6,7 +8,6 @@ import type { PanelProps, RunCommand } from "./adult-hub";
 import { EnglishStudy } from "./adult-english-study";
 import s from "./adult-growth.module.css";
 import { ListeningPanel } from "./english-listening-panel";
-import { wordCount } from "@/lib/english-listening";
 
 const statusLabels = { generating: "生成中", failed: "生成失败，可重试", draft: "待预览草稿", published: "已加入学习", archived: "已归档" };
 export function EnglishPanel(props: PanelProps) {
@@ -52,11 +53,13 @@ function Pagination({ page, count, size, setPage }: { page: number; count: numbe
 }
 export function SourceForm({ run, pending, today, action = "source" }: { run: RunCommand; pending: boolean; today: string; action?: string }) {
   const [body, setBody] = useState(""); const [fileError, setFileError] = useState("");
+  const effectiveWords = prepareEnglishSource(body).englishWords;
   return <form className={s.form} onSubmit={async e => { e.preventDefault(); const form = e.currentTarget; const f = new FormData(form); if (!confirm("保存这份纪要到当前账号的私有资料库？相同正文会自动检查重复。")) return; const result = await run(action, { title: f.get("title"), body, meeting_date: f.get("date"), priority: f.get("priority") === "on" }); if (result) { setBody(""); form.reset(); } }}>
     <div className={s.grid}><label>会议标题<input name="title" required maxLength={120} placeholder="例如：本周项目进度讨论" /></label><label>会议日期<input name="date" type="date" defaultValue={today} required /></label></div>
-    <label>上传 UTF-8 TXT（也可以直接粘贴）<input type="file" accept=".txt,text/plain" disabled={pending} onChange={async e => { setFileError(""); const f = e.target.files?.[0]; if (!f) return; try { if (f.size > 650000) throw new Error("文件过大，最多支持 150,000 字符的 UTF-8 文本"); setBody(new TextDecoder("utf-8", { fatal: true }).decode(await f.arrayBuffer()).replace(/^\uFEFF/, "")); } catch (e) { setFileError(e instanceof Error ? e.message : "请使用 UTF-8 TXT 文件"); } }} /></label>
-    <label>英文纪要（最多 15,000 英文词，同时不超过 150,000 字符）<textarea rows={8} required minLength={20} maxLength={150000} value={body} onChange={e => setBody(e.target.value)} placeholder="粘贴已脱敏且有权使用的会议纪要，保留段落和标点，系统会按段落与完整句子分节。" /></label><p className={s.muted}>{wordCount(body).toLocaleString("en-US")} / 15,000 英文词 · {body.length.toLocaleString("en-US")} / 150,000 字符</p>
-    <label className={s.check}><input type="checkbox" name="priority" />近期会议要用到，优先练习</label>{fileError && <p role="alert" className={s.error}>{fileError}</p>}<button disabled={pending || wordCount(body)>15000 || body.length>150000} className={`${s.button} ${s.primary}`}>确认并保存资料</button>
+    <label>上传 UTF-8 TXT / SRT / VTT（也可以直接粘贴）<input type="file" accept=".txt,.srt,.vtt,text/plain,text/vtt,application/x-subrip" disabled={pending} onChange={async e => { setFileError(""); const f = e.target.files?.[0]; if (!f) return; try { if (!/\.(txt|srt|vtt)$/i.test(f.name)) throw new Error("请选择 TXT、SRT 或 VTT 文本文件"); if (f.size > 650000) throw new Error("文件过大，最多支持 150,000 字符的 UTF-8 文本"); setBody(new TextDecoder("utf-8", { fatal: true }).decode(await f.arrayBuffer()).replace(/^\uFEFF/, "")); } catch (e) { setFileError(e instanceof Error ? e.message : "请使用 UTF-8 编码的文本文件"); } }} /></label>
+    <label>会议纪要 / 课程字幕（可中英对照）<textarea rows={8} required minLength={20} maxLength={150000} value={body} onChange={e => setBody(e.target.value)} placeholder={"粘贴已脱敏的英文或双语内容，例如：\nLet's review the delivery plan.\n我们来审核交付计划。\n\n也支持先中文、后英文。"} /></label><p className={s.muted}>{effectiveWords.toLocaleString("en-US")} / 15,000 有效英文词 · {body.length.toLocaleString("en-US")} / 150,000 字符（中文、时间戳也计入总长度）</p>
+    {action === "listen-import" && <EnglishSourcePreview text={body} />}
+    <label className={s.check}><input type="checkbox" name="priority" />近期会议要用到，优先练习</label>{fileError && <p role="alert" className={s.error}>{fileError}</p>}<button disabled={pending || effectiveWords>15000 || body.length>150000} className={`${s.button} ${s.primary}`}>确认并保存资料</button>
   </form>;
 }
 function SourceCard({ source, lessons, profileId, run, pending }: { source: MeetingSource; lessons: EnglishLesson[]; profileId: string; run: RunCommand; pending: boolean }) {

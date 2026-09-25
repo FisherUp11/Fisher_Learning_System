@@ -492,6 +492,8 @@ npm run build
 默认英语入口改为分节听力/选择题/词句复习，以上 11.3～11.4 的口语逻辑作为 legacy 保留。完整规则和验收见 [22 号说明](./22_会议英语听力与词句学习升级说明.md)，优先级高于旧规划中的英语内容。
 
 - `lib/english-listening.ts` 管理 15,000 英文词且 150,000 字符的双上限、段落/句子无损分节、三道理解题和 4～6 词句的运行时校验、选项轮换。原文保留，不一次把长文交给 AI 重新切写。
+- 双语字幕：`lib/english-source.ts` 识别相邻 EN/ZH 或 ZH/EN 对照及常见 SRT/VTT 元数据。分节保留原稿全部非空白内容，已识别的中英组不拆开；生成输入分为 `english_source / chinese_reference / bilingual_pairs`，英文是事实主体，中文仅辅助。词数上限按有效英文计，字符上限按原稿计；单节至少 80 个有效英文词。预览不是语义校对，同一行混排会提示整理。既有分节/发布快照不自动重写，本次无新增迁移。
+- 词句跟读：`lib/english-audio.ts` 只选择已授权 session 快照中的保存字段；积累页通过 `concept_id` 请求词句或英文例句，media 路由再次按当前 `owner_id` 查表。客户端不提交任意 TTS 文本。默认慢速、可循环，播放不修改作答/掌握记录，不要求录音。
 - `lib/english-listening-server.ts` 使用现有账号鉴权/AI 任务去重。`/api/adult/listening` GET 读取目录元数据或单节详情；`/api/adult` POST 分发 `listen-*`；`/api/adult/media` 从已授权 session 快照取听力稿、解析句或词句朗读。
 - `adult_english_sections` 为原文分节；`adult_english_lessons.format_version=2` 为新版课程。旧数据默认 1，旧界面只读取 1；共享资料与表达词典，但不混淆课程 JSON 和掌握状态。
 - `adult_listening_sessions` 固定当天课程与选项，保存 `assisted` 和 `assisted_tasks`，档案×北京时间日期唯一；`adult_listening_attempts` 追加逐次作答；`adult_english_word_states` 单独保存新版词句识别阶段。新表沿用账号私有 RLS、复合归属外键，工作空间 owner/admin 没有额外通读权。
