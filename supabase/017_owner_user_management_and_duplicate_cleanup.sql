@@ -122,7 +122,7 @@ begin
   select lower(user_record.email) into v_email from auth.users user_record where user_record.id = v_user_id;
   select invitation.* into v_invitation
   from public.workspace_invitations invitation
-  where invitation.token_hash = encode(digest(p_token, 'sha256'), 'hex')
+  where invitation.token_hash = pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(p_token, 'UTF8')), 'hex')
   for update;
   if not found or v_invitation.status <> 'pending' then raise exception '邀请不存在、已使用或已撤销' using errcode = '22023'; end if;
   if v_invitation.expires_at <= now() then raise exception '邀请已经过期，请联系 owner 重新生成' using errcode = '22023'; end if;

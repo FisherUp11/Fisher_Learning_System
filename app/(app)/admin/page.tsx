@@ -39,6 +39,7 @@ export default async function AdminPage() {
     <section className="admin-shortcuts">
       <Link href="/admin/resources"><span>库</span><strong>审核资源<small>去重、发布与归档</small></strong></Link>
       <Link href="/admin/assignments"><span>配</span><strong>分配内容<small>按孩子管理学习册</small></strong></Link>
+      <Link href="/admin/usage"><span>量</span><strong>AI 与语音用量<small>按账号查看付费服务调用</small></strong></Link>
       {access.isOwner && <Link href="/admin/users"><span>人</span><strong>用户与家庭<small>账号、角色、密码与孩子概况</small></strong></Link>}
       {access.isOwner && <Link href="/admin/members"><span>邀</span><strong>邀请已有账号<small>一次性安全邀请</small></strong></Link>}
     </section>

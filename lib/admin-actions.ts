@@ -2,7 +2,7 @@
 
 import { createHash, randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
+import { invitationError, validInvitationToken } from "@/lib/invitation";
 import { createClient } from "@/lib/supabase/server";
 import { assertAdmin, assertOwner, loadAccessContext } from "@/lib/access";
 import { deleteR2Object, isR2Configured } from "@/lib/r2";
@@ -83,14 +83,19 @@ export async function revokeWorkspaceInvitation(formData: FormData) {
   revalidatePath("/admin/members");
 }
 
-export async function acceptWorkspaceInvitation(formData: FormData) {
+export async function acceptWorkspaceInvitation(_previousState: AdminActionState, formData: FormData): Promise<AdminActionState> {
   const token = String(formData.get("token") ?? "");
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect(`/login?next=${encodeURIComponent(`/join?token=${token}`)}`);
-  const { error } = await supabase.rpc("accept_workspace_invitation", { p_token: token });
-  if (error) throw new Error(error.message);
-  redirect("/parent?joined=1");
+  try {
+    if (!validInvitationToken(token)) throw new Error("邀请链接不完整，请联系 owner 重新复制完整链接。");
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error("登录已过期，请刷新此页面后重新登录；不要删掉邀请链接中的参数。");
+    const { error } = await supabase.rpc("accept_workspace_invitation", { p_token: token });
+    if (error) throw new Error(error.message);
+    return { status: "success", message: "已加入学习空间，正在进入。" };
+  } catch (error) {
+    return { status: "error", message: invitationError(error instanceof Error ? error.message : "") };
+  }
 }
 
 const resources = {

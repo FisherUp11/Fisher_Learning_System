@@ -504,3 +504,14 @@ npm run build
 - 新增 `scripts/test-english-listening.cjs`；旧 `test-parent-growth.cjs` 现在在 019+020 后测试兼容性。完整本地回归需配置 PGlite 路径，否则 SQL 测试明确 skip。不得将本地或模拟检查表述为生产迁移/真实 Azure/浏览器验收。
 
 SQL Editor 使用 `supabase/020_english_listening_courses.sql`；CLI 迁移镜像同内容，后续更改必须同步并测试。不要在历史 019 中回写新版规则；CLI 全历史基线尚未建立，不可直接用本轮单份 migration 初始化空库。
+
+### 11.8 邀请与服务用量（021，2026-09-26）
+
+- SQL Editor 执行 `supabase/021_invitation_and_service_usage.sql` 后部署；前置 015/017，不修改学习算法或历史。CLI 暂不可用，本轮只有编号 SQL，无 CLI 镜像。详细配置见 [23 号说明](./23_安全邀请与AI语音用量配置.md)。
+- `accept_workspace_invitation` 修复空 search_path 下 pgcrypto.digest 无法解析，改内置 SHA256（兼容旧链接），校验已确认邮箱、空间、邀请状态与有效期。账号级锁＋邀请行锁保证并发安全，同账号重复接受幂等，不覆盖既有/停用成员权限。
+- 接受邀请使用 `useActionState` 返回预期错误，失败留在携带 token 的 URL；切换账号先退出当前会话，回调失败保留安全 next。敏感邀请/认证页禁止 Referer 传递。
+- owner 自动临时密码在创建/重置结果显示，不保存明文。私有 `initial_password_baselines` 与触发器记录 Auth 加盐哈希基线；完成改密 RPC 必须确认 Auth 密码不同才能清标记。普通客户端不能读私有基线。不是完整会话即时撤销系统。
+- 所有 Azure HTTP 统一经 `lib/metered-fetch.ts`，验证 Auth、active 空间成员及已改密状态。服务端 Secret 专写 `service_usage_events`，写初始事件失败则不发起付费请求；响应提取 Token/图片数，不存提示词或正文；语音记录提交字符/估计秒数。
+- `workspace_service_usage` 是 invoker 聚合，RLS 只允许同空间 active owner/admin 查看；家长不能查看或伪造用量。管理页按账号/服务/部署、7/30/90 天查看；仅实际提供方调用计数，缓存命中不重复记。
+- 从上线起计量，不回填未知历史；超时或最终写账失败保留 unknown/started，缺失 Token 为 null。仅使用量，不计算价格/剩余额度/全站硬预算，不包含 R2/Vercel/Supabase 费用。请求成功不保证生成业务内容有效。
+- 回归 `scripts/test-invitation-usage.cjs` 覆盖错误邮箱/过期/撤销/未确认邮箱、重复确认、停用保护、改密证明、客户端拒写、跨空间隔离及 meteredFetch 的拒绝/成功/未知分支。

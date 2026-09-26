@@ -29,5 +29,7 @@ export async function updateSession(request: NextRequest) {
 
   await supabase.auth.getUser();
   response.headers.set("Cache-Control", "private, no-store");
+  // Do not forward invitation/recovery query strings as Referer.
+  if (request.nextUrl.pathname === "/join" || request.nextUrl.pathname === "/login" || request.nextUrl.pathname.startsWith("/auth/")) response.headers.set("Referrer-Policy", "no-referrer");
   return response;
 }

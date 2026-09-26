@@ -39,6 +39,7 @@ const adminLinks = [
   { href: "/admin", label: "概览", icon: "总" },
   { href: "/admin/resources", label: "资源", icon: "库" },
   { href: "/admin/assignments", label: "分配", icon: "配" },
+  { href: "/admin/usage", label: "用量", icon: "量" },
   { href: "/admin/members", label: "邀请", icon: "邀", ownerOnly: true },
   { href: "/admin/users", label: "用户", icon: "人", ownerOnly: true },
 ];

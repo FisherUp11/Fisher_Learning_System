@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { meteredFetch } from "@/lib/metered-fetch";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,6 +22,11 @@ function memoryPrompt(hanzi: string, pinyin: string, meaning: string) {
 }
 
 export async function POST(request: Request) {
+  try { return await generate(request); }
+  catch (error) { return NextResponse.json({error:error instanceof Error ? error.message : "图片服务暂不可用"},{status:503}); }
+}
+
+async function generate(request: Request) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
@@ -76,7 +82,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "联想图服务尚未配置。请检查 Azure 的图片模型部署和环境变量。" }, { status: 503 });
   }
 
-  const response = await fetch(`${endpoint}/openai/deployments/${encodeURIComponent(deployment)}/images/generations?api-version=${encodeURIComponent(apiVersion)}`, {
+  const response = await meteredFetch(`${endpoint}/openai/deployments/${encodeURIComponent(deployment)}/images/generations?api-version=${encodeURIComponent(apiVersion)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "api-key": apiKey },
     body: JSON.stringify({
@@ -87,7 +93,7 @@ export async function POST(request: Request) {
       output_format: "png",
     }),
     cache: "no-store",
-  });
+  }, { service: "image", feature: "hanzi.memory_image.1024.low", model: deployment });
 
   if (!response.ok) {
     return NextResponse.json({ error: "联想图服务暂时不可用，请稍后再试。" }, { status: 502 });

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { meteredFetch } from "@/lib/metered-fetch";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,25 +22,26 @@ async function synthesize(text: string, slow: boolean, language: "zh" | "en") {
   const voice = language === "en"
     ? process.env.AZURE_SPEECH_EN_VOICE || "en-US-JennyNeural"
     : process.env.AZURE_SPEECH_ZH_VOICE || "zh-CN-XiaoxiaoNeural";
-  const response = await fetch(`https://${region}.tts.speech.microsoft.com/cognitiveservices/v1`, {
+  const response = await meteredFetch(`https://${region}.tts.speech.microsoft.com/cognitiveservices/v1`, {
     method: "POST",
     headers: { "Ocp-Apim-Subscription-Key": key, "Content-Type": "application/ssml+xml", "X-Microsoft-OutputFormat": "audio-24khz-48kbitrate-mono-mp3", "User-Agent": "ziya-hanzi-learning" },
     body: `<speak version="1.0" xml:lang="${locale}"><voice xml:lang="${locale}" name="${escapeXml(voice)}">${slow ? `<prosody rate="-22%">${escapeXml(text)}</prosody>` : escapeXml(text)}</voice></speak>`,
-  });
+  }, { service: "tts", feature: "learning.read_aloud", model: voice, characters: [...text].length });
   if (!response.ok) return NextResponse.json({ error: "语音服务暂不可用" }, { status: 502 });
   return new Response(await response.arrayBuffer(), { headers: { "Content-Type": "audio/mpeg", "Cache-Control": "private, max-age=86400" } });
 }
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  return synthesize(url.searchParams.get("text")?.trim() ?? "", url.searchParams.get("slow") === "1", url.searchParams.get("lang") === "en" ? "en" : "zh");
+  try { return await synthesize(url.searchParams.get("text")?.trim() ?? "", url.searchParams.get("slow") === "1", url.searchParams.get("lang") === "en" ? "en" : "zh"); }
+  catch (e) { return NextResponse.json({error:e instanceof Error ? e.message : "语音暂不可用"},{status:503}); }
 }
 
 export async function POST(request: Request) {
   try {
     const body = await request.json() as { text?: unknown; slow?: unknown; lang?: unknown };
-    return synthesize(typeof body.text === "string" ? body.text.trim() : "", body.slow === true, body.lang === "en" ? "en" : "zh");
-  } catch {
-    return NextResponse.json({ error: "朗读请求格式无效" }, { status: 400 });
+    return await synthesize(typeof body.text === "string" ? body.text.trim() : "", body.slow === true, body.lang === "en" ? "en" : "zh");
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : "朗读请求格式无效" }, { status: 400 });
   }
 }

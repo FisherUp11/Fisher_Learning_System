@@ -780,7 +780,7 @@ begin
 
   select invitation.* into v_invitation
   from public.workspace_invitations invitation
-  where invitation.token_hash = encode(digest(p_token, 'sha256'), 'hex')
+  where invitation.token_hash = pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(p_token, 'UTF8')), 'hex')
   for update;
 
   if not found or v_invitation.status <> 'pending' then

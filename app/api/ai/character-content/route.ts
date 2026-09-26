@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { meteredFetch } from "@/lib/metered-fetch";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -7,6 +8,11 @@ export const dynamic = "force-dynamic";
 type Input = { character?: string; pinyin?: string; meaning?: string };
 
 export async function POST(request: Request) {
+  try { return await generate(request); }
+  catch (error) { return NextResponse.json({error:error instanceof Error ? error.message : "AI 服务暂不可用"},{status:503}); }
+}
+
+async function generate(request: Request) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
@@ -15,7 +21,7 @@ export async function POST(request: Request) {
   const character = body.character?.trim() ?? "";
   const pinyin = body.pinyin?.trim() ?? "";
   const meaning = body.meaning?.trim() ?? "";
-  if (!/^[\u3400-\u9fff]$/u.test(character) || !pinyin || !meaning) {
+  if (!/^[\u3400-\u9fff]$/u.test(character) || !pinyin || pinyin.length>80 || !meaning || meaning.length>1000) {
     return NextResponse.json({ error: "请提供一个汉字、拼音和基础释义" }, { status: 400 });
   }
 
@@ -35,11 +41,11 @@ export async function POST(request: Request) {
     'JSON 格式：{"example_sentence":"", "association_tip":""}',
   ].join("\n");
 
-  const response = await fetch(`${endpoint}/openai/deployments/${encodeURIComponent(deployment)}/chat/completions?api-version=${encodeURIComponent(apiVersion)}`, {
+  const response = await meteredFetch(`${endpoint}/openai/deployments/${encodeURIComponent(deployment)}/chat/completions?api-version=${encodeURIComponent(apiVersion)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "api-key": apiKey },
     body: JSON.stringify({ messages: [{ role: "user", content: prompt }], temperature: 0.35, max_tokens: 180, response_format: { type: "json_object" } }),
-  });
+  }, { service: "text", feature: "hanzi.content", model: deployment });
   if (!response.ok) return NextResponse.json({ error: "AI 内容服务暂不可用" }, { status: 502 });
   const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
   const content = payload.choices?.[0]?.message?.content;

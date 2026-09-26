@@ -39,12 +39,11 @@ export async function createWorkspaceUser(
     const { supabase, access } = await ownerSession();
     const admin = createAdminClient();
     const email = String(formData.get("email") ?? "").trim().toLowerCase().slice(0, 320);
-    const displayName = String(formData.get("display_name") ?? "").trim().slice(0, 80);
+    const displayName = (String(formData.get("display_name") ?? "").trim() || email.split("@")[0]).slice(0, 80);
     const role = String(formData.get("role") ?? "parent");
     const familyId = String(formData.get("family_id") ?? "") || null;
-    const newFamilyName = String(formData.get("new_family_name") ?? "").trim().slice(0, 80) || null;
-    const suppliedPassword = String(formData.get("temporary_password") ?? "").trim();
-    const temporaryPassword = suppliedPassword || generatedTemporaryPassword();
+    const newFamilyName = (String(formData.get("new_family_name") ?? "").trim() || `${displayName}的家`).slice(0,80);
+    const temporaryPassword = generatedTemporaryPassword();
     if (!/^\S+@\S+\.\S+$/.test(email)) throw new Error("请填写正确的登录邮箱");
     if (!displayName) throw new Error("请填写账号称呼，例如“哈森妈妈”");
     if (!['admin', 'parent'].includes(role)) throw new Error("角色只能是管理员或家长");
@@ -74,6 +73,7 @@ export async function createWorkspaceUser(
       p_new_family_name: newFamilyName,
     });
     if (provisionError) throw new Error(provisionError.message);
+    createdUserId = null; // Provisioning succeeded: a later UI refresh failure must not delete the account.
 
     revalidatePath("/admin");
     revalidatePath("/admin/users");
@@ -85,7 +85,13 @@ export async function createWorkspaceUser(
     };
   } catch (error) {
     if (createdUserId) {
-      try { await createAdminClient().auth.admin.deleteUser(createdUserId); } catch { /* 回滚尽力而为 */ }
+      // An RPC response can be lost after commit. Never delete a provisioned account.
+      try {
+        const admin = createAdminClient();
+        const { data: membership, error: lookupError } = await admin.from("workspace_members").select("user_id").eq("user_id",createdUserId).limit(1);
+        if (!lookupError && membership?.length === 0) await admin.auth.admin.deleteUser(createdUserId);
+        else return {status:"error",message:"登录账号已创建，但家庭配置结果需要确认。请刷新用户目录；若账号已在目录中，可重置临时密码交给本人，不要重复创建。"};
+      } catch { return {status:"error",message:"登录账号可能已创建，暂时无法确认家庭配置。请让 owner 在用户目录与 Supabase Auth 中核对后重试。"}; }
     }
     return { status: "error", message: error instanceof Error ? error.message : "创建账号失败" };
   }

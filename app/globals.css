@@ -1003,3 +1003,12 @@ textarea { min-height:112px; resize:vertical; line-height:1.65; }
   .password-reset-row { align-items:flex-start; flex-direction:column; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration:.01ms !important; transition-duration:.01ms !important; } }
+.usage-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 24px 0; }
+.usage-totals > div { display: grid; gap: 6px; padding: 20px; border-radius: 20px; background: #edf3e9; }
+.usage-totals strong { font-size: clamp(1.5rem, 3vw, 2.2rem); color: #355e48; }
+.usage-totals span { font-size: .85rem; color: #677568; }
+.usage-list { display: grid; gap: 16px; }
+.usage-card { padding: 20px 24px; border: 1px solid #e7dfcf; border-radius: 20px; overflow-wrap: anywhere; }
+.usage-card h2 { font-size: 1.1rem; margin: 0 0 6px; }
+.usage-card header span, .usage-card p { color: #677568; font-size: .9rem; line-height: 1.7; }
+@media (max-width: 480px) { .usage-totals > div { padding: 12px; } .usage-card { padding: 16px; } }

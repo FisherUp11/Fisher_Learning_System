@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { meteredFetch } from "@/lib/metered-fetch";
 import type { PoemMapBlueprint } from "@/lib/poem-game";
 
 export const runtime = "nodejs";
@@ -32,6 +33,11 @@ function safeBlueprint(value: unknown): Omit<PoemMapBlueprint, "source"> | null 
 }
 
 export async function POST(request: Request) {
+  try { return await generate(request); }
+  catch (error) { return NextResponse.json({error:error instanceof Error ? error.message : "地图服务暂不可用"},{status:503}); }
+}
+
+async function generate(request: Request) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
@@ -63,7 +69,7 @@ export async function POST(request: Request) {
     const version = process.env.AZURE_IMAGE_API_VERSION;
     if (!endpoint || !apiKey || !deployment || !version) return NextResponse.json({ error: "请配置 Azure 图片模型；现在也可以直接用诗意场景开始游戏。" }, { status: 503 });
     try {
-      const response = await fetch(`${endpoint}/openai/deployments/${encodeURIComponent(deployment)}/images/generations?api-version=${encodeURIComponent(version)}`, {
+      const response = await meteredFetch(`${endpoint}/openai/deployments/${encodeURIComponent(deployment)}/images/generations?api-version=${encodeURIComponent(version)}`, {
         method: "POST", headers: { "Content-Type": "application/json", "api-key": apiKey },
         body: JSON.stringify({ n: 1, size: "1536x1024", quality: "low", output_format: "png", prompt: [
           "Paint a beautiful Chinese picture-book landscape as a 2D children's arcade game background. Landscape composition, gently elevated view, layered gouache illustration, charming hand-painted miniature world, rich readable silhouettes.",
@@ -72,15 +78,15 @@ export async function POST(request: Request) {
           "Place the narrative landmarks around the upper quarter and outer edges. Keep the large central and lower playing area calm, muted, low-detail, medium-value ground or water, suitable for blue-white and coral-red toy tanks to remain clearly visible. No tanks or game objects in the image itself. Scenery is a decorative backdrop, not a collision map.",
           "No letters, Chinese characters, text, logos, UI, borders, war, explosions, frightening elements or photorealism.",
         ].join("\n") }), cache: "no-store", signal: AbortSignal.timeout(100_000),
-      });
+      }, { service: "image", feature: "poem.background.1536.low", model: deployment });
       if (!response.ok) return NextResponse.json({ error: "绘本背景暂时没有生成成功，请稍后重试。" }, { status: 502 });
       const payload = await response.json() as { data?: Array<{ b64_json?: string }> };
       if (!payload.data?.[0]?.b64_json) return NextResponse.json({ error: "图片服务没有返回图像，请稍后重试。" }, { status: 502 });
       // Keep generated art in the current page only. Do not store large base64
       // blobs in Supabase or send them with learning evidence.
       return NextResponse.json({ image: `data:image/png;base64,${payload.data[0].b64_json}` }, { headers: { "Cache-Control": "private, no-store" } });
-    } catch {
-      return NextResponse.json({ error: "绘本背景生成超时，仍可使用已有场景开始游戏。" }, { status: 504 });
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error && error.name !== "TimeoutError" ? error.message : "绘本背景生成超时，仍可使用已有场景开始游戏。" }, { status: 503 });
     }
   }
 
@@ -104,12 +110,12 @@ export async function POST(request: Request) {
     `正文：${poem.content}`,
     '{"name":"","brief":"","tags":["","",""],"palette":["#000000","#000000","#000000","#000000"],"landmarks":["","",""] ,"weather":"petals"}',
   ].join("\n");
-  const response = await fetch(`${endpoint}/openai/deployments/${encodeURIComponent(deployment)}/chat/completions?api-version=${encodeURIComponent(apiVersion)}`, {
+  const response = await meteredFetch(`${endpoint}/openai/deployments/${encodeURIComponent(deployment)}/chat/completions?api-version=${encodeURIComponent(apiVersion)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "api-key": apiKey },
     body: JSON.stringify({ messages: [{ role: "user", content: prompt }], temperature: 0.45, max_tokens: 350, response_format: { type: "json_object" } }),
     cache: "no-store", signal: AbortSignal.timeout(25_000),
-  });
+  }, { service: "text", feature: "poem.game_map", model: deployment });
   if (!response.ok) return NextResponse.json({ blueprint: null, source: "procedural", reason: "AI 地图暂不可用" });
   const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
   const content = payload.choices?.[0]?.message?.content;

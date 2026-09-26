@@ -1,5 +1,6 @@
 import { adultContext, checked, ownedProfile, reserveJob, uuid } from "@/lib/adult-server";
 import { adultAudio } from "@/lib/adult-media";
+import { meteredFetch } from "@/lib/metered-fetch";
 import type { DailyPlan, EnglishLesson } from "@/lib/adult-learning";
 import type { ListeningSession } from "@/lib/english-listening";
 import { listeningAudioText } from "@/lib/english-audio";
@@ -26,7 +27,7 @@ export async function POST(request: Request) {
       failureJob = { db: ctx.db, id };
       const key = process.env.AZURE_SPEECH_KEY, region = process.env.AZURE_SPEECH_REGION;
       if (!key || !region) throw new Error("Azure Speech 尚未配置；可切换文字作答");
-      const response = await fetch(`https://${region}.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1?language=en-US&format=simple`, { method: "POST", headers: { "Ocp-Apim-Subscription-Key": key, "Content-Type": "audio/wav; codecs=audio/pcm; samplerate=16000", Accept: "application/json" }, body: bytes, signal: AbortSignal.timeout(30000), cache: "no-store" });
+      const response = await meteredFetch(`https://${region}.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1?language=en-US&format=simple`, { method: "POST", headers: { "Ocp-Apim-Subscription-Key": key, "Content-Type": "audio/wav; codecs=audio/pcm; samplerate=16000", Accept: "application/json" }, body: bytes, signal: AbortSignal.timeout(30000), cache: "no-store" }, {service:"stt",feature:"adult.transcription",model:"azure-speech-en-US",audioSeconds:Math.max(0,bytes.length-44)/32000});
       if (!response.ok) throw new Error(`转写暂时不可用（HTTP ${response.status}），可重试或文字作答`);
       const data = await response.json();
       if (data.RecognitionStatus !== "Success" || !data.DisplayText) throw new Error("没有听清有效语音，请重录或文字作答；此次不记为答错。");

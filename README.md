@@ -106,3 +106,7 @@ flowchart LR
 - 成人资料按账号私有，不继承管理员查看其他家庭孩子的权限。新模块不改变孩子的复习或贴纸。
 
 开始使用前，在 Supabase 依次执行 [019_parent_growth.sql](./supabase/019_parent_growth.sql)、[020_english_listening_courses.sql](./supabase/020_english_listening_courses.sql)；已运行过 019 的只运行 020。复用现有 Azure GPT-4.1 / Speech 后重新部署，不需新模型或 Edge Functions。可选成人 R2 缓存必须使用独立私有桶。运动与基础配置见 [21 号说明](./21_亲子坚持与会议英语使用与配置.md)，新版英语的逐步使用、SQL 升级和验收边界见 [22 号说明](./22_会议英语听力与词句学习升级说明.md)。
+
+## 邀请与用量升级（2026-09-26）
+
+完整最新版还需运行 [021_invitation_and_service_usage.sql](./supabase/021_invitation_and_service_usage.sql)，配置服务端 `SUPABASE_SECRET_KEY`（或 legacy service role key）后部署。邀请支持错误反馈、原链接重试与重复确认；owner 也可只填邮箱生成临时密码，首次登录强制改密。管理员从「管理中心 → 用量」查看各账号 AI / Speech 调用和计量，不读取私人学习正文。未完成 021/密钥配置会阻止新付费请求。详细步骤及账单统计边界见 [23 号说明](./23_安全邀请与AI语音用量配置.md)。

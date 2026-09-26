@@ -1,4 +1,5 @@
 import "server-only";
+import { meteredFetch } from "@/lib/metered-fetch";
 import { createHash } from "node:crypto";
 import { DeleteObjectsCommand, GetObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 function cacheClient() {
@@ -25,7 +26,7 @@ export async function adultAudio(owner: string, text: string, slow: boolean) {
   const speechKey = process.env.AZURE_SPEECH_KEY; const region = process.env.AZURE_SPEECH_REGION;
   if (!speechKey || !region) throw new Error("请配置 Azure Speech KEY 和 REGION");
   const escape = (s: string) => s.replace(/[<>&'\"]/g, c => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" })[c]!);
-  const response = await fetch(`https://${region}.tts.speech.microsoft.com/cognitiveservices/v1`, { method: "POST", signal: AbortSignal.timeout(20000), headers: { "Ocp-Apim-Subscription-Key": speechKey, "Content-Type": "application/ssml+xml", "X-Microsoft-OutputFormat": "audio-24khz-48kbitrate-mono-mp3" }, body: `<speak version="1.0" xml:lang="en-US"><voice name="${escape(voice)}"><prosody rate="${slow ? "-22%" : "0%"}">${escape(text)}</prosody></voice></speak>`, cache: "no-store" });
+  const response = await meteredFetch(`https://${region}.tts.speech.microsoft.com/cognitiveservices/v1`, { method: "POST", signal: AbortSignal.timeout(20000), headers: { "Ocp-Apim-Subscription-Key": speechKey, "Content-Type": "application/ssml+xml", "X-Microsoft-OutputFormat": "audio-24khz-48kbitrate-mono-mp3" }, body: `<speak version="1.0" xml:lang="en-US"><voice name="${escape(voice)}"><prosody rate="${slow ? "-22%" : "0%"}">${escape(text)}</prosody></voice></speak>`, cache: "no-store" }, {service:"tts",feature:"adult.read_aloud",model:voice,characters:[...text].length});
   if (!response.ok) throw new Error(`朗读暂时不可用（HTTP ${response.status}），可以先看文本练习。`);
   const bytes = new Uint8Array(await response.arrayBuffer());
   if (cache) { try { await cache.client.send(new PutObjectCommand({ Bucket: cache.bucket, Key: key, Body: bytes, ContentType: "audio/mpeg" }), { abortSignal: AbortSignal.timeout(5000) }); } catch { /* Optional cache. */ } }

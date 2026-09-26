@@ -1,8 +1,9 @@
 import { LoginForm } from "@/components/login-form";
+import { safeNextPath } from "@/lib/invitation";
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string; reset?: string; error?: string }> }) {
   const params = await searchParams;
-  const nextPath = params.next?.startsWith("/") && !params.next.startsWith("//") ? params.next : "/learn";
+  const nextPath = safeNextPath(params.next);
   return (
     <main className="login-page">
       <section className="login-card">
