@@ -31,10 +31,10 @@ export default async function AdminAssignmentsPage({ searchParams }: { searchPar
   const resourceQuery = moduleKey === "music_folder"
     ? supabase.from("music_folders").select("id,title,status").eq("workspace_id", access.workspaceId).eq("status", "active").order("title")
     : supabase.from(moduleMeta.table).select("id,title,status,review_status").eq("workspace_id", access.workspaceId).eq("status", "published").eq("review_status", "approved").order("created_at");
-  const [{ data: resources }, { data: assignmentRows }] = learner ? await Promise.all([
+  const [{ data: resources, error: resourceError }, { data: assignmentRows }] = learner ? await Promise.all([
     resourceQuery,
     supabase.from(moduleMeta.assignmentTable).select(`${moduleMeta.resourceKey},assignment_status`).eq("learner_id", learner.id),
-  ]) : [{ data: [] }, { data: [] }];
+  ]) : [{ data: [], error: null }, { data: [] }];
   const activeIds = new Set((assignmentRows ?? []).filter((row) => row.assignment_status === "active").map((row) => String(row[moduleMeta.resourceKey as keyof typeof row])));
 
   return <div><header className="hero"><p className="eyebrow">Curriculum assignment</p><h1>给每个孩子安排合适的内容</h1><p className="lede">只显示已审核、已发布的资源。取消分配后不再进入学习队列，但历史不会被删除。</p></header>
@@ -43,7 +43,9 @@ export default async function AdminAssignmentsPage({ searchParams }: { searchPar
         <nav>{Object.entries(modules).map(([key, item]) => <Link className={key === moduleKey ? "active" : ""} href={`/admin/assignments?learner=${learner.id}&module=${key}`} key={key}>{item.label}</Link>)}</nav>
       </section>
       <section className="panel"><div className="library-header"><div><h2>{learner.display_name} · {moduleMeta.label}</h2><p className="library-meta">已分配 {activeIds.size} / {resources?.length ?? 0} 份</p></div></div>
-        {!resources?.length ? <p className="notice">{moduleKey === "music_folder" ? "还没有音乐文件夹，请到“音乐管理”创建（需先运行 022 脚本）。" : "还没有可分配的内容，请先到资源库审核并发布。"}</p> : <div className="assignment-list">{resources.map((resource) => {
+        {!resources?.length ? (moduleKey === "music_folder"
+          ? <div className="notice">{resourceError ? <p>读取音乐文件夹失败：{resourceError.message}。请确认 022 脚本已整段运行成功。</p> : <p>还没有音乐文件夹。先到音乐内容工作台新建文件夹并把内容放进去，再回来分配。</p>}<Link className="primary compact" href="/music/manage">去音乐内容工作台新建文件夹</Link></div>
+          : <p className="notice">还没有可分配的内容，请先到资源库审核并发布。</p>) : <div className="assignment-list">{resources.map((resource) => {
           const active = activeIds.has(resource.id);
           const title = moduleKey === "catechism" ? displayCatechismTitle(resource.title) : resource.title;
           return <article className={active ? "assigned" : ""} key={resource.id}><span>{active ? "✓" : "○"}</span><div><h3>{title}</h3><p>{active ? (moduleKey === "music_folder" ? "整夹已分配 · 新内容自动跟随" : "正在学习") : "尚未分配"}</p></div><form action={toggleWorkspaceAssignment}><input type="hidden" name="learner_id" value={learner.id} /><input type="hidden" name="resource_type" value={moduleKey} /><input type="hidden" name="resource_id" value={resource.id} /><input type="hidden" name="active" value={String(!active)} /><button className={active ? "secondary compact" : "primary compact"}>{active ? "取消分配" : "分配"}</button></form></article>;

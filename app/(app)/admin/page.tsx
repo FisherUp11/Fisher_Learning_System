@@ -45,6 +45,7 @@ export default async function AdminPage() {
       <Link href="/admin/families"><span>家</span><strong>家庭与孩子总览<small>组织图、提醒与已分配资源</small></strong></Link>
       <Link href="/admin/resources"><span>库</span><strong>审核资源<small>去重、发布与归档</small></strong></Link>
       <Link href="/admin/assignments"><span>配</span><strong>分配内容<small>按孩子管理学习册</small></strong></Link>
+      <Link href="/music/manage"><span>乐</span><strong>音乐内容工作台<small>文件夹、批量上传与整夹分配</small></strong></Link>
       <Link href="/admin/usage"><span>量</span><strong>使用与成本<small>每个孩子的时长、资源和估算成本</small></strong></Link>
       {access.isOwner && <Link href="/admin/users"><span>人</span><strong>用户与家庭<small>账号、角色、密码与孩子概况</small></strong></Link>}
       {access.isOwner && <Link href="/admin/members"><span>邀</span><strong>邀请已有账号<small>一次性安全邀请</small></strong></Link>}

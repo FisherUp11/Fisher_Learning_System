@@ -36,6 +36,12 @@ const rewardLinks = [
   { href: "/parent", label: "家长", icon: "家" },
 ];
 
+const musicLinks = [
+  { href: "/music", label: "音乐天地", icon: "乐" },
+  { href: "/music/manage", label: "音乐管理", icon: "夹" },
+  { href: "/parent", label: "家长", icon: "家" },
+];
+
 const adminLinks = [
   { href: "/admin", label: "概览", icon: "总" },
   { href: "/admin/families", label: "家庭", icon: "家" },
@@ -76,6 +82,8 @@ export function AppShell({ email, isAdmin, isOwner, children }: { email: string;
         ? poemLinks
       : pathname.startsWith("/rewards")
         ? rewardLinks
+      : pathname.startsWith("/music")
+        ? musicLinks
         : hanziLinks, [isAdmin, isOwner, pathname]);
   const availableModules = useMemo(() => isAdmin
     ? [...moduleLinks, { href: "/admin", label: "管理中心", description: "家庭、内容审核和孩子分配", mark: "管" }]
