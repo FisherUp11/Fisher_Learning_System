@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { loadAccessContext } from "@/lib/access";
 import { loadLearnerDashboard } from "@/lib/dashboard";
+import { firstTryRate, loadWorkspaceOverview } from "@/lib/workspace-overview";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -21,10 +22,14 @@ export default async function AdminPage() {
     supabase.from("music_items").select("id,review_status").eq("workspace_id", access.workspaceId),
     supabase.from("catechism_collections").select("id,review_status").eq("workspace_id", access.workspaceId),
   ]);
-  const dashboards = await Promise.all((learners ?? []).map(async (learner) => ({
-    learner,
-    dashboard: await loadLearnerDashboard(supabase, learner.id, learner.timezone),
-  })));
+  const overview = await loadWorkspaceOverview(supabase, access.workspaceId);
+  // Fallback before 022: one dashboard per learner is fine for a handful of children only.
+  const dashboards = overview
+    ? overview.map((row) => ({ learner: { id: row.learner_id, display_name: row.display_name, families: { name: row.family_name } }, dashboard: { stable: Number(row.hanzi_stable), due: Number(row.hanzi_due), firstAttemptRate: firstTryRate(row), todayRemaining: null as number | null } }))
+    : await Promise.all((learners ?? []).map(async (learner) => ({
+      learner,
+      dashboard: await loadLearnerDashboard(supabase, learner.id, learner.timezone) as { stable: number; due: number; firstAttemptRate: number | null; todayRemaining: number | null },
+    })));
   const allResources = [packageResult, poemResult, musicResult, catechismResult].flatMap((result) => result.data ?? []);
   const pending = allResources.filter((resource) => resource.review_status === "pending_review").length;
 
@@ -37,19 +42,20 @@ export default async function AdminPage() {
       <div className="metric"><span className="metric-label">待审核</span><strong className="metric-value">{pending}</strong></div>
     </div></section>
     <section className="admin-shortcuts">
+      <Link href="/admin/families"><span>家</span><strong>家庭与孩子总览<small>组织图、提醒与已分配资源</small></strong></Link>
       <Link href="/admin/resources"><span>库</span><strong>审核资源<small>去重、发布与归档</small></strong></Link>
       <Link href="/admin/assignments"><span>配</span><strong>分配内容<small>按孩子管理学习册</small></strong></Link>
-      <Link href="/admin/usage"><span>量</span><strong>AI 与语音用量<small>按账号查看付费服务调用</small></strong></Link>
+      <Link href="/admin/usage"><span>量</span><strong>使用与成本<small>每个孩子的时长、资源和估算成本</small></strong></Link>
       {access.isOwner && <Link href="/admin/users"><span>人</span><strong>用户与家庭<small>账号、角色、密码与孩子概况</small></strong></Link>}
       {access.isOwner && <Link href="/admin/members"><span>邀</span><strong>邀请已有账号<small>一次性安全邀请</small></strong></Link>}
     </section>
-    <section className="panel"><div className="section-heading"><div><p className="eyebrow">Learner pulse</p><h2>孩子学习概况</h2></div><Link className="text-button" href="/parent">进入详细家长看板</Link></div>
-      {!dashboards.length ? <p className="notice">尚无孩子档案。邀请家长加入后，由家长创建孩子。</p> : <div className="learner-admin-grid">{dashboards.map(({ learner, dashboard }) => {
+    <section className="panel"><div className="section-heading"><div><p className="eyebrow">Learner pulse</p><h2>孩子学习概况</h2></div><Link className="text-button" href="/admin/families">{dashboards.length > 12 ? `查看全部 ${dashboards.length} 位孩子 →` : "按家庭查看 →"}</Link></div>
+      {!dashboards.length ? <p className="notice">尚无孩子档案。邀请家长加入后，由家长创建孩子。</p> : <div className="learner-admin-grid">{dashboards.slice(0, 12).map(({ learner, dashboard }) => {
         const family = learner.families as { name?: string } | Array<{ name?: string }> | null;
         const familyName = Array.isArray(family) ? family[0]?.name : family?.name;
         return <article className="learner-admin-card" key={learner.id}>
           <div><span className="child-sprout">🌱</span><h3>{learner.display_name}</h3><p>{familyName ?? "未命名家庭"}</p></div>
-          <dl><div><dt>稳定认识</dt><dd>{dashboard.stable}</dd></div><div><dt>当前到期</dt><dd>{dashboard.due}</dd></div><div><dt>7 天首答</dt><dd>{dashboard.firstAttemptRate === null ? "—" : `${dashboard.firstAttemptRate}%`}</dd></div><div><dt>今日待完成</dt><dd>{dashboard.todayRemaining}</dd></div></dl>
+          <dl><div><dt>稳定认识</dt><dd>{dashboard.stable}</dd></div><div><dt>当前到期</dt><dd>{dashboard.due}</dd></div><div><dt>7 天首答</dt><dd>{dashboard.firstAttemptRate === null ? "—" : `${dashboard.firstAttemptRate}%`}</dd></div><div><dt>今日待完成</dt><dd>{dashboard.todayRemaining ?? "—"}</dd></div></dl>
           <Link className="secondary" href={`/parent?learner=${learner.id}`}>查看详情</Link>
         </article>;
       })}</div>}

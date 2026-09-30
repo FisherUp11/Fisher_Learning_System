@@ -24,5 +24,5 @@ export default async function CatechismStudyPage({ searchParams }: { searchParam
   } catch (error) {
     return <section className="panel"><h1>暂时无法生成今日问答</h1><p className="error">{error instanceof Error ? error.message : "读取失败"}</p><Link className="secondary" href="/catechism/manage">去检查问答册</Link></section>;
   }
-  return <CatechismStudyExperience learnerId={learner.id} learnerName={learner.display_name} initialQueue={queue} today={today} />;
+  return <><CatechismStudyExperience learnerId={learner.id} learnerName={learner.display_name} initialQueue={queue} today={today} /><span hidden data-current-learner={learner.id} /></>;
 }

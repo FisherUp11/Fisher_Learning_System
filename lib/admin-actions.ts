@@ -177,6 +177,7 @@ const assignments = {
 
 export async function toggleWorkspaceAssignment(formData: FormData) {
   const { supabase, user, access } = await adminClient();
+  if (String(formData.get("resource_type") ?? "") === "music_folder") return toggleMusicFolderAssignment(formData, supabase, user.id, access.workspaceId);
   const resourceType = String(formData.get("resource_type") ?? "") as keyof typeof assignments;
   const learnerId = String(formData.get("learner_id") ?? "");
   const resourceId = String(formData.get("resource_id") ?? "");
@@ -207,7 +208,9 @@ export async function toggleWorkspaceAssignment(formData: FormData) {
       .eq("assignment_status", "active");
     row.assignment_order = Math.max(1, (count ?? 0) + 1);
   }
-  const { error } = await supabase.from(assignment.table).upsert(row);
+  let { error } = await supabase.from(assignment.table).upsert(resourceType === "music" && active ? { ...row, assigned_via_folder_id: null } : row);
+  // Before 022 runs the folder-source column does not exist yet.
+  if (error && resourceType === "music" && active && /assigned_via_folder_id/.test(error.message)) ({ error } = await supabase.from(assignment.table).upsert(row));
   if (error) throw new Error(error.message);
   if (resourceType === "hanzi") {
     if (active && !learner.active_package_id) {
@@ -236,6 +239,25 @@ export async function toggleWorkspaceAssignment(formData: FormData) {
   revalidatePath("/poems");
   revalidatePath("/music");
   revalidatePath("/catechism");
+}
+
+async function toggleMusicFolderAssignment(formData: FormData, supabase: Awaited<ReturnType<typeof adminClient>>["supabase"], userId: string, workspaceId: string) {
+  const learnerId = String(formData.get("learner_id") ?? "");
+  const folderId = String(formData.get("resource_id") ?? "");
+  const active = String(formData.get("active") ?? "") === "true";
+  const [{ data: learner }, { data: folder }] = await Promise.all([
+    supabase.from("learner_profiles").select("id,families!inner(workspace_id)").eq("id", learnerId).eq("families.workspace_id", workspaceId).maybeSingle(),
+    supabase.from("music_folders").select("id").eq("id", folderId).eq("workspace_id", workspaceId).maybeSingle(),
+  ]);
+  if (!learner || !folder) throw new Error("孩子或文件夹不属于当前学习空间");
+  const { error } = await supabase.from("learner_music_folders").upsert({
+    learner_id: learnerId, folder_id: folderId, assigned_by: userId,
+    assignment_status: active ? "active" : "inactive", unassigned_at: active ? null : new Date().toISOString(),
+  });
+  if (error) throw new Error(error.message);
+  revalidatePath("/admin/assignments");
+  revalidatePath("/music");
+  revalidatePath("/music/manage");
 }
 
 export async function consolidateDuplicateResource(

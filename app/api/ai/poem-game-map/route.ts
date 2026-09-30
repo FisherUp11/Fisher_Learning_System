@@ -78,7 +78,7 @@ async function generate(request: Request) {
           "Place the narrative landmarks around the upper quarter and outer edges. Keep the large central and lower playing area calm, muted, low-detail, medium-value ground or water, suitable for blue-white and coral-red toy tanks to remain clearly visible. No tanks or game objects in the image itself. Scenery is a decorative backdrop, not a collision map.",
           "No letters, Chinese characters, text, logos, UI, borders, war, explosions, frightening elements or photorealism.",
         ].join("\n") }), cache: "no-store", signal: AbortSignal.timeout(100_000),
-      }, { service: "image", feature: "poem.background.1536.low", model: deployment });
+      }, { service: "image", feature: "poem.background.1536.low", model: deployment, learnerId });
       if (!response.ok) return NextResponse.json({ error: "绘本背景暂时没有生成成功，请稍后重试。" }, { status: 502 });
       const payload = await response.json() as { data?: Array<{ b64_json?: string }> };
       if (!payload.data?.[0]?.b64_json) return NextResponse.json({ error: "图片服务没有返回图像，请稍后重试。" }, { status: 502 });
@@ -115,7 +115,7 @@ async function generate(request: Request) {
     headers: { "Content-Type": "application/json", "api-key": apiKey },
     body: JSON.stringify({ messages: [{ role: "user", content: prompt }], temperature: 0.45, max_tokens: 350, response_format: { type: "json_object" } }),
     cache: "no-store", signal: AbortSignal.timeout(25_000),
-  }, { service: "text", feature: "poem.game_map", model: deployment });
+  }, { service: "text", feature: "poem.game_map", model: deployment, learnerId });
   if (!response.ok) return NextResponse.json({ blueprint: null, source: "procedural", reason: "AI 地图暂不可用" });
   const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
   const content = payload.choices?.[0]?.message?.content;

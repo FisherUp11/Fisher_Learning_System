@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { claimHanziCompletionReward, registerActivityReward } from "@/lib/reward-service";
 import { loadAccessContext } from "@/lib/access";
 import { checkImportWrite, existingImportMessage, finishImportCollection, importFailure, ImportProblem, prepareImportCollection, retryImportDatabaseCall, type ImportResult } from "@/lib/import-safety";
+import { checkLength, checkSequence, derivedPoemKey, ImportIssues, readCsvUpload, readImportTable as readCsvRows, STABLE_KEY } from "@/lib/csv-import";
 
 export type Learner = {
   id: string;
@@ -401,35 +402,6 @@ type ParsedPoem = {
   sequence: number;
 };
 
-function parseCsv(text: string): string[][] {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let cell = "";
-  let quoted = false;
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    const next = text[index + 1];
-    if (char === '"' && quoted && next === '"') { cell += '"'; index += 1; continue; }
-    if (char === '"') { quoted = !quoted; continue; }
-    if (char === "," && !quoted) { row.push(cell.trim()); cell = ""; continue; }
-    if ((char === "\n" || char === "\r") && !quoted) {
-      if (char === "\r" && next === "\n") index += 1;
-      row.push(cell.trim());
-      if (row.some(Boolean)) rows.push(row);
-      row = []; cell = ""; continue;
-    }
-    cell += char;
-  }
-  if (quoted) throw new ImportProblem("CSV 中有未闭合的双引号，请修正后再导入");
-  row.push(cell.trim());
-  if (row.some(Boolean)) rows.push(row);
-  return rows;
-}
-
-function pick(record: Record<string, string>, key: string) {
-  return (record[key] ?? "").trim();
-}
-
 export async function importCharacters(formData: FormData): Promise<ImportResult> {
   try {
     const { supabase, user } = await authenticatedClient();
@@ -438,42 +410,42 @@ export async function importCharacters(formData: FormData): Promise<ImportResult
     const learnerId = String(formData.get("learner_id") ?? "");
     const title = String(formData.get("package_title") ?? "学前识字包").trim().slice(0, 60);
     const file = formData.get("csv_file");
-    if (!learnerId || !(file instanceof File) || file.size === 0) throw new ImportProblem("请选择孩子并上传 CSV 文件");
+    if (!learnerId) throw new ImportProblem("请选择孩子");
     if (!title) throw new ImportProblem("请填写学习包名称");
-    if (file.size > 2_000_000) throw new ImportProblem("CSV 请控制在 2MB 内");
 
-    const rows = parseCsv(await file.text());
-    if (rows.length < 2) throw new ImportProblem("CSV 至少应包含表头和一行汉字");
-    const headers = rows[0].map((header) => header.replace(/^\uFEFF/, "").trim());
-    for (const required of ["character", "pinyin_marked", "meaning"]) {
-      if (!headers.includes(required)) throw new ImportProblem(`CSV 缺少必填列：${required}`);
-    }
-    const seen = new Set<string>();
-    const seenSequences = new Set<number>();
-    const characters: ParsedCharacter[] = rows.slice(1).map((cells, index) => {
-      const record = Object.fromEntries(headers.map((header, cellIndex) => [header, cells[cellIndex] ?? ""]));
-      const character = pick(record, "character");
-      const pinyinMarked = pick(record, "pinyin_marked");
-      const meaning = pick(record, "meaning");
-      if (!/^[\u3400-\u9fff]$/u.test(character)) throw new ImportProblem(`第 ${index + 2} 行：character 必须是一个汉字`);
-      if (!pinyinMarked || !meaning) throw new ImportProblem(`第 ${index + 2} 行：拼音和释义不能为空`);
-      if (pinyinMarked.length > 40 || meaning.length > 100) throw new ImportProblem(`第 ${index + 2} 行：拼音最多 40 字，释义最多 100 字`);
-      if (seen.has(character)) throw new ImportProblem(`第 ${index + 2} 行：汉字“${character}”重复`);
-      seen.add(character);
-      const suppliedSequence = Number(pick(record, "sequence"));
-      const sequence = Number.isFinite(suppliedSequence) && suppliedSequence > 0 ? Math.floor(suppliedSequence) : index + 1;
-      if (seenSequences.has(sequence)) throw new ImportProblem(`第 ${index + 2} 行：sequence“${sequence}”重复，请为每个字填写不同顺序`);
-      seenSequences.add(sequence);
-      return {
-        character,
-        pinyin_marked: pinyinMarked,
-        meaning,
-        word_one: pick(record, "word_1") || null,
-        word_two: pick(record, "word_2") || null,
-        example_sentence: pick(record, "example_sentence") || null,
-        sequence,
-      };
+    const rows = readCsvRows(await readCsvUpload(file, 2_000_000), "characters", 3000);
+    const issues = new ImportIssues();
+    const seen = new Map<string, number>();
+    const seenSequences = new Map<number, number>();
+    const characters: ParsedCharacter[] = rows.map((row, index) => {
+      const character = row.get("character");
+      const pinyinMarked = row.get("pinyin_marked");
+      const meaning = row.get("meaning");
+      const wordOne = row.get("word_1") || null;
+      const wordTwo = row.get("word_2") || null;
+      const exampleSentence = row.get("example_sentence") || null;
+      const glyphs = Array.from(character);
+      if (!character) issues.add(row.line, "汉字不能为空");
+      else if (glyphs.length !== 1) issues.add(row.line, `“${character}”有 ${glyphs.length} 个字符，每行只能填 1 个汉字（注意去掉空格）`);
+      else if (!/^\p{Script=Han}$/u.test(character)) issues.add(row.line, `“${character}”不是汉字`);
+      if (!pinyinMarked) issues.add(row.line, "拼音不能为空");
+      else if (/\p{Script=Han}/u.test(pinyinMarked)) issues.add(row.line, `拼音“${pinyinMarked}”里有汉字，可能列的顺序填错了`);
+      else if (/\d/.test(pinyinMarked)) issues.add(row.line, `拼音“${pinyinMarked}”请用声调符号（如 rén），不要用数字声调`);
+      if (!meaning) issues.add(row.line, "释义不能为空");
+      checkLength(issues, row, "拼音", pinyinMarked, 40);
+      checkLength(issues, row, "释义", meaning, 100);
+      checkLength(issues, row, "词语1", wordOne, 40);
+      checkLength(issues, row, "词语2", wordTwo, 40);
+      checkLength(issues, row, "例句", exampleSentence, 200);
+      if (character) {
+        const firstLine = seen.get(character);
+        if (firstLine !== undefined) issues.add(row.line, `汉字“${character}”与第 ${firstLine} 行重复`);
+        else seen.set(character, row.line);
+      }
+      const sequence = checkSequence(issues, row, index + 1, seenSequences);
+      return { character, pinyin_marked: pinyinMarked, meaning, word_one: wordOne, word_two: wordTwo, example_sentence: exampleSentence, sequence };
     });
+    issues.throwIfAny();
 
     const { data: learner, error: learnerError } = await supabase
       .from("learner_profiles")
@@ -559,7 +531,7 @@ export async function importCharacters(formData: FormData): Promise<ImportResult
     revalidatePath("/admin/assignments");
     return prepared.complete && !prepared.resumable
       ? { status: "duplicate", message: existingImportMessage(packageRow, canAssign, "字册") }
-      : { status: "success", message: canAssign ? `已成功导入 ${characters.length} 个汉字，并关联到所选孩子。` : `已提交 ${characters.length} 个汉字，等待管理员审核和分配。` };
+      : { status: "success", message: canAssign ? `《${title}》已成功导入 ${characters.length} 个汉字，并关联到所选孩子。` : `《${title}》已提交 ${characters.length} 个汉字，等待管理员审核和分配。` };
   } catch (error) {
     return importFailure(error);
   }
@@ -573,44 +545,52 @@ export async function importPoems(formData: FormData): Promise<ImportResult> {
     const learnerId = String(formData.get("learner_id") ?? "");
     const title = String(formData.get("poem_collection_title") ?? "第一批古诗词").trim().slice(0, 80);
     const file = formData.get("poem_csv_file");
-    if (!learnerId || !(file instanceof File) || file.size === 0) throw new ImportProblem("请选择孩子并上传诗词 CSV 文件");
+    if (!learnerId) throw new ImportProblem("请选择孩子");
     if (!title) throw new ImportProblem("请填写诗词册名称");
-    if (file.size > 2_000_000) throw new ImportProblem("CSV 请控制在 2MB 内");
 
-    const rows = parseCsv(await file.text());
-    if (rows.length < 2) throw new ImportProblem("CSV 至少应包含表头和一首诗词");
-    const headers = rows[0].map((header) => header.replace(/^\uFEFF/, "").trim());
-    for (const required of ["poem_key", "title", "author", "content"]) {
-      if (!headers.includes(required)) throw new ImportProblem(`CSV 缺少必填列：${required}`);
-    }
-
-    const seen = new Set<string>();
-    const seenSequences = new Set<number>();
-    const poems: ParsedPoem[] = rows.slice(1).map((cells, index) => {
-      const record = Object.fromEntries(headers.map((header, cellIndex) => [header, cells[cellIndex] ?? ""]));
-      const poemKey = pick(record, "poem_key");
-      const poemTitle = pick(record, "title");
-      const author = pick(record, "author");
-      const dynasty = pick(record, "dynasty") || null;
-      const content = pick(record, "content").replace(/\\n/g, "\n");
-      if (!/^[a-zA-Z0-9_-]{1,100}$/.test(poemKey)) throw new ImportProblem(`第 ${index + 2} 行：poem_key 只能使用字母、数字、下划线或短横线`);
-      if (!poemTitle || !author || !content) throw new ImportProblem(`第 ${index + 2} 行：标题、作者和正文不能为空`);
-      if (poemTitle.length > 80 || author.length > 50 || (dynasty?.length ?? 0) > 30 || content.length > 4000) throw new ImportProblem(`第 ${index + 2} 行：有字段超过长度限制`);
-      if (seen.has(poemKey)) throw new ImportProblem(`第 ${index + 2} 行：poem_key“${poemKey}”重复`);
-      seen.add(poemKey);
-      const suppliedSequence = Number(pick(record, "sequence"));
-      const sequence = Number.isFinite(suppliedSequence) && suppliedSequence > 0 ? Math.floor(suppliedSequence) : index + 1;
-      if (seenSequences.has(sequence)) throw new ImportProblem(`第 ${index + 2} 行：sequence“${sequence}”重复，请为每首诗填写不同顺序`);
-      seenSequences.add(sequence);
-      return {
-        poem_key: poemKey,
-        title: poemTitle,
-        author,
-        dynasty,
-        content,
-        sequence,
-      };
+    const rows = readCsvRows(await readCsvUpload(file, 2_000_000), "poems", 1000);
+    const issues = new ImportIssues();
+    const seenSequences = new Map<number, number>();
+    const parsed = rows.map((row, index) => {
+      const poemKey = row.get("poem_key");
+      const poemTitle = row.get("title");
+      const author = row.get("author");
+      const dynasty = row.get("dynasty") || null;
+      const content = row.get("content").replace(/\\n/g, "\n");
+      if (poemKey && !STABLE_KEY.test(poemKey)) issues.add(row.line, `编号“${poemKey}”只能用英文字母、数字、下划线或短横线（也可以留空自动生成）`);
+      if (!poemTitle) issues.add(row.line, "标题不能为空");
+      if (!author) issues.add(row.line, "作者不能为空（不知道可填“佚名”）");
+      if (!content) issues.add(row.line, "正文不能为空");
+      checkLength(issues, row, "标题", poemTitle, 80);
+      checkLength(issues, row, "作者", author, 50);
+      checkLength(issues, row, "朝代", dynasty, 30);
+      checkLength(issues, row, "正文", content, 4000);
+      const sequence = checkSequence(issues, row, index + 1, seenSequences);
+      return { line: row.line, poem_key: poemKey, title: poemTitle, author, dynasty, content, sequence };
     });
+    issues.throwIfAny();
+
+    const unkeyed = parsed.filter((poem) => !poem.poem_key);
+    const identity = (poem: { title: string; author: string; content: string }) => `${poem.title}|${poem.author}|${poem.content}`;
+    const reusedKeys = new Map<string, string>();
+    if (unkeyed.length) {
+      const titles = [...new Set(unkeyed.map((poem) => poem.title))];
+      for (let index = 0; index < titles.length; index += 100) {
+        const { data: sameTitle, error: sameTitleError } = await supabase.from("poems").select("poem_key,title,author,content")
+          .eq("workspace_id", access.workspaceId).in("title", titles.slice(index, index + 100));
+        checkImportWrite(sameTitleError, "检查已有诗词失败");
+        for (const poem of sameTitle ?? []) reusedKeys.set(identity(poem), poem.poem_key);
+      }
+    }
+    const seenKeys = new Map<string, number>();
+    const poems: ParsedPoem[] = parsed.map(({ line, ...poem }) => {
+      const poemKey = poem.poem_key || reusedKeys.get(identity(poem)) || derivedPoemKey(identity(poem));
+      const firstLine = seenKeys.get(poemKey);
+      if (firstLine !== undefined) issues.add(line, poem.poem_key ? `编号“${poemKey}”与第 ${firstLine} 行重复` : `《${poem.title}》与第 ${firstLine} 行内容完全重复`);
+      else seenKeys.set(poemKey, line);
+      return { ...poem, poem_key: poemKey };
+    });
+    issues.throwIfAny();
 
     const { data: learner, error: learnerError } = await supabase
       .from("learner_profiles")
@@ -693,7 +673,7 @@ export async function importPoems(formData: FormData): Promise<ImportResult> {
     revalidatePath("/admin/assignments");
     return prepared.complete && !prepared.resumable
       ? { status: "duplicate", message: existingImportMessage(collection, canAssign, "诗词册") }
-      : { status: "success", message: canAssign ? `已成功导入 ${poems.length} 首诗词，并关联到所选孩子。` : `已提交 ${poems.length} 首诗词，等待管理员审核和分配。` };
+      : { status: "success", message: canAssign ? `《${title}》已成功导入 ${poems.length} 首诗词，并关联到所选孩子。` : `《${title}》已提交 ${poems.length} 首诗词，等待管理员审核和分配。` };
   } catch (error) {
     return importFailure(error);
   }

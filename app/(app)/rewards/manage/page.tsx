@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { loadAccessContext } from "@/lib/access";
+import { LearnerOptions, orderLearners } from "@/components/learner-options";
 import { RewardManualForm } from "@/components/reward-manual-form";
 import { RewardGiftForm } from "@/components/reward-gift-form";
 import { RewardCatalogStatusButton } from "@/components/reward-catalog-status-button";
@@ -23,10 +25,13 @@ function todayInTimezone(timezone: string) {
 export default async function RewardManagePage({ searchParams }: { searchParams: Promise<{ learner?: string }> }) {
   const supabase = await createClient();
   const query = await searchParams;
-  const { data: learners, error: learnerError } = await supabase
+  const { data: { user } } = await supabase.auth.getUser();
+  const access = user ? await loadAccessContext(supabase, user.id) : null;
+  const { data: rawLearners, error: learnerError } = await supabase
     .from("learner_profiles")
-    .select("id,display_name,timezone")
+    .select("id,display_name,timezone,family_id,families(name)")
     .order("created_at");
+  const learners = orderLearners(rawLearners, access?.familyId);
 
   if (learnerError) return <section className="panel"><h1>奖励管理还没准备好</h1><p className="error">{learnerError.message}</p></section>;
   const learner = learners?.find((item) => item.id === query.learner) ?? learners?.[0];
@@ -56,7 +61,7 @@ export default async function RewardManagePage({ searchParams }: { searchParams:
         </div>
         {(learners?.length ?? 0) > 1 && <form action="/rewards/manage" className="learner-switch">
           <label>调整哪位孩子？
-            <select name="learner" defaultValue={learner.id}>{learners?.map((item) => <option key={item.id} value={item.id}>{item.display_name}</option>)}</select>
+            <select name="learner" defaultValue={learner.id}><LearnerOptions learners={learners} /></select>
           </label>
           <button className="secondary" type="submit">切换</button>
         </form>}

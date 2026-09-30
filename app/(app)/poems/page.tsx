@@ -2,6 +2,8 @@ import Link from "next/link";
 import { PoemControls, PoemPagination } from "@/components/poem-controls";
 import { formatPoemDate, loadPoemProgress, recommendationForPoem, type PoemProgress } from "@/lib/poems";
 import { createClient } from "@/lib/supabase/server";
+import { loadAccessContext } from "@/lib/access";
+import { orderLearners } from "@/components/learner-options";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +36,10 @@ function poemHref(poemId: string, learnerId: string) {
 export default async function PoemsPage({ searchParams }: { searchParams: SearchParams }) {
   const params = await searchParams;
   const supabase = await createClient();
-  const { data: learners, error: learnersError } = await supabase.from("learner_profiles").select("id,display_name").order("created_at");
+  const { data: { user } } = await supabase.auth.getUser();
+  const access = user ? await loadAccessContext(supabase, user.id) : null;
+  const { data: rawLearners, error: learnersError } = await supabase.from("learner_profiles").select("id,display_name,family_id,families(name)").order("created_at");
+  const learners = orderLearners(rawLearners, access?.familyId);
   if (learnersError) return <section className="panel"><h1>诗词背诵暂时打不开</h1><p className="error">{learnersError.message}</p></section>;
   const learner = learners?.find((item) => item.id === params.learner) ?? learners?.[0];
   if (!learner) return <section className="empty panel"><span className="empty-mark">🌱</span><h1>先创建孩子档案</h1><p className="lede">创建档案、导入诗词后，就能在这里记录每一次背诵。</p><Link className="primary" href="/parent">去家长页</Link></section>;
@@ -69,7 +74,7 @@ export default async function PoemsPage({ searchParams }: { searchParams: Search
   }).slice(0, 4);
 
   return <div>
-    <header className="hero"><p className="eyebrow">Poem recitation</p><h1>诗词背诵 · 轻轻记下每一次。</h1><p className="lede">背诵可以在任何地方完成；这里负责记录哪天背过、背过几次，以及家长给出的掌握评分。</p><div><Link className="secondary poem-game-hero-link" href={`/poems/game?learner=${learner.id}`}>进入诗境守卫战 →</Link></div></header>
+    <header className="hero"><span hidden data-current-learner={learner.id} /><p className="eyebrow">Poem recitation</p><h1>诗词背诵 · 轻轻记下每一次。</h1><p className="lede">背诵可以在任何地方完成；这里负责记录哪天背过、背过几次，以及家长给出的掌握评分。</p><div><Link className="secondary poem-game-hero-link" href={`/poems/game?learner=${learner.id}`}>进入诗境守卫战 →</Link></div></header>
     <PoemControls learners={learners ?? []} learnerId={learner.id} collections={collections} collectionId={selectedCollection?.id} query={query} filter={filter} />
 
     <section className="today-card poem-summary">

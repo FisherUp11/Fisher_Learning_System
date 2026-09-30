@@ -35,7 +35,7 @@ async function loadAudio(text: string) {
   const response = await fetch("/api/speech", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text, lang: "zh", slow: true }),
+    body: JSON.stringify({ text, lang: "zh", slow: true, learner: document.querySelector<HTMLElement>("[data-current-learner]")?.dataset.currentLearner }),
     signal: AbortSignal.timeout(8000),
   });
   if (!response.ok) throw new Error("speech unavailable");

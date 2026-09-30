@@ -57,7 +57,7 @@ export function CatechismStudyExperience({ learnerId, learnerName, initialQueue,
     setError("");
     setSpeaking(label);
     try {
-      const response = await fetch("/api/speech", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, lang: language, slow: true }) });
+      const response = await fetch("/api/speech", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, lang: language, slow: true, learner: learnerId }) });
       if (!response.ok) throw new Error("azure-unavailable");
       const source = URL.createObjectURL(await response.blob());
       audioUrlRef.current = source;
@@ -116,7 +116,7 @@ export function CatechismStudyExperience({ learnerId, learnerName, initialQueue,
       {!answerVisible ? <div className="catechism-reveal-area"><p>让孩子先口头回答，再打开答案核对。</p><button className="primary" type="button" onClick={() => setAnswerVisible(true)}>查看中英文答案</button></div> : <section className="catechism-answer-reveal">
         <div className="catechism-answer-column"><div className="catechism-language-heading"><span>中文答案</span><button type="button" className="catechism-listen" disabled={Boolean(speaking)} onClick={() => speak(item.answerZh, "zh", "answer-zh")}>{speaking === "answer-zh" ? "朗读中…" : "▶ 朗读中文答案"}</button></div><p>{item.answerZh}</p></div>
         {item.answerEn && <div className="catechism-answer-column english" lang="en"><div className="catechism-language-heading"><span>English answer</span><button type="button" className="catechism-listen english" disabled={Boolean(speaking)} onClick={() => speak(item.answerEn!, "en", "answer-en")}>{speaking === "answer-en" ? "Reading…" : "▶ Read English"}</button></div><p>{item.answerEn}</p></div>}
-        {item.scriptureReference && <div className="catechism-scripture"><span>经文出处</span><p>{item.scriptureReference}</p></div>}
+        {item.scriptureReference && <div className="catechism-scripture"><span>出处</span><p>{item.scriptureReference}</p></div>}
         <details className="catechism-note"><summary>添加本次家长备注（可选）</summary><textarea value={note} maxLength={500} onChange={(event) => setNote(event.target.value)} placeholder="例如：英文答案中间停顿了一次" /></details>
       </section>}
     </article>

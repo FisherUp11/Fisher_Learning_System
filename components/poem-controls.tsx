@@ -1,8 +1,9 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { LearnerOptions } from "@/components/learner-options";
 
-type LearnerChoice = { id: string; display_name: string };
+type LearnerChoice = { id: string; display_name: string; family_id?: string | null; families?: unknown };
 type CollectionChoice = { id: string; title: string };
 
 type QueryState = {
@@ -45,7 +46,7 @@ export function PoemControls({ learners, learnerId, collections, collectionId, q
 
   return <>
     {learners.length > 1 && <form className="learner-switch" onSubmit={(event) => { event.preventDefault(); switchLearner(new FormData(event.currentTarget)); }}>
-      <label>查看哪位孩子？<select name="learner" defaultValue={learnerId}>{learners.map((learner) => <option key={learner.id} value={learner.id}>{learner.display_name}</option>)}</select></label>
+      <label>查看哪位孩子？<select name="learner" defaultValue={learnerId}><LearnerOptions learners={learners} /></select></label>
       <button className="secondary" type="submit">切换</button>
     </form>}
     <form className="poem-filters" onSubmit={(event) => { event.preventDefault(); applyFilters(new FormData(event.currentTarget)); }}>

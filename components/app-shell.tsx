@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import styles from "./app-shell.module.css";
+import { ActivityTracker } from "./activity-tracker";
 
 const hanziLinks = [
   { href: "/learn", label: "学一学", icon: "芽" },
@@ -37,10 +38,10 @@ const rewardLinks = [
 
 const adminLinks = [
   { href: "/admin", label: "概览", icon: "总" },
+  { href: "/admin/families", label: "家庭", icon: "家" },
   { href: "/admin/resources", label: "资源", icon: "库" },
   { href: "/admin/assignments", label: "分配", icon: "配" },
   { href: "/admin/usage", label: "用量", icon: "量" },
-  { href: "/admin/members", label: "邀请", icon: "邀", ownerOnly: true },
   { href: "/admin/users", label: "用户", icon: "人", ownerOnly: true },
 ];
 
@@ -48,7 +49,7 @@ const moduleLinks = [
   { href: "/learn", label: "汉字学习", description: "一字一字，建立认读记忆", mark: "字" },
   { href: "/poems", label: "诗词背诵", description: "记录背诵次数与掌握评分", mark: "诗" },
   { href: "/music", label: "音乐天地", description: "听、唱、辨音与节奏练习", mark: "乐" },
-  { href: "/catechism", label: "要理问答", description: "中英双语，一问一答记真理", mark: "问" },
+  { href: "/catechism", label: "要理问答", description: "一问一答，记要理", mark: "问" },
   { href: "/rewards", label: "小芽贴纸册", description: "认真完成，积累贴纸兑换礼物", mark: "贴" },
   { href: "/english", label: "会议英语", description: "爸爸妈妈的听说练习与积累", mark: "英" },
   { href: "/together", label: "一起坚持", description: "运动打卡，看见全家的坚持", mark: "行" },
@@ -136,6 +137,7 @@ export function AppShell({ email, isAdmin, isOwner, children }: { email: string;
         {isNavigating && <span><i className={styles.spinner} aria-hidden="true" />正在打开{navigationTarget.label}…</span>}
       </div>
       <section className="page">{children}</section>
+      <ActivityTracker />
       <nav className="bottom-nav" aria-label="主导航">
         {navigationLinks.map((link) => (
           <Link key={link.href} href={link.href} prefetch={false} className={`nav-link ${styles.control} ${pathname === link.href || (link.href.endsWith("/manage") && pathname.startsWith(`${link.href}/`)) ? "active" : ""} ${isNavigating && navigationTarget.href === link.href ? styles.pending : ""}`} aria-current={pathname === link.href ? "page" : undefined} aria-busy={isNavigating && navigationTarget.href === link.href} onPointerEnter={() => prefetchTarget(link.href)} onFocus={() => prefetchTarget(link.href)} onTouchStart={() => prefetchTarget(link.href)} onNavigate={(event) => navigateTo(link.href, link.label, event)}>

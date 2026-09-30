@@ -4,7 +4,7 @@ import { useEffect, useId, useRef, useState, useSyncExternalStore, useTransition
 import styles from "./feedback-form.module.css";
 import { useRouter } from "next/navigation";
 
-export type FormFeedback = { status: string; message: string; redirectTo?: string };
+export type FormFeedback = { status: string; message: string; redirectTo?: string; details?: string[] };
 const subscribeToHydration = () => () => {};
 
 type Confirmation = {
@@ -102,7 +102,7 @@ export function FeedbackForm({ action, children, className, style, confirm, pend
           if (resetOnSuccess) formRef.current?.reset();
           if (clearFileOnSuccess) formRef.current?.querySelectorAll<HTMLInputElement>('input[type="file"]').forEach((input) => { input.value = ""; });
           setResultOpen(true);
-        }
+        } else if (next.details?.length) setResultOpen(true);
       } catch (error) {
         setFeedback({ status: "error", message: error instanceof Error ? error.message : "暂时无法确认结果，请刷新查看后再试。" });
       } finally {
@@ -149,11 +149,16 @@ export function FeedbackForm({ action, children, className, style, confirm, pend
       <noscript>请启用浏览器 JavaScript 后再提交，避免重复操作。</noscript>
       {processing && <p className={styles.pending} role="status"><span className={styles.spinner} aria-hidden="true" />{slow ? "仍在处理中，请保持页面打开，无需再次点击。" : pendingLabel}</p>}
       {!processing && feedback && <p className={`${styles.feedback} ${feedback.status === "error" ? "error" : "success"}`} role={feedback.status === "error" ? "alert" : "status"}>{feedback.message}</p>}
+      {!processing && feedback?.status === "error" && Boolean(feedback.details?.length) && <ol className={styles.issueList}>{feedback.details?.map((detail) => <li key={detail}>{detail}</li>)}</ol>}
     </form>
     {confirmationSummary !== null && confirm && <FeedbackDialog title={confirm.title} message={`${confirmationSummary}${confirmationSummary ? "\n\n" : ""}${confirm.description}`} onClose={cancelConfirmation}>
       <div className={styles.actions}><button type="button" className="secondary" onClick={cancelConfirmation}>再检查一下</button><button type="button" className="primary" onClick={() => { const data = submittedData.current; if (data && !pending) { submittedData.current = null; execute(data); } }}>{confirm.confirmLabel ?? "确认导入"}</button></div>
     </FeedbackDialog>}
-    {resultOpen && feedback && <FeedbackDialog title={feedback.status === "duplicate" ? "这份内容已经导入" : successTitle ?? (clearFileOnSuccess ? "导入完成" : "保存成功")} message={feedback.message} onClose={closeResult}>
+    {resultOpen && feedback?.status === "error" && <FeedbackDialog title="文件需要修改，尚未导入" message={feedback.message} onClose={closeResult}>
+      <ol className={styles.issueList}>{feedback.details?.map((detail) => <li key={detail}>{detail}</li>)}</ol>
+      <button type="button" className="primary full" onClick={closeResult}>我去修改</button>
+    </FeedbackDialog>}
+    {resultOpen && feedback && feedback.status !== "error" && <FeedbackDialog title={feedback.status === "duplicate" ? "这份内容已经导入" : successTitle ?? (clearFileOnSuccess ? "导入成功" : "保存成功")} message={feedback.message} onClose={closeResult}>
       <button type="button" className="primary full" onClick={closeResult}>{feedback.redirectTo ? "继续编辑" : "知道了"}</button>
     </FeedbackDialog>}
   </>;

@@ -10,5 +10,8 @@
 .description { margin: 0 0 24px; white-space: pre-line; overflow-wrap: anywhere; color: var(--muted); font: 500 15px/1.8 ui-sans-serif, system-ui, sans-serif; }
 .actions { display: flex; flex-wrap: wrap; gap: 10px; }
 .actions button { flex: 1 1 140px; }
+.issueList { grid-column: 1 / -1; max-height: 42dvh; overflow: auto; margin: 0 0 20px; padding: 12px 14px 12px 34px; border-radius: 16px; background: #fff4ef; color: #8a3b1d; font: 500 14px/1.7 ui-sans-serif, system-ui, sans-serif; }
+.issueList li { overflow-wrap: anywhere; }
+.issueList li + li { margin-top: 4px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }

@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { MusicItemType } from "@/lib/music-actions";
 import { loadAccessContext } from "@/lib/access";
 import { MusicPlaylist } from "@/components/music-playlist";
+import { LearnerOptions, orderLearners } from "@/components/learner-options";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +27,8 @@ export default async function MusicPage({ searchParams }: { searchParams: Search
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   const access = user ? await loadAccessContext(supabase, user.id) : null;
-  const { data: learners, error: learnerError } = await supabase.from("learner_profiles").select("id,display_name").order("created_at");
+  const { data: rawLearners, error: learnerError } = await supabase.from("learner_profiles").select("id,display_name,family_id,families(name)").order("created_at");
+  const learners = orderLearners(rawLearners, access?.familyId);
   if (learnerError) return <section className="panel"><h1>音乐天地暂时打不开</h1><p className="error">{learnerError.message}</p></section>;
   const learner = learners?.find((item) => item.id === params.learner) ?? learners?.[0];
   if (!learner) return <section className="empty panel"><span className="empty-mark">♪</span><h1>先创建孩子档案</h1><Link className="primary" href="/parent">去家长页</Link></section>;
@@ -45,8 +47,8 @@ export default async function MusicPage({ searchParams }: { searchParams: Search
   const recommended = [...items].sort((left, right) => priority(left, now) - priority(right, now) || left.attemptCount - right.attemptCount).slice(0, 6);
   const learnerQuery = `learner=${encodeURIComponent(learner.id)}`;
   return <div>
-    <header className="hero music-home-hero"><p className="eyebrow">Music garden</p><h1>音乐天地</h1><p className="lede">听一听，唱一唱，再把节奏轻轻拍出来。每一次练习，都会留下温柔而清楚的记录。</p></header>
-    {learners && learners.length > 1 && <form className="learner-switch" method="get"><label>今天和哪位孩子练习？<select name="learner" defaultValue={learner.id}>{learners.map((choice) => <option value={choice.id} key={choice.id}>{choice.display_name}</option>)}</select></label><button className="secondary" type="submit">切换</button></form>}
+    <header className="hero music-home-hero"><span hidden data-current-learner={learner.id} /><p className="eyebrow">Music garden</p><h1>音乐天地</h1><p className="lede">听一听，唱一唱，再把节奏轻轻拍出来。每一次练习，都会留下温柔而清楚的记录。</p></header>
+    {learners && learners.length > 1 && <form className="learner-switch" method="get"><label>今天和哪位孩子练习？<select name="learner" defaultValue={learner.id}><LearnerOptions learners={learners} /></select></label><button className="secondary" type="submit">切换</button></form>}
     {items.length === 0 ? <section className="empty panel"><span className="empty-mark">♫</span><h2>{learner.display_name} 还没有音乐内容</h2><p className="lede">管理员分配已发布的音乐内容后，就会出现在这里。</p>{access?.isAdmin && <Link className="primary" href="/music/manage">去音乐内容工作台</Link>}</section> : <>
       <section className="today-card music-overview"><p className="eyebrow">{learner.display_name} 的音乐记录</p><div className="today-grid"><div className="metric"><span className="metric-label">练习记录</span><span className="metric-value">{attempts}</span><small>每次都独立保留</small></div><div className="metric"><span className="metric-label">今天建议练</span><span className="metric-value">{due}</span><small>已到复习时间</small></div><div className="metric"><span className="metric-label">稳定掌握</span><span className="metric-value">{stable}</span><small>阶段 5 以上</small></div></div></section>
       <section className="panel music-today"><div className="library-header"><div><p className="eyebrow">今天的音乐练习</p><h2>先从这些开始</h2></div>{access?.isAdmin && <Link className="text-button" href="/music/manage">内容管理</Link>}</div><div className="music-today-grid">{recommended.map((item, index) => <Link className={`music-today-card ${item.itemType}`} href={`/music/${item.id}?${learnerQuery}`} key={item.id}><span className="music-today-number">0{index + 1}</span><span className={`music-type-mark ${item.itemType}`}>{musicTypeMeta[item.itemType].mark}</span><div><strong>{item.title}</strong><small>{musicTypeMeta[item.itemType].label} · {musicRecommendation(item, now)}</small></div></Link>)}</div></section>

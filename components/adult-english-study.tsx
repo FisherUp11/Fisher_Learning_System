@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { AdultData, RunCommand } from "./adult-hub";
 import type { DailyPlan, EnglishAttempt, EnglishTask } from "@/lib/adult-learning";
 import s from "./adult-growth.module.css";
+import { rememberWaitDuration, WaitCountdown } from "./wait-countdown";
 
 const taskNames = { review: "到期复习", listen: "听懂意思", expression: "积累表达", speak: "模拟会议 · 开口说", quiz: "新情境小测" };
 export function EnglishStudy({ data, run, pending }: { data: AdultData; run: RunCommand; pending: boolean }) {
@@ -57,16 +58,17 @@ export function PrivateAudio({ body, label = "听一听" }: { body: Record<strin
   async function load() {
     if (busy) return;
     const existing = urls.current.get(slow); if (existing) { setSrc(existing); if (audio.current) { audio.current.src = existing; void audio.current.play().catch(() => {}); } return; }
-    setBusy(true); setError("");
+    setBusy(true); setError(""); const startedAt = performance.now();
     try {
       const r = await fetch("/api/adult/media", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, slow, id: crypto.randomUUID() }), signal: AbortSignal.timeout(45000) });
       if (!r.ok) throw new Error((await r.json()).error);
       const blob = await r.blob(); if (!alive.current) return;
+      rememberWaitDuration("english-audio", performance.now() - startedAt);
       const url = URL.createObjectURL(blob); urls.current.set(slow, url); setSrc(url);
       if (audio.current) { audio.current.src = url; void audio.current.play().catch(() => {}); }
     } catch (e) { if (alive.current) setError(e instanceof Error ? e.message : "播放失败，请重试"); } finally { if (alive.current) setBusy(false); }
   }
-  return <div style={{ margin: "16px 0" }}><div className={s.row}><button type="button" disabled={busy} className={s.button} onClick={() => void load()}>{busy ? "准备音频…" : label}</button><label className={s.check}><input type="checkbox" checked={slow} onChange={e => { setSlow(e.target.checked); audio.current?.pause(); setSrc(""); }} />慢速</label><label className={s.check}><input type="checkbox" checked={loop} onChange={e => setLoop(e.target.checked)} />循环播放</label></div><audio ref={audio} controls loop={loop} src={src || undefined} className={s.audio} style={{ display: src ? "block" : "none" }} preload="none" />{error && <p role="alert" className={s.muted}>{error}</p>}<span className={s.muted}>合成语音 · 听后可暂停跟读，无需录音；若未自动播放，请按播放器 ▶</span></div>;
+  return <div style={{ margin: "16px 0" }}><div className={s.row}><button type="button" disabled={busy} className={s.button} onClick={() => void load()}>{busy ? "准备音频…" : label}</button><label className={s.check}><input type="checkbox" checked={slow} onChange={e => { setSlow(e.target.checked); audio.current?.pause(); setSrc(""); }} />慢速</label><label className={s.check}><input type="checkbox" checked={loop} onChange={e => setLoop(e.target.checked)} />循环播放</label></div>{busy && <div style={{ marginTop: 10 }}><WaitCountdown compact waitKey="english-audio" fallbackSeconds={6} label="正在生成朗读音频" /></div>}<audio ref={audio} controls loop={loop} src={src || undefined} className={s.audio} style={{ display: src ? "block" : "none" }} preload="none" />{error && <p role="alert" className={s.muted}>{error}</p>}<span className={s.muted}>合成语音 · 听后可暂停跟读，无需录音；若未自动播放，请按播放器 ▶</span></div>;
 }
 
 async function wavBlob(blob: Blob) {
@@ -85,18 +87,19 @@ async function wavBlob(blob: Blob) {
   } finally { await context.close(); }
 }
 function ShortRecorder({ planId, taskId, disabled, onTranscript, onBusy }: { planId: string; taskId: string; disabled: boolean; onTranscript: (text: string, id: string) => void; onBusy: (busy: boolean) => void }) {
-  const [recording, setRecording] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(""), [src, setSrc] = useState("");
+  const [recording, setRecording] = useState(false), [busy, setBusy] = useState(false), [transcribing, setTranscribing] = useState(false), [error, setError] = useState(""), [src, setSrc] = useState("");
   const recorder = useRef<MediaRecorder | null>(null), stream = useRef<MediaStream | null>(null), timer = useRef<ReturnType<typeof setTimeout> | null>(null), alive = useRef(true), currentUrl = useRef(""), saved = useRef<Blob | null>(null), requestId = useRef("");
   useEffect(() => { alive.current = true; return () => { alive.current = false; if (timer.current) clearTimeout(timer.current); if (recorder.current?.state === "recording") recorder.current.stop(); stream.current?.getTracks().forEach(t => t.stop()); if (currentUrl.current) URL.revokeObjectURL(currentUrl.current); }; }, []);
   async function transcribe(blob: Blob) {
-    setBusy(true); onBusy(true); setError("");
+    setBusy(true); onBusy(true); setError(""); setTranscribing(true); const startedAt = performance.now();
     try {
       const f = new FormData(); f.set("id", requestId.current); f.set("plan_id", planId); f.set("task_id", taskId); f.set("audio", blob, "practice.wav");
       const r = await fetch("/api/adult/media", { method: "POST", body: f, signal: AbortSignal.timeout(45000) }); const b = await r.json();
       if (!r.ok) throw new Error(b.error);
+      rememberWaitDuration("english-transcribe", performance.now() - startedAt);
       if (alive.current) onTranscript(b.text, b.transcription_id);
     } catch (e) { if (alive.current) setError(e instanceof Error ? e.message : "转写失败，可重试或文字作答"); }
-    finally { if (alive.current) { setBusy(false); onBusy(false); } }
+    finally { if (alive.current) { setBusy(false); onBusy(false); setTranscribing(false); } }
   }
   async function start() {
     if (recording || busy) return; setError(""); setBusy(true); onBusy(true);
@@ -121,5 +124,5 @@ function ShortRecorder({ planId, taskId, disabled, onTranscript, onBusy }: { pla
       rec.start(); setRecording(true); setBusy(false); timer.current = setTimeout(() => { if (rec.state === "recording") rec.stop(); }, 30000);
     } catch (e) { stream.current?.getTracks().forEach(t => t.stop()); if (alive.current) { setError(e instanceof Error ? e.message : "录音不可用"); setBusy(false); onBusy(false); } }
   }
-  return <div><div className={s.row}><button type="button" disabled={disabled || busy} className={`${s.button} ${recording ? s.recording : ""}`} onClick={() => recording ? recorder.current?.stop() : void start()}>{recording ? "■ 结束录音并转写" : busy ? "正在转写…" : "● 录一句（最多 30 秒）"}</button><span className={s.muted}>{recording ? "正在录音，30 秒自动结束" : "录音仅用于本次转写与临时回放，不长期保存"}</span></div>{src && <audio controls src={src} className={s.audio} />}{error && <div role="alert"><p className={s.muted}>{error}</p>{src && <button className={s.button} disabled={disabled || busy || recording} onClick={() => saved.current && void transcribe(saved.current)}>重试这段录音的转写</button>}</div>}</div>;
+  return <div><div className={s.row}><button type="button" disabled={disabled || busy} className={`${s.button} ${recording ? s.recording : ""}`} onClick={() => recording ? recorder.current?.stop() : void start()}>{recording ? "■ 结束录音并转写" : busy ? "正在转写…" : "● 录一句（最多 30 秒）"}</button><span className={s.muted}>{recording ? "正在录音，30 秒自动结束" : "录音仅用于本次转写与临时回放，不长期保存"}</span></div>{transcribing && <div style={{ marginTop: 10 }}><WaitCountdown compact waitKey="english-transcribe" fallbackSeconds={5} label="正在把录音转成文字" /></div>}{src && <audio controls src={src} className={s.audio} />}{error && <div role="alert"><p className={s.muted}>{error}</p>{src && <button className={s.button} disabled={disabled || busy || recording} onClick={() => saved.current && void transcribe(saved.current)}>重试这段录音的转写</button>}</div>}</div>;
 }

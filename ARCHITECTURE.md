@@ -91,6 +91,12 @@ flowchart TB
 | `supabase/016_adaptive_queue_and_shared_content_rpcs.sql` | 新权限边界下的学习 RPC、字库查询与有界自适应队列 | 保持 014 真值表不变，只调整每日取题数。 |
 | `supabase/017_owner_user_management_and_duplicate_cleanup.sql` | owner 用户目录、首次改密、邀请升级和重复资源安全合并 | 不修改旧密码；音乐/问答有历史时拒绝永久删除。 |
 | `supabase/018_poem_tank_game.sql` | 诗词游戏地图、场次、逐题、逐句状态和两个保存/评分 RPC | 不修改汉字算法；整首诗掌握仍由家长评分。 |
+| `supabase/022_music_folders_activity_and_cost.sql` | 音乐文件夹与整夹自动分配触发器、App 使用时长、孩子概况与用量统计 RPC | 只新增；取消整夹分配只收回 `assigned_via_folder_id` 带来的分配。 |
+| `lib/csv-import.ts` / `app/api/templates/*` | 三类 CSV 模板（`#` 说明行）、UTF-8/GBK 读取、中文表头别名、逐行收集全部错误 | 有任何错误整份拒绝，写库前完成全部校验。 |
+| `components/poem-adventure-game.tsx` | 默认诗词游戏：听→拼字→过桥→排序→家长裁判赶雾怪 | 阶段映射到 018 的 stage 枚举；星星/伙伴只存浏览器，不影响学习记录。 |
+| `app/(app)/admin/families/page.tsx` / `lib/workspace-overview.ts` | 空间→家庭→孩子组织图、提醒与已分配资源 | 一次 RPC 读取全部孩子，避免每个孩子十几次查询。 |
+| `components/activity-tracker.tsx` / `app/api/activity/route.ts` | 前台且近期有操作的使用时长心跳 | 只记聚合秒数，不记页面内容；RPC 按真实间隔封顶。 |
+| `app/(app)/admin/usage/child-usage.tsx` / `lib/usage-cost.ts` | 每个孩子的时长、学习记录、AI/语音与估算成本 | 单价可用 `COST_*` 环境变量覆盖；仅测算，不是账单。 |
 | `samples/characters-sample.csv` | 30 字真实试跑内容 | 修改后需重新人工检查拼音/例句。 |
 
 ## 3. 数据模型与归属

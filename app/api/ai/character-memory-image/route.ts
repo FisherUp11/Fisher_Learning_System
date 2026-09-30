@@ -93,7 +93,7 @@ async function generate(request: Request) {
       output_format: "png",
     }),
     cache: "no-store",
-  }, { service: "image", feature: "hanzi.memory_image.1024.low", model: deployment });
+  }, { service: "image", feature: "hanzi.memory_image.1024.low", model: deployment, learnerId });
 
   if (!response.ok) {
     return NextResponse.json({ error: "联想图服务暂时不可用，请稍后再试。" }, { status: 502 });

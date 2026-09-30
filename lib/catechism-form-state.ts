@@ -2,6 +2,7 @@ export type CatechismFormState = {
   status: "idle" | "success" | "error";
   message: string;
   savedAt?: string;
+  details?: string[];
 };
 
 export const initialCatechismFormState: CatechismFormState = {

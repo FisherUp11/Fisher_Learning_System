@@ -6,7 +6,8 @@ import { createClient } from "@/lib/supabase/server";
 import { localDateInTimezone, type CatechismAttemptResult } from "@/lib/catechism";
 import type { CatechismFormState } from "@/lib/catechism-form-state";
 import { assertAdmin, loadAccessContext } from "@/lib/access";
-import { checkImportWrite, existingImportMessage, finishImportCollection, prepareImportCollection, retryImportDatabaseCall } from "@/lib/import-safety";
+import { checkImportWrite, existingImportMessage, finishImportCollection, ImportProblem, prepareImportCollection, retryImportDatabaseCall } from "@/lib/import-safety";
+import { checkLength, checkSequence, ImportIssues, readCsvUpload, readImportTable, STABLE_KEY } from "@/lib/csv-import";
 
 async function authenticatedClient() {
   const supabase = await createClient();
@@ -15,43 +16,12 @@ async function authenticatedClient() {
   return { supabase, user };
 }
 
-function parseCsv(text: string): string[][] {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let cell = "";
-  let quoted = false;
-  for (let index = 0; index < text.length; index += 1) {
-    const character = text[index];
-    const next = text[index + 1];
-    if (character === '"' && quoted && next === '"') { cell += '"'; index += 1; continue; }
-    if (character === '"') { quoted = !quoted; continue; }
-    if (character === "," && !quoted) { row.push(cell.trim()); cell = ""; continue; }
-    if ((character === "\n" || character === "\r") && !quoted) {
-      if (character === "\r" && next === "\n") index += 1;
-      row.push(cell.trim());
-      if (row.some(Boolean)) rows.push(row);
-      row = [];
-      cell = "";
-      continue;
-    }
-    cell += character;
-  }
-  if (quoted) throw new Error("CSV 中有未闭合的双引号");
-  row.push(cell.trim());
-  if (row.some(Boolean)) rows.push(row);
-  return rows;
-}
-
-function value(record: Record<string, string>, key: string) {
-  return (record[key] ?? "").trim().replace(/\\n/g, "\n");
-}
-
 function cleanOptional(input: FormDataEntryValue | null, limit: number) {
   return String(input ?? "").trim().slice(0, limit) || null;
 }
 
 function failure(error: unknown): CatechismFormState {
-  return { status: "error", message: error instanceof Error ? error.message : "操作失败，请稍后再试" };
+  return { status: "error", message: error instanceof Error ? error.message : "操作失败，请稍后再试", details: error instanceof ImportProblem ? error.details : undefined };
 }
 
 export async function importCatechismCollection(_previousState: CatechismFormState, formData: FormData): Promise<CatechismFormState> {
@@ -69,8 +39,7 @@ export async function importCatechismCollection(_previousState: CatechismFormSta
     const file = formData.get("catechism_csv_file");
     if (!title) throw new Error("请填写问答册名称");
     if (!learnerIds.length) throw new Error("请至少选择一位孩子");
-    if (!(file instanceof File) || file.size === 0) throw new Error("请选择要理问答 CSV 文件");
-    if (file.size > 3_000_000) throw new Error("CSV 请控制在 3MB 内");
+    const text = await readCsvUpload(file, 3_000_000);
 
     const { data: ownedLearners, error: learnerError } = await supabase
       .from("learner_profiles")
@@ -80,38 +49,37 @@ export async function importCatechismCollection(_previousState: CatechismFormSta
     if (learnerError) throw new Error(learnerError.message);
     if ((ownedLearners?.length ?? 0) !== learnerIds.length) throw new Error("有孩子档案不属于当前家长账号");
 
-    const rows = parseCsv(await file.text());
-    if (rows.length < 2) throw new Error("CSV 至少应包含表头和一条问答");
-    if (rows.length > 501) throw new Error("一次最多导入 500 条问答");
-    const headers = rows[0].map((header) => header.replace(/^\uFEFF/, "").trim());
-    for (const required of ["item_key", "sequence", "question_zh", "question_en", "answer_zh", "answer_en"]) {
-      if (!headers.includes(required)) throw new Error(`CSV 缺少必填列：${required}`);
-    }
-
-    const keys = new Set<string>();
-    const sequences = new Set<number>();
-    const items = rows.slice(1).map((cells, index) => {
-      const record = Object.fromEntries(headers.map((header, cellIndex) => [header, cells[cellIndex] ?? ""]));
-      const itemKey = value(record, "item_key");
-      const sequence = Number(value(record, "sequence"));
-      const questionZh = value(record, "question_zh");
-      const questionEn = value(record, "question_en");
-      const answerZh = value(record, "answer_zh");
-      const answerEn = value(record, "answer_en");
-      const sectionTitle = value(record, "section") || null;
-      const scriptureReference = value(record, "scripture_reference") || null;
-      const parentNote = value(record, "parent_note") || null;
-      if (!/^[a-zA-Z0-9_-]{1,100}$/.test(itemKey)) throw new Error(`第 ${index + 2} 行：item_key 只能使用字母、数字、下划线或短横线`);
-      if (!Number.isInteger(sequence) || sequence < 1) throw new Error(`第 ${index + 2} 行：sequence 必须是大于 0 的整数`);
-      if (!questionZh || !questionEn || !answerZh || !answerEn) throw new Error(`第 ${index + 2} 行：中英文问题和中英文答案都不能为空`);
-      if (questionZh.length > 2000 || questionEn.length > 3000 || answerZh.length > 4000 || answerEn.length > 6000) throw new Error(`第 ${index + 2} 行：问题或答案超过长度限制`);
-      if ((sectionTitle?.length ?? 0) > 120 || (scriptureReference?.length ?? 0) > 1000 || (parentNote?.length ?? 0) > 1000) throw new Error(`第 ${index + 2} 行：章节、经文或备注超过长度限制`);
-      if (keys.has(itemKey)) throw new Error(`第 ${index + 2} 行：item_key“${itemKey}”重复`);
-      if (sequences.has(sequence)) throw new Error(`第 ${index + 2} 行：sequence“${sequence}”重复`);
-      keys.add(itemKey);
-      sequences.add(sequence);
+    const rows = readImportTable(text, "catechism", 500);
+    const issues = new ImportIssues();
+    const keys = new Map<string, number>();
+    const sequences = new Map<number, number>();
+    const items = rows.map((row, index) => {
+      const get = (key: string) => row.get(key).replace(/\\n/g, "\n");
+      const itemKey = get("item_key");
+      const questionZh = get("question_zh");
+      const questionEn = get("question_en");
+      const answerZh = get("answer_zh");
+      const answerEn = get("answer_en");
+      const sectionTitle = get("section") || null;
+      const scriptureReference = get("scripture_reference") || null;
+      const parentNote = get("parent_note") || null;
+      if (!STABLE_KEY.test(itemKey)) issues.add(row.line, `编号“${itemKey || "空"}”只能使用英文字母、数字、下划线或短横线`);
+      else if (keys.has(itemKey)) issues.add(row.line, `编号“${itemKey}”与第 ${keys.get(itemKey)} 行重复`);
+      else keys.set(itemKey, row.line);
+      const sequence = checkSequence(issues, row, index + 1, sequences, true);
+      for (const [label, fieldValue] of [["中文问题", questionZh], ["英文问题", questionEn], ["中文答案", answerZh], ["英文答案", answerEn]] as const) {
+        if (!fieldValue) issues.add(row.line, `${label}不能为空`);
+      }
+      checkLength(issues, row, "中文问题", questionZh, 2000);
+      checkLength(issues, row, "英文问题", questionEn, 3000);
+      checkLength(issues, row, "中文答案", answerZh, 4000);
+      checkLength(issues, row, "英文答案", answerEn, 6000);
+      checkLength(issues, row, "章节", sectionTitle, 120);
+      checkLength(issues, row, "出处", scriptureReference, 1000);
+      checkLength(issues, row, "家长备注", parentNote, 1000);
       return { item_key: itemKey, sort_order: sequence, section_title: sectionTitle, question_zh: questionZh, question_en: questionEn, answer_zh: answerZh, answer_en: answerEn, scripture_reference: scriptureReference, parent_note: parentNote, status: "active" };
     });
+    issues.throwIfAny();
 
     const hashItems = (rows: typeof items) => createHash("sha256").update(rows.map((item) => [item.item_key, item.sort_order, item.section_title ?? "", item.question_zh, item.answer_zh, item.question_en, item.answer_en, item.scripture_reference ?? "", item.parent_note ?? ""].join("|")).join("\n")).digest("hex");
     const prepared = await prepareImportCollection({

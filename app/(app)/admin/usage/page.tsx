@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { loadAccessContext } from "@/lib/access";
+import { ChildUsageSection } from "./child-usage";
 
 export const dynamic = "force-dynamic";
 type Usage = {user_id:string;service:string;model:string;requests:number;succeeded:number;failed:number;uncertain:number;input_tokens:number|null;output_tokens:number|null;cached_input_tokens:number|null;token_unknown:number;characters:number;images:number;audio_seconds:number};
@@ -34,8 +35,11 @@ export default async function UsagePage({searchParams}:{searchParams:Promise<{da
   const filtered = params.user ? rows.filter(r=>r.user_id===params.user) : rows;
   const sum = (key:"requests"|"failed"|"uncertain") => filtered.reduce((n,r)=>n+Number(r[key]),0);
   return <div>
-    <header className="hero"><p className="eyebrow">Service usage</p><h1>AI 与语音用量</h1><p className="lede">按登录账号记录付费服务请求。只显示用量，不展示私人会议、提示词或录音。</p></header>
+    <header className="hero"><p className="eyebrow">Service usage</p><h1>使用情况与成本</h1><p className="lede">按孩子看使用时长、学习记录和估算成本；按账号看 AI 与语音调用。不展示私人会议、提示词或录音。</p></header>
+    <section className="panel"><form className="field-grid" action="/admin/usage" method="get"><label>统计区间<select name="days" defaultValue={days}><option value="7">最近 7 天</option><option value="30">最近 30 天</option><option value="90">最近 90 天</option></select></label>{params.user && <input type="hidden" name="user" value={params.user} />}<button className="secondary" type="submit">查看 / 刷新</button></form></section>
+    <ChildUsageSection db={db} workspaceId={access.workspaceId} ownFamilyId={access.familyId} days={days} from={from} to={to} />
     <section className="panel">
+      <h2>按账号：AI 与语音调用明细</h2>
       <form className="field-grid" action="/admin/usage" method="get">
         <label>统计区间<select name="days" defaultValue={days}><option value="7">最近 7 天</option><option value="30">最近 30 天</option><option value="90">最近 90 天</option></select></label>
         <label>账号<select name="user" defaultValue={params.user ?? ""}><option value="">全部有调用的账号</option>{ids.map(id=><option key={id} value={id}>{labels.get(id) ?? `账号 ${id.slice(0,8)}`}</option>)}</select></label>
@@ -56,6 +60,6 @@ export default async function UsagePage({searchParams}:{searchParams:Promise<{da
         </article>)}</div>
       </>}
     </section>
-    <section className="panel"><h2>用量不等于账单</h2><p>Token 来自 Azure 返回值；字符与音频时长是应用侧提交量，失败或超时也可能被云平台计费。“成功”指服务响应成功，不保证生成内容通过后续校验。缺失 Token 不按 0 计算。</p><p>这里暂不折算金额或显示“剩余额度”，因为价格、免费额度、图片尺寸、缓存折扣及其他项目共享用量会影响真实费用。请以 Azure 账单为准；R2、Vercel、Supabase 的存储与流量不在此统计。</p><Link className="text-button" href="/admin">返回管理首页</Link></section>
+    <section className="panel"><h2>用量不等于账单</h2><p>Token 来自 Azure 返回值；字符与音频时长是应用侧提交量，失败或超时也可能被云平台计费。“成功”指服务响应成功，不保证生成内容通过后续校验。缺失 Token 不按 0 计算。</p><p>上方“估算成本”按可配置单价测算，用于定价和预算；价格、免费额度、图片尺寸、缓存折扣及其他项目共享用量都会影响真实费用。请以 Azure、Vercel、Supabase、Cloudflare 账单为准。</p><Link className="text-button" href="/admin">返回管理首页</Link></section>
   </div>;
 }

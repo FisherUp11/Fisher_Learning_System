@@ -6,6 +6,7 @@ import { answerQueueItem, loadTodayQueue, type Learner, type QueueItem } from "@
 import { RewardCelebration } from "@/components/reward-celebration";
 import type { RewardOutcome } from "@/lib/reward-types";
 import { ParentGrowthInvitation } from "@/components/parent-growth-invitation";
+import { rememberWaitDuration, WaitCountdown } from "@/components/wait-countdown";
 
 function kindLabel(kind: QueueItem["queue_kind"]) {
   if (kind === "new" || kind === "new_reinforcement") return "今天的新朋友";
@@ -207,6 +208,7 @@ export function LearningExperience({ learner }: { learner: Learner }) {
 
     setMemoryImageLoading(true);
     setMemoryImageError(null);
+    const startedAt = performance.now();
     try {
       const response = await fetch("/api/ai/character-memory-image", {
         method: "POST",
@@ -215,6 +217,7 @@ export function LearningExperience({ learner }: { learner: Learner }) {
       });
       const payload = await response.json() as { image?: string; error?: string };
       if (!response.ok || !payload.image) throw new Error(payload.error ?? "联想图暂时画不出来");
+      rememberWaitDuration("memory-image", performance.now() - startedAt);
       setMemoryImage({ characterId: current.character_id, source: payload.image });
       setMemoryImageVisibleFor(current.character_id);
     } catch (cause) {
@@ -239,7 +242,7 @@ export function LearningExperience({ learner }: { learner: Learner }) {
     const token = ++speechToken.current;
     setSpeaking(kind);
     try {
-      const response = await fetch(`/api/speech?text=${encodeURIComponent(text)}&slow=1`);
+      const response = await fetch(`/api/speech?text=${encodeURIComponent(text)}&slow=1&learner=${encodeURIComponent(learner.id)}`);
       if (!response.ok) throw new Error("speech unavailable");
       const objectUrl = URL.createObjectURL(await response.blob());
       try {
@@ -306,6 +309,7 @@ export function LearningExperience({ learner }: { learner: Learner }) {
           <button className="listen" disabled={Boolean(speaking)} onClick={() => void speakText(current.hanzi, 3, "character")}>{speaking === "character" ? "正在慢读…" : "🔊 汉字慢读 3 遍"}</button>
           <button className="memory-image-button" disabled={memoryImageLoading} onClick={() => void showMemoryImage()}>{memoryImageLoading ? "正在画联想图…" : currentMemoryImage ? "🖼 再看联想图" : "🖼 看联想图"}</button>
         </div>
+        {memoryImageLoading && <div className="memory-image-wait"><WaitCountdown waitKey="memory-image" fallbackSeconds={12} label="小画家正在画联想图" /></div>}
         {memoryImageVisible && currentMemoryImage && <section className="memory-image-panel" aria-label={`${current.hanzi} 的联想图`}>
           {/* GPT 图片以受保护的 data URL 返回，Next/Image 无法优化它。 */}
           {/* eslint-disable-next-line @next/next/no-img-element */}

@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { loadAccessContext } from "@/lib/access";
+import { LearnerOptions, orderLearners } from "@/components/learner-options";
 import { RewardSticker } from "@/components/reward-sticker";
 import { RewardRedeemButton } from "@/components/reward-redeem-button";
 import { formatRewardDate, loadRewardDashboard } from "@/lib/rewards";
@@ -14,10 +16,13 @@ const boardStickerCodes = [
 export default async function RewardsPage({ searchParams }: { searchParams: Promise<{ learner?: string }> }) {
   const supabase = await createClient();
   const query = await searchParams;
-  const { data: learners, error: learnerError } = await supabase
+  const { data: { user } } = await supabase.auth.getUser();
+  const access = user ? await loadAccessContext(supabase, user.id) : null;
+  const { data: rawLearners, error: learnerError } = await supabase
     .from("learner_profiles")
-    .select("id,display_name,timezone")
+    .select("id,display_name,timezone,family_id,families(name)")
     .order("created_at");
+  const learners = orderLearners(rawLearners, access?.familyId);
 
   if (learnerError) return <section className="panel"><h1>贴纸册还没准备好</h1><p className="error">{learnerError.message}</p></section>;
   const learner = learners?.find((item) => item.id === query.learner) ?? learners?.[0];
@@ -40,6 +45,7 @@ export default async function RewardsPage({ searchParams }: { searchParams: Prom
   return (
     <div className="reward-page">
       <header className="hero reward-hero">
+        <span hidden data-current-learner={learner.id} />
         <span className="reward-hero-mark" aria-hidden="true">贴</span>
         <div>
           <p className="eyebrow">LITTLE SPROUT REWARDS</p>
@@ -50,7 +56,7 @@ export default async function RewardsPage({ searchParams }: { searchParams: Prom
 
       {(learners?.length ?? 0) > 1 && <form action="/rewards" className="learner-switch reward-switch">
         <label>查看谁的贴纸册？
-          <select name="learner" defaultValue={learner.id}>{learners?.map((item) => <option key={item.id} value={item.id}>{item.display_name}</option>)}</select>
+          <select name="learner" defaultValue={learner.id}><LearnerOptions learners={learners} /></select>
         </label>
         <button className="secondary" type="submit">切换</button>
       </form>}

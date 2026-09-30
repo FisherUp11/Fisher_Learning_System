@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DesktopPoemTankGame } from "@/components/desktop-poem-tank-game";
 import { MobilePoemGame } from "@/components/mobile-poem-game";
+import { PoemAdventureGame, type PoemCollectionEntry } from "@/components/poem-adventure-game";
 import { RewardCelebration } from "@/components/reward-celebration";
 import { ratePoemGameSession, recordPoemGameResult } from "@/lib/poem-game-actions";
 import { POEM_GAME_DIFFICULTIES, proceduralPoemMap, type PoemGameDifficulty, type PoemGameHistoryRow, type PoemGamePoem, type PoemGameSummary, type PoemMapBlueprint } from "@/lib/poem-game";
@@ -17,9 +18,9 @@ function gameDate(value: string) {
   return new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(value));
 }
 
-export function PoemGameExperience({ learnerId, learnerName, poem, distractorLines, history, saveReady }: { learnerId: string; learnerName: string; poem: PoemGamePoem; distractorLines: string[]; history: PoemGameHistoryRow[]; saveReady: boolean }) {
+export function PoemGameExperience({ learnerId, learnerName, poem, distractorLines, history, saveReady, collection = [] }: { learnerId: string; learnerName: string; poem: PoemGamePoem; distractorLines: string[]; history: PoemGameHistoryRow[]; saveReady: boolean; collection?: PoemCollectionEntry[] }) {
   const [isNarrow, setIsNarrow] = useState(false);
-  const [preferredMode, setPreferredMode] = useState<"auto" | "desktop" | "mobile">("auto");
+  const [preferredMode, setPreferredMode] = useState<"adventure" | "desktop" | "mobile">("adventure");
   const [blueprint, setBlueprint] = useState<PoemMapBlueprint>(() => proceduralPoemMap(poem));
   const [mapStatus, setMapStatus] = useState("正在理解诗意…");
   const [summary, setSummary] = useState<PoemGameSummary | null>(null);
@@ -40,7 +41,7 @@ export function PoemGameExperience({ learnerId, learnerName, poem, distractorLin
   const imageLock = useRef(false);
   const imageController = useRef<AbortController | null>(null);
   useEffect(() => () => imageController.current?.abort(), []);
-  const mode = preferredMode === "auto" ? (isNarrow ? "mobile" : "desktop") : preferredMode;
+  const mode = preferredMode === "adventure" ? "adventure" : isNarrow ? "mobile" : "desktop";
 
   async function generateSceneImage() {
     if (imageLock.current || gameActive) return;
@@ -154,16 +155,18 @@ export function PoemGameExperience({ learnerId, learnerName, poem, distractorLin
   return <div className="poem-game-experience">
     <section className="poem-game-brief panel">
       <div><p className="eyebrow">Today&apos;s poem mission</p><h2>{learnerName} · 《{poem.title}》</h2><p>{blueprint.brief}</p></div>
-      <div className="poem-game-mode-switch" aria-label="游戏模式"><button type="button" disabled={gameActive} className={mode === "desktop" ? "active" : ""} onClick={() => setPreferredMode("desktop")}>电脑完整玩法</button><button type="button" disabled={gameActive} className={mode === "mobile" ? "active" : ""} onClick={() => setPreferredMode("mobile")}>手机轻量背诗</button></div>
+      <div className="poem-game-mode-switch" aria-label="游戏模式"><button type="button" disabled={gameActive} className={mode === "adventure" ? "active" : ""} onClick={() => setPreferredMode("adventure")}>寻句大冒险（推荐）</button><button type="button" disabled={gameActive} className={mode !== "adventure" ? "active" : ""} onClick={() => setPreferredMode(isNarrow ? "mobile" : "desktop")}>{isNarrow ? "手机轻量背诗" : "经典坦克射击"}</button></div>
       <span className={`poem-map-status ${blueprint.source === "ai" ? "ai" : ""}`}>{mapStatus}</span>
-      {!summary && mode === "desktop" && <div className="poem-adventure-setup">
-        <div className="poem-difficulty-picker" aria-label="选择游戏难度">{(Object.keys(POEM_GAME_DIFFICULTIES) as PoemGameDifficulty[]).map((level) => <button key={level} type="button" disabled={gameActive} aria-pressed={difficulty === level} className={difficulty === level ? "selected" : ""} onClick={() => setDifficulty(level)}><span>{level === "easy" ? "一" : level === "normal" ? "二" : "三"}</span><strong>{POEM_GAME_DIFFICULTIES[level].label}<small>最多 {POEM_GAME_DIFFICULTIES[level].minutes} 分钟</small></strong><p>{POEM_GAME_DIFFICULTIES[level].description}</p></button>)}</div>
+      {!summary && mode !== "mobile" && <div className="poem-adventure-setup">
+        {mode === "desktop" && <div className="poem-difficulty-picker" aria-label="选择游戏难度">{(Object.keys(POEM_GAME_DIFFICULTIES) as PoemGameDifficulty[]).map((level) => <button key={level} type="button" disabled={gameActive} aria-pressed={difficulty === level} className={difficulty === level ? "selected" : ""} onClick={() => setDifficulty(level)}><span>{level === "easy" ? "一" : level === "normal" ? "二" : "三"}</span><strong>{POEM_GAME_DIFFICULTIES[level].label}<small>最多 {POEM_GAME_DIFFICULTIES[level].minutes} 分钟</small></strong><p>{POEM_GAME_DIFFICULTIES[level].description}</p></button>)}</div>}
         <div className="poem-art-controls"><div><strong>走进《{poem.title}》的画里</strong><p>按诗意绘制专属背景；也可以直接用现成场景出发。</p></div><button type="button" className="secondary compact" disabled={gameActive || generatingImage || !!sceneImage} onClick={() => void generateSceneImage()}>{generatingImage ? "正在绘制…" : sceneImage ? "绘本背景已就绪" : "✧ 生成 AI 绘本背景"}</button></div>
         {imageMessage && <p className="notice" role="status">{imageMessage}</p>}
       </div>}
     </section>
 
-    {!summary && (mode === "desktop"
+    {!summary && (mode === "adventure"
+      ? <PoemAdventureGame key={`adventure-${poem.id}-${runKey}`} learnerId={learnerId} poem={poem} distractorLines={distractorLines} blueprint={{ ...blueprint, backgroundImage: sceneImage ?? blueprint.backgroundImage }} collection={collection} onStart={() => setGameActive(true)} onFinish={saveResult} />
+      : mode === "desktop"
       ? <DesktopPoemTankGame key={`desktop-${poem.id}-${runKey}-${difficulty}`} poem={poem} distractorLines={distractorLines} blueprint={{ ...blueprint, backgroundImage: sceneImage ?? proceduralPoemMap(poem).backgroundImage }} difficulty={difficulty} onStart={() => { setPreferredMode("desktop"); setGameActive(true); }} onFinish={saveResult} />
       : <MobilePoemGame key={`mobile-${poem.id}-${runKey}`} poem={poem} distractorLines={distractorLines} onStart={() => { setPreferredMode("mobile"); setGameActive(true); }} onFinish={saveResult} />)}
 
@@ -185,6 +188,6 @@ export function PoemGameExperience({ learnerId, learnerName, poem, distractorLin
       <button type="button" className="secondary" onClick={playAgain}>再玩一局</button>
     </section>}
 
-    <section className="panel poem-game-history"><div className="section-heading"><div><h2>最近游戏记录</h2><p className="library-meta">游戏记录与家长背诵评分分开保存；没有评分也会保留本局逐题证据。</p></div></div>{!saveReady ? <p className="notice">请先运行 <code>supabase/018_poem_tank_game.sql</code>，即可开始保存场次和逐句掌握状态。</p> : history.length === 0 ? <p className="notice">这首诗还没有游戏记录，完成第一局后会出现在这里。</p> : <div className="poem-game-history-list">{history.map((row) => <article key={row.id}><span>{row.mode === "desktop" ? "电脑完整" : "手机轻量"}</span><strong>{gameDate(row.played_at)}</strong><small>首次答对 {row.first_try_correct_count} · 对 {row.correct_count} / 错 {row.wrong_count}</small><em>{row.recitation_score ? `家长 ${row.recitation_score} 分` : "暂未评分"}</em></article>)}</div>}</section>
+    <section className="panel poem-game-history"><div className="section-heading"><div><h2>最近游戏记录</h2><p className="library-meta">游戏记录与家长背诵评分分开保存；没有评分也会保留本局逐题证据。</p></div></div>{!saveReady ? <p className="notice">请先运行 <code>supabase/018_poem_tank_game.sql</code>，即可开始保存场次和逐句掌握状态。</p> : history.length === 0 ? <p className="notice">这首诗还没有游戏记录，完成第一局后会出现在这里。</p> : <div className="poem-game-history-list">{history.map((row) => <article key={row.id}><span>{row.mode === "desktop" ? "电脑" : "手机"}</span><strong>{gameDate(row.played_at)}</strong><small>首次答对 {row.first_try_correct_count} · 对 {row.correct_count} / 错 {row.wrong_count}</small><em>{row.recitation_score ? `家长 ${row.recitation_score} 分` : "暂未评分"}</em></article>)}</div>}</section>
   </div>;
 }

@@ -5,7 +5,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { loadAccessContext } from "@/lib/access";
 import { usageValues, type ServiceKind } from "./service-usage-values";
 
-type Meter = { service: ServiceKind; feature: string; model: string; characters?: number; audioSeconds?: number };
+type Meter = { service: ServiceKind; feature: string; model: string; characters?: number; audioSeconds?: number; learnerId?: string | null };
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Server-only Azure boundary. Never store prompts, text, audio, credentials or provider errors. */
 export async function meteredFetch(url: string, init: RequestInit, meter: Meter): Promise<Response> {
@@ -14,19 +16,24 @@ export async function meteredFetch(url: string, init: RequestInit, meter: Meter)
   if (authError || !user) throw new Error("请先登录再使用 AI / 语音");
   const access = await loadAccessContext(db, user.id);
   if (!access) throw new Error("账号尚未加入学习空间或已被停用");
-  const [{ data: workspace }, { data: profile, error: profileError }] = await Promise.all([
+  const [{ data: workspace }, { data: profile, error: profileError }, { data: learner }] = await Promise.all([
     db.from("learning_workspaces").select("status").eq("id",access.workspaceId).single(),
     db.from("workspace_user_profiles").select("must_change_password").eq("user_id",user.id).single(),
+    // RLS only returns learners this account may access, so the id cannot be spoofed.
+    meter.learnerId && UUID.test(meter.learnerId) ? db.from("learner_profiles").select("id").eq("id",meter.learnerId).maybeSingle() : Promise.resolve({ data: null }),
   ]);
   if (profileError || !profile || workspace?.status !== "active") throw new Error("无法确认账号权限，请联系 owner");
   if (profile.must_change_password) throw new Error("请先修改临时密码，再使用 AI / 语音功能");
   const admin = createAdminClient();
   const id = randomUUID();
-  const { error } = await admin.from("service_usage_events").insert({
+  const row: Record<string, unknown> = {
     id, workspace_id: access.workspaceId, user_id: user.id, feature: meter.feature,
     service: meter.service, model: meter.model.slice(0,160),
     characters: meter.characters ?? 0, audio_seconds: meter.audioSeconds ?? 0,
-  });
+  };
+  let { error } = await admin.from("service_usage_events").insert(learner?.id ? { ...row, learner_id: learner.id } : row);
+  // Before migration 022 the learner column is absent; still meter at account level.
+  if (error && learner?.id) ({ error } = await admin.from("service_usage_events").insert(row));
   // Fail before calling the paid provider if bookkeeping is unavailable.
   if (error) throw new Error("用量记录服务尚未就绪，请让 owner 运行 021 SQL 并检查服务端 Supabase 密钥；本次未调用 Azure。");
   async function finish(values: Record<string, unknown>) {

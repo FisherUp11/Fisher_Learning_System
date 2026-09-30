@@ -4,6 +4,8 @@ import { loadPoemGameHistory } from "@/lib/poem-game-data";
 import { splitPoemLines, type PoemGamePoem } from "@/lib/poem-game";
 import { loadPoemProgress } from "@/lib/poems";
 import { createClient } from "@/lib/supabase/server";
+import { loadAccessContext } from "@/lib/access";
+import { LearnerOptions, orderLearners } from "@/components/learner-options";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +14,10 @@ type SearchParams = Promise<{ learner?: string; poem?: string }>;
 export default async function PoemGamePage({ searchParams }: { searchParams: SearchParams }) {
   const params = await searchParams;
   const supabase = await createClient();
-  const { data: learners, error: learnersError } = await supabase.from("learner_profiles").select("id,display_name").order("created_at");
+  const { data: { user } } = await supabase.auth.getUser();
+  const access = user ? await loadAccessContext(supabase, user.id) : null;
+  const { data: rawLearners, error: learnersError } = await supabase.from("learner_profiles").select("id,display_name,family_id,families(name)").order("created_at");
+  const learners = orderLearners(rawLearners, access?.familyId);
   if (learnersError) return <section className="panel"><h1>诗词游戏暂时打不开</h1><p className="error">{learnersError.message}</p></section>;
   const learner = learners?.find((item) => item.id === params.learner) ?? learners?.[0];
   if (!learner) return <section className="empty panel"><span className="empty-mark">诗</span><h1>先创建孩子档案</h1><p className="lede">创建档案并分配诗词册后，才能生成专属诗境。</p><Link className="primary" href="/parent">去家长页</Link></section>;
@@ -39,19 +44,22 @@ export default async function PoemGamePage({ searchParams }: { searchParams: Sea
   };
   const distractorLines = loaded.poems.filter((item) => item.id !== selected.id).flatMap((item) => splitPoemLines(item.content)).filter((line, index, rows) => rows.indexOf(line) === index).slice(0, 80);
   const gameHistory = await loadPoemGameHistory(supabase, learner.id, selected.id);
+  const { data: completedRows } = gameHistory.setupRequired ? { data: [] } : await supabase.from("poem_game_sessions").select("poem_id").eq("learner_id", learner.id).eq("is_completed", true).limit(1000);
+  const completedIds = new Set((completedRows ?? []).map((row) => row.poem_id as string));
+  const collection = loaded.poems.map((item) => ({ id: item.id, title: item.title, done: completedIds.has(item.id) }));
 
   return <div className="poem-game-page">
-    <header className="hero poem-game-hero"><p className="eyebrow">Poem guardian</p><h1>诗境守卫战</h1><p className="lede">孩子驾驶小坦克击散“遗忘迷雾”，每次命中都会听见正确诗句；游戏后仍由家长判断是否真的会背。</p></header>
+    <header className="hero poem-game-hero"><span hidden data-current-learner={learner.id} /><p className="eyebrow">Poem guardian</p><h1>诗境小坦克 · 寻句大冒险</h1><p className="lede">听诗、拼字、过桥、铺路，最后背出整首赶跑遗忘雾怪。答错不扣分，收集星星养大小伙伴；最后仍由家长判断是否真的会背。</p></header>
 
     <form className="panel poem-game-picker" method="get">
       <div><p className="eyebrow">生成今日关卡</p><h2>选择孩子和诗词</h2><p>可以主动选择任意已分配诗词；不选择时，会优先打开练习较少、评分较低的诗。</p></div>
-      <label>哪位孩子？<select name="learner" defaultValue={learner.id}>{(learners ?? []).map((item) => <option value={item.id} key={item.id}>{item.display_name}</option>)}</select></label>
+      <label>哪位孩子？<select name="learner" defaultValue={learner.id}><LearnerOptions learners={learners} /></select></label>
       <label>选择哪首诗？<select name="poem" defaultValue={selected.id}>{loaded.poems.map((item) => <option value={item.id} key={item.id}>{item.title} · {item.author}{item.lastScore ? ` · 最近 ${item.lastScore} 分` : item.attemptCount ? " · 待评分" : " · 未练"}</option>)}</select></label>
       <button className="primary" type="submit">生成这首诗的游戏</button>
       <Link className="text-button" href={`/poems/${selected.id}?learner=${learner.id}`}>先看诗词正文与原背诵记录 →</Link>
     </form>
 
     {gameHistory.error && <p className="error">读取游戏历史失败：{gameHistory.error}</p>}
-    <PoemGameExperience key={`${learner.id}-${poem.id}`} learnerId={learner.id} learnerName={learner.display_name} poem={poem} distractorLines={distractorLines} history={gameHistory.rows} saveReady={!gameHistory.setupRequired} />
+    <PoemGameExperience key={`${learner.id}-${poem.id}`} learnerId={learner.id} learnerName={learner.display_name} poem={poem} distractorLines={distractorLines} history={gameHistory.rows} saveReady={!gameHistory.setupRequired} collection={collection} />
   </div>;
 }

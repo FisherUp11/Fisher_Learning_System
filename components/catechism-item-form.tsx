@@ -39,7 +39,7 @@ export function CatechismItemForm({ item }: { item: EditableItem }) {
       <section lang="en"><p className="eyebrow">English</p><label>English question<textarea name="question_en" defaultValue={item.question_en ?? ""} required maxLength={3000} /></label><label>English answer<textarea name="answer_en" defaultValue={item.answer_en ?? ""} required maxLength={6000} /></label></section>
     </div>
     <div className="catechism-editor-meta">
-      <label>经文出处<textarea name="scripture_reference" defaultValue={item.scripture_reference ?? ""} maxLength={1000} /></label>
+      <label>出处 / 参考<textarea name="scripture_reference" defaultValue={item.scripture_reference ?? ""} maxLength={1000} /></label>
       <label>家长备注<textarea name="parent_note" defaultValue={item.parent_note ?? ""} maxLength={1000} /></label>
     </div>
     <div className="music-save-row"><SaveButton /><div className="music-save-feedback">{state.message && <p className={state.status === "success" ? "success" : "error"} role="status">{state.message}</p>}</div></div>

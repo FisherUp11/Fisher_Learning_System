@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-export type ImportResult = { status: "success" | "duplicate" | "error"; message: string };
-export class ImportProblem extends Error {}
+export type ImportResult = { status: "success" | "duplicate" | "error"; message: string; details?: string[] };
+export class ImportProblem extends Error {
+  constructor(message: string, readonly details?: string[]) { super(message); }
+}
 
 type ImportCollection = {
   id: string;
@@ -20,7 +22,7 @@ export function importCode(workspaceId: string, fingerprint: string) {
 
 export function importFailure(error: unknown): ImportResult {
   console.error("[resource-import] failed", error);
-  if (error instanceof ImportProblem) return { status: "error", message: error.message };
+  if (error instanceof ImportProblem) return { status: "error", message: error.message, details: error.details };
   const message = error instanceof Error ? error.message : String(error);
   if (/请先登录|JWT|Refresh Token/i.test(message)) return { status: "error", message: "登录状态已失效，请重新登录后再导入。" };
   if (/fetch|network|timeout/i.test(message)) return { status: "error", message: "导入结果暂时无法确认，请检查网络后用同一份文件重试，系统会检查已有内容。" };

@@ -6,6 +6,7 @@ import { loadAccessContext } from "@/lib/access";
 import { loadLearnerDashboard } from "@/lib/dashboard";
 import { CatechismImportForm } from "@/components/catechism-import-form";
 import { FeedbackForm } from "@/components/feedback-form";
+import { LearnerOptions, orderLearners } from "@/components/learner-options";
 
 export const dynamic = "force-dynamic";
 
@@ -16,17 +17,21 @@ export default async function ParentPage({ searchParams }: { searchParams: Promi
   if (!user) return null;
   const access = await loadAccessContext(supabase, user.id);
   if (!access) return null;
-  const { data: learners } = await supabase.from("learner_profiles")
-    .select("id,parent_user_id,display_name,daily_new_limit,catechism_daily_new_limit,catechism_review_limit,hanzi_review_mode,hanzi_base_review_limit,hanzi_max_review_limit,active_package_id,timezone")
+  const { data: rawLearners } = await supabase.from("learner_profiles")
+    .select("id,parent_user_id,display_name,daily_new_limit,catechism_daily_new_limit,catechism_review_limit,hanzi_review_mode,hanzi_base_review_limit,hanzi_max_review_limit,active_package_id,timezone,family_id,families(name)")
     .order("created_at");
+  const learners = orderLearners(rawLearners, access.familyId);
   const hasLearners = Boolean(learners?.length);
   const selectedLearner = learners?.find((learner) => learner.id === params.learner) ?? learners?.[0];
+  // Admins can see every family; keep this desk focused on their own family plus the child being viewed.
+  const settingsLearners = access.isAdmin ? learners.filter((learner) => learner.family_id === access.familyId || learner.id === selectedLearner?.id) : learners;
+  const hiddenLearnerCount = learners.length - settingsLearners.length;
   const dashboard = selectedLearner ? await loadLearnerDashboard(supabase, selectedLearner.id, selectedLearner.timezone) : null;
 
   return (
     <div>
       <header className="hero"><p className="eyebrow">Parent desk</p><h1>把节奏交给系统。</h1><p className="lede">孩子只要学习；导入、查看进度和调整每日量由家长在这里完成。</p></header>
-      {(learners?.length ?? 0) > 1 && <form action="/parent" className="learner-switch"><label>查看哪位孩子？<select name="learner" defaultValue={selectedLearner?.id}>{learners?.map((learner) => <option key={learner.id} value={learner.id}>{learner.display_name}</option>)}</select></label><button className="secondary">切换</button></form>}
+      {(learners?.length ?? 0) > 1 && <form action="/parent" className="learner-switch"><label>查看哪位孩子？<select name="learner" defaultValue={selectedLearner?.id}><LearnerOptions learners={learners} /></select></label><button className="secondary">切换</button></form>}
       <section className="today-card">
         <p className="eyebrow">{selectedLearner ? `${selectedLearner.display_name} 的学习概览` : "学习概览"}</p>
         {dashboard ? <><div className="today-grid parent-dashboard-grid">
@@ -40,7 +45,8 @@ export default async function ParentPage({ searchParams }: { searchParams: Promi
 
       <section className="panel">
         <h2>已有孩子 · 学习设置</h2>
-        {hasLearners ? <div className="child-settings-list">{learners?.map((learner) => (
+        {hiddenLearnerCount > 0 && <p className="notice">这里只显示你家孩子和当前查看的孩子；其他 {hiddenLearnerCount} 位孩子请在 <Link href="/admin/families">家庭与孩子总览</Link> 中查看，或用上方切换。</p>}
+        {hasLearners ? <div className="child-settings-list">{settingsLearners.map((learner) => (
           <FeedbackForm action={updateLearnerSettings} className="child-settings" key={learner.id} pendingLabel="正在保存孩子的设置…" successMessage={`${learner.display_name} 的设置已保存。汉字每日量将在明天生成任务时采用新设置。`}>
             <input type="hidden" name="learner_id" value={learner.id} />
             <div className="child-settings-head"><span className="child-sprout" aria-hidden="true">🌱</span><span><strong>{learner.display_name}</strong><small>{learner.active_package_id ? "已有学习包" : "尚未导入字册"}</small></span></div>
@@ -75,9 +81,10 @@ export default async function ParentPage({ searchParams }: { searchParams: Promi
       <section className="panel">
         <h2>导入字册</h2>
         {!access.isAdmin && <p className="notice">家长导入后会先进入“待审核”；管理员检查并分配后，才会进入孩子的学习队列。</p>}
-        <p className="notice">CSV 必填列：<code>character,pinyin_marked,meaning</code>。可选列：<code>word_1,word_2,example_sentence,sequence</code>。先用 samples 里的 30 字试跑。</p>
+        <p className="notice">必填：汉字、拼音（带声调）、释义；可选：词语1、词语2、例句、顺序。模板里有逐列说明；上传后如有问题会列出具体行号，并且不会导入任何内容。</p>
+        <div className="template-download"><span>先下载模板，用 Excel/WPS 填好后另存为 CSV 上传。</span><a className="text-button" href="/api/templates/characters" download>下载汉字导入模板</a></div>
         {hasLearners ? <FeedbackForm action={importCharacters} className="form-grid" style={{ marginTop: 16 }} clearFileOnSuccess pendingLabel="正在校验并导入汉字，请稍候…" confirm={{ title: "确认导入这份字册？", description: access.isAdmin ? "核对文件与孩子后再确认，已有学习记录会保留。" : "确认后将提交给管理员审核。" }}>
-          <label>这份字册导入给哪位孩子<select name="learner_id" required defaultValue={learners?.[0]?.id}>{learners?.map((learner) => <option key={learner.id} value={learner.id}>{learner.display_name} · 每天新字 {learner.daily_new_limit} 个</option>)}</select></label>
+          <label>这份字册导入给哪位孩子<select name="learner_id" required defaultValue={learners?.[0]?.id}><LearnerOptions learners={learners} label={(learner) => `${learner.display_name} · 每天新字 ${(learner as { daily_new_limit?: number }).daily_new_limit ?? "-"} 个`} /></select></label>
           <label>学习包名称<input name="package_title" defaultValue="学前汉字" required /></label>
           <label>CSV 文件<input name="csv_file" type="file" accept=".csv,text/csv" required /></label>
           <p className="small muted">{access.isAdmin ? "导入后会直接分配给所选孩子，并与他已有的字册叠加；其他孩子和原有学习记录不变。" : "导入后先等待审核，管理员会看到你建议分配的孩子；审核前不会进入学习队列。"}</p>
@@ -88,10 +95,10 @@ export default async function ParentPage({ searchParams }: { searchParams: Promi
       <section className="panel">
         <h2>导入诗词册</h2>
         {!access.isAdmin && <p className="notice">这份诗词册会提交给管理员审核，不会立即分配。</p>}
-        <p className="notice">CSV 必填列：<code>poem_key,title,author,content</code>。可选列：<code>dynasty,sequence</code>。<code>poem_key</code> 是空间内的稳定编号；重复编号会复用已有正文，避免家长导入覆盖公共内容，孩子原有打卡记录始终保留。</p>
-        <div className="template-download"><span>先下载模板，填好第一批 28 首后再上传。</span><a className="text-button" href="/samples/poems-template.csv" download>下载诗词 CSV 模板</a></div>
+        <p className="notice">必填：标题、作者、正文；可选：编号、朝代、顺序。编号可以留空，系统会自动生成并识别重复的诗；已有正文不会被覆盖，孩子原有打卡记录始终保留。</p>
+        <div className="template-download"><span>正文每句换一行（单元格内 Alt+Enter），或用 \n 分隔。</span><a className="text-button" href="/api/templates/poems" download>下载诗词导入模板</a></div>
         {hasLearners ? <FeedbackForm action={importPoems} className="form-grid" style={{ marginTop: 16 }} clearFileOnSuccess pendingLabel="正在校验并导入诗词，请稍候…" confirm={{ title: "确认导入这份诗词册？", description: access.isAdmin ? "核对文件与孩子后再确认，已有背诵记录会保留。" : "确认后将提交给管理员审核。" }}>
-          <label>这份诗词册导入给哪位孩子<select name="learner_id" required defaultValue={learners?.[0]?.id}>{learners?.map((learner) => <option key={learner.id} value={learner.id}>{learner.display_name}</option>)}</select></label>
+          <label>这份诗词册导入给哪位孩子<select name="learner_id" required defaultValue={learners?.[0]?.id}><LearnerOptions learners={learners} /></select></label>
           <label>诗词册名称<input name="poem_collection_title" defaultValue="第一批古诗词（28首）" required maxLength={80} /></label>
           <label>CSV 文件<input name="poem_csv_file" type="file" accept=".csv,text/csv" required /></label>
           <p className="small muted">新增内容会保留为来源诗词册，并叠加显示在“诗词背诵”中；完全相同的内容会识别为已导入，已有打卡记录保留。</p>
@@ -102,7 +109,7 @@ export default async function ParentPage({ searchParams }: { searchParams: Promi
       <section className="panel">
         <h2>要理问答</h2>
         <p className="notice">支持中英文问题与答案、CSV 多批次导入、按孩子分配、答错降级和间隔复习。先运行 <code>supabase/010_catechism_learning_mvp.sql</code>。</p>
-        <div className="template-download"><span>下载 UTF-8 模板，准备第一批 145 问。</span><a className="text-button" href="/api/templates/catechism">下载要理问答 CSV 模板</a></div>
+        <div className="template-download"><span>模板里有逐列说明，有错误会列出行号并拒绝导入。</span><a className="text-button" href="/api/templates/catechism" download>下载要理问答导入模板</a></div>
         {access.isAdmin ? <Link className="primary full" style={{ display: "grid", placeItems: "center", marginTop: 16 }} href="/catechism/manage">导入和管理问答册</Link> : hasLearners ? <><p className="notice">导入后会保留建议分配的孩子，并等待管理员审核。</p><CatechismImportForm learners={learners ?? []} /></> : <p className="notice">请先创建孩子档案。</p>}
       </section>
 
@@ -114,7 +121,7 @@ export default async function ParentPage({ searchParams }: { searchParams: Promi
 
       <section className="panel">
         <h2>下一步</h2>
-        <div className="list"><div className="list-row"><span>1. 下载样例 CSV，先导入 30 个字。</span><a className="text-button" href="/samples/characters-sample.csv" download>下载</a></div><div className="list-row"><span>2. 在 iPhone 打开“学一学”，完成一轮真实测试。</span><a className="text-button" href="/learn">开始</a></div><div className="list-row"><span>3. 导入诗词后，每背一次就在“诗词背诵”打一次卡。</span><Link className="text-button" href="/poems">去背诵</Link></div><div className="list-row"><span>4. 创建歌曲、辨音和节奏练习，并上传 MP3 与琴谱。</span><Link className="text-button" href="/music/manage">管理音乐</Link></div><div className="list-row"><span>5. 导入要理问答，开始中英双语记忆。</span><Link className="text-button" href="/catechism/manage">管理问答</Link></div><div className="list-row"><span>6. 加入第一份礼物，并测试贴纸获得、兑换和撤销。</span><Link className="text-button" href="/rewards/manage">管理奖励</Link></div></div>
+        <div className="list"><div className="list-row"><span>1. 下载汉字模板，先导入少量字试跑。</span><a className="text-button" href="/api/templates/characters" download>下载</a></div><div className="list-row"><span>2. 在 iPhone 打开“学一学”，完成一轮真实测试。</span><a className="text-button" href="/learn">开始</a></div><div className="list-row"><span>3. 导入诗词后，每背一次就在“诗词背诵”打一次卡。</span><Link className="text-button" href="/poems">去背诵</Link></div><div className="list-row"><span>4. 创建歌曲、辨音和节奏练习，并上传 MP3 与琴谱。</span><Link className="text-button" href="/music/manage">管理音乐</Link></div><div className="list-row"><span>5. 导入要理问答，开始中英双语记忆。</span><Link className="text-button" href="/catechism/manage">管理问答</Link></div><div className="list-row"><span>6. 加入第一份礼物，并测试贴纸获得、兑换和撤销。</span><Link className="text-button" href="/rewards/manage">管理奖励</Link></div></div>
         <form action={signOut} style={{ marginTop: 18 }}><button className="text-button danger" type="submit">退出家长账号</button></form>
       </section>
     </div>

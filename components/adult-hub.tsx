@@ -5,9 +5,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ExercisePanel } from "./adult-exercise";
 import type { AdultProfile, ExerciseGoal, GoalVersion, ExerciseLog, MeetingSource, EnglishLesson, EnglishConcept, ConceptState, DailyPlan, EnglishAttempt } from "@/lib/adult-learning";
 import s from "./adult-growth.module.css";
+import { rememberWaitDuration, WaitCountdown } from "./wait-countdown";
 import type { ListeningData } from "./english-listening-panel";
 import type { ListeningAttempt } from "@/lib/english-listening";
 const EnglishPanel = dynamic(() => import("./adult-english").then(module => module.EnglishPanel), { loading: () => <div className={s.skeleton}>正在打开英语练习…</div> });
+const aiWaits: Record<string, { seconds: number; label: string }> = {
+  generate: { seconds: 35, label: "AI 正在生成课程，请勿重复提交" },
+  "listen-generate": { seconds: 40, label: "AI 正在整理听力课，请勿重复提交" },
+  attempt: { seconds: 8, label: "AI 正在阅读你的回答" },
+  "listen-answer": { seconds: 4, label: "正在保存并批改" },
+};
 
 export type AdultData = { profiles: AdultProfile[]; profile: AdultProfile | null; today: string; goals?: ExerciseGoal[]; versions?: GoalVersion[]; logs?: ExerciseLog[]; adultDays?: string[]; sources?: MeetingSource[]; lessons?: EnglishLesson[]; concepts?: EnglishConcept[]; links?: { lesson_id: string; concept_id: string }[]; states?: ConceptState[]; plan?: DailyPlan | null; attempts?: EnglishAttempt[]; listening?: ListeningData };
 export type CommandResult = { message: string; id?: string; attempt?: Pick<EnglishAttempt, "id" | "task_id" | "result" | "feedback">; listeningAttempt?: ListeningAttempt };
@@ -20,6 +27,7 @@ export function AdultHub({ area, tab }: { area: "exercise" | "english"; tab: str
   const [refresh, setRefresh] = useState(0);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState(false);
+  const [pendingAction, setPendingAction] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const submitting = useRef(false);
@@ -42,7 +50,8 @@ export function AdultHub({ area, tab }: { area: "exercise" | "english"; tab: str
   }, [area, tab, selected, refresh]);
   const run = useCallback<RunCommand>(async (action, payload) => {
     if (submitting.current) return null;
-    submitting.current = true; setPending(true); setError(""); setNotice("");
+    submitting.current = true; setPending(true); setPendingAction(action); setError(""); setNotice("");
+    const startedAt = performance.now();
     const key = JSON.stringify({ action, ...payload });
     const body: Record<string, unknown> = { action, ...payload };
     if (["exercise", "generate", "attempt", "listen-generate", "listen-answer"].includes(action) && !body.id) {
@@ -53,6 +62,7 @@ export function AdultHub({ area, tab }: { area: "exercise" | "english"; tab: str
       const response = await fetch("/api/adult", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(95000) });
       const result = await response.json(); if (!response.ok) throw new Error(result.error ?? "操作未完成");
       requests.current.delete(key);
+      rememberWaitDuration(`adult-${action}`, performance.now() - startedAt);
       if (alive.current) { setNotice(result.message); setRefresh(n => n + 1); }
       return result;
     } catch (e) {
@@ -68,7 +78,7 @@ export function AdultHub({ area, tab }: { area: "exercise" | "english"; tab: str
     <header className={s.hero}><div><span className={s.eyebrow}>{area === "exercise" ? "SMALL STEPS · TOGETHER" : "YOUR MEETINGS, YOUR ENGLISH"}</span><h1>{area === "exercise" ? "一起坚持" : "会议英语"}</h1><p>{area === "exercise" ? "孩子在成长，我们也为自己留一点时间。" : "把真实工作中的英文，练成下次开会时的从容。"}</p></div>
       {!!data?.profiles.length && <div className={s.profiles} aria-label="选择成人档案">{data.profiles.filter(p => !p.archived).map(p => <button key={p.id} disabled={pending} className={data.profile?.id === p.id ? s.selected : ""} onClick={() => select(p.id)} aria-pressed={data.profile?.id === p.id}>{p.name}</button>)}</div>}
     </header>
-    {pending && <div className={s.banner} role="status">正在处理，请稍候…生成课程通常比普通保存更久，请勿重复提交。</div>}
+    {pending && <div className={s.banner} role="status">{aiWaits[pendingAction] ? <WaitCountdown key={pendingAction} waitKey={`adult-${pendingAction}`} fallbackSeconds={aiWaits[pendingAction].seconds} label={aiWaits[pendingAction].label} /> : "正在处理，请稍候…"}</div>}
     {error && <div className={`${s.banner} ${s.error}`} role="alert">{error}<div><button className={s.button} disabled={pending} onClick={() => { setError(""); setLoading(true); setRefresh(n => n + 1); }}>重新加载</button></div></div>}
     {notice && <div className={s.banner} role="status">{notice}</div>}
     {loading ? <div className={s.skeleton}>正在准备你的页面…</div> : data && <>

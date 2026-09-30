@@ -2,6 +2,7 @@ import Link from "next/link";
 import { LibraryControls, LibraryPagination, type LibraryPackageChoice } from "@/components/library-controls";
 import { LibraryPriorityManager, type LibraryRowView } from "@/components/library-priority-manager";
 import { loadAccessContext } from "@/lib/access";
+import { orderLearners } from "@/components/learner-options";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -45,10 +46,11 @@ export default async function LibraryPage({ searchParams }: { searchParams: Sear
   const attempts = safeChoice(params.attempts, ["all", "never", "1-2", "3-5", "6+"], "all");
   const priority = safeChoice(params.priority, ["all", "priority", "priority_unstarted", "priority_learning", "priority_stable"], "all");
   const page = safePage(params.page);
-  const { data: learners, error: learnersError } = await supabase
+  const { data: rawLearners, error: learnersError } = await supabase
     .from("learner_profiles")
-    .select("id,display_name,daily_new_limit,active_package_id")
+    .select("id,display_name,daily_new_limit,active_package_id,family_id,families(name)")
     .order("created_at", { ascending: true });
+  const learners = orderLearners(rawLearners, access?.familyId);
 
   if (learnersError) return <section className="panel"><h1>字库暂时打不开</h1><p className="error">{learnersError.message}</p></section>;
   const learner = learners?.find((item) => item.id === params.learner) ?? learners?.[0];

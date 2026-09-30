@@ -63,6 +63,142 @@ function assertMediaMutable(access: { isAdmin: boolean }, item: { status: string
   }
 }
 
+async function assertFolderInWorkspace(supabase: Awaited<ReturnType<typeof createClient>>, folderId: string, workspaceId: string) {
+  const { data, error } = await supabase.from("music_folders").select("id").eq("id", folderId).eq("workspace_id", workspaceId).maybeSingle();
+  if (error || !data) throw new Error("找不到这个文件夹，请刷新后重试（首次使用请先运行 supabase/022 脚本）");
+}
+
+async function adminMusicContext() {
+  const { supabase, user } = await authenticatedMusicClient();
+  const access = await loadAccessContext(supabase, user.id);
+  if (!access?.isAdmin) throw new Error("只有管理员可以管理文件夹和批量内容");
+  return { supabase, user, access };
+}
+
+type ActionFeedback = { status: "success" | "error"; message: string };
+const actionError = (error: unknown): ActionFeedback => ({ status: "error", message: error instanceof Error ? error.message : "操作没有完成，请稍后重试" });
+
+function revalidateMusic() {
+  revalidatePath("/music");
+  revalidatePath("/music/manage");
+  revalidatePath("/admin/assignments");
+}
+
+export async function createMusicFolder(formData: FormData): Promise<ActionFeedback> {
+  try {
+    const { supabase, user, access } = await adminMusicContext();
+    const title = String(formData.get("title") ?? "").trim().slice(0, 60);
+    const description = String(formData.get("description") ?? "").trim().slice(0, 300) || null;
+    if (!title) throw new Error("请填写文件夹名称");
+    const { error } = await supabase.from("music_folders").insert({ workspace_id: access.workspaceId, created_by: user.id, title, description });
+    if (error?.code === "23505") throw new Error(`已经有名为“${title}”的文件夹`);
+    if (error) throw new Error(error.message);
+    revalidateMusic();
+    return { status: "success", message: `文件夹“${title}”已创建。可以批量上传内容，或把已有内容移进来。` };
+  } catch (error) {
+    return actionError(error);
+  }
+}
+
+export async function updateMusicFolder(formData: FormData): Promise<ActionFeedback> {
+  try {
+    const { supabase, access } = await adminMusicContext();
+    const folderId = String(formData.get("folder_id") ?? "");
+    const title = String(formData.get("title") ?? "").trim().slice(0, 60);
+    const status = formData.get("status") === "archived" ? "archived" : "active";
+    if (!folderId || !title) throw new Error("请填写文件夹名称");
+    const { error } = await supabase.from("music_folders").update({ title, status, updated_at: new Date().toISOString() })
+      .eq("id", folderId).eq("workspace_id", access.workspaceId);
+    if (error?.code === "23505") throw new Error(`已经有名为“${title}”的文件夹`);
+    if (error) throw new Error(error.message);
+    revalidateMusic();
+    return { status: "success", message: status === "archived" ? "文件夹已归档；里面的内容和孩子分配保持不变。" : "文件夹已保存。" };
+  } catch (error) {
+    return actionError(error);
+  }
+}
+
+/** Folder assignment auto-follows: DB triggers sync current and future published items. */
+export async function saveMusicFolderAssignments(formData: FormData): Promise<ActionFeedback> {
+  try {
+    const { supabase, user, access } = await adminMusicContext();
+    const folderId = String(formData.get("folder_id") ?? "");
+    await assertFolderInWorkspace(supabase, folderId, access.workspaceId);
+    const requested = [...new Set(formData.getAll("learner_ids").map(String).filter(Boolean))];
+    const [{ data: learners, error: learnerError }, { data: current, error: currentError }] = await Promise.all([
+      requested.length ? supabase.from("learner_profiles").select("id,families!inner(workspace_id)").in("id", requested).eq("families.workspace_id", access.workspaceId) : Promise.resolve({ data: [], error: null }),
+      supabase.from("learner_music_folders").select("learner_id,assignment_status").eq("folder_id", folderId),
+    ]);
+    if (learnerError || currentError) throw new Error((learnerError ?? currentError)?.message);
+    if ((learners?.length ?? 0) !== requested.length) throw new Error("孩子分配信息不正确");
+    const active = new Set((current ?? []).filter((row) => row.assignment_status === "active").map((row) => row.learner_id));
+    const toAdd = requested.filter((id) => !active.has(id));
+    const toRemove = [...active].filter((id) => !requested.includes(id));
+    const now = new Date().toISOString();
+    if (toRemove.length) {
+      const { error } = await supabase.from("learner_music_folders").update({ assignment_status: "inactive", unassigned_at: now })
+        .eq("folder_id", folderId).in("learner_id", toRemove);
+      if (error) throw new Error(error.message);
+    }
+    if (toAdd.length) {
+      const { error } = await supabase.from("learner_music_folders").upsert(toAdd.map((learnerId) => ({
+        learner_id: learnerId, folder_id: folderId, assigned_by: user.id, assignment_status: "active", assigned_at: now, unassigned_at: null,
+      })));
+      if (error) throw new Error(error.message);
+    }
+    revalidateMusic();
+    return { status: "success", message: `已保存：新增 ${toAdd.length} 位、取消 ${toRemove.length} 位孩子。文件夹里已发布的内容已同步，以后新发布进来的也会自动分配。` };
+  } catch (error) {
+    return actionError(error);
+  }
+}
+
+export async function moveMusicItemsToFolder(formData: FormData): Promise<ActionFeedback> {
+  try {
+    const { supabase, access } = await adminMusicContext();
+    const folderId = String(formData.get("folder_id") ?? "") || null;
+    const itemIds = [...new Set(formData.getAll("item_ids").map(String).filter(Boolean))].slice(0, 500);
+    if (!itemIds.length) throw new Error("请先勾选要移动的内容");
+    if (folderId) await assertFolderInWorkspace(supabase, folderId, access.workspaceId);
+    const { data, error } = await supabase.from("music_items").update({ folder_id: folderId, updated_at: new Date().toISOString() })
+      .eq("workspace_id", access.workspaceId).in("id", itemIds).select("id");
+    if (error) throw new Error(error.message);
+    revalidateMusic();
+    return { status: "success", message: `已移动 ${data?.length ?? 0} 条内容${folderId ? "；已分配该文件夹的孩子会自动收到其中已发布的内容" : "到“未归类”"}。` };
+  } catch (error) {
+    return actionError(error);
+  }
+}
+
+/** One file = one item. Created as draft, published only after its media is registered. */
+export async function createBulkMusicItem(input: { itemType: string; title: string; folderId: string | null }) {
+  const { supabase, user, access } = await adminMusicContext();
+  const itemType = musicType(input.itemType);
+  const title = input.title.trim().slice(0, 100);
+  if (!title) throw new Error("文件名不能作为内容名称");
+  if (input.folderId) await assertFolderInWorkspace(supabase, input.folderId, access.workspaceId);
+  const correctAnswer = itemType === "instrument" ? title : null;
+  const now = new Date().toISOString();
+  const { data, error } = await supabase.from("music_items").insert({
+    created_by: user.id, workspace_id: access.workspaceId, item_type: itemType, title, correct_answer: correctAnswer,
+    folder_id: input.folderId, fingerprint: musicFingerprint({ itemType, title, correctAnswer }),
+    status: "draft", review_status: "approved", approved_by: user.id, approved_at: now,
+  }).select("id").single();
+  if (error || !data) throw new Error(error?.message ?? "创建失败");
+  return { id: data.id as string };
+}
+
+export async function publishBulkMusicItem(itemId: string) {
+  const { supabase, access } = await adminMusicContext();
+  const { error } = await supabase.from("music_items").update({ status: "published", updated_at: new Date().toISOString() })
+    .eq("id", itemId).eq("workspace_id", access.workspaceId);
+  if (error) throw new Error(error.message);
+}
+
+export async function finishBulkMusicUpload() {
+  revalidateMusic();
+}
+
 async function createMusicItemEntry(formData: FormData) {
   const { supabase, user } = await authenticatedMusicClient();
   const access = await loadAccessContext(supabase, user.id);
@@ -120,6 +256,8 @@ export async function updateMusicItem(_previousState: MusicSaveState, formData: 
     if (item.item_type === "instrument" && !correctAnswer) throw new Error("辨声音内容必须填写正确乐器名称");
 
     const submittedLearnerIds = access.isAdmin ? [...new Set(formData.getAll("learner_ids").map(String).filter(Boolean))] : [];
+    const folderField = formData.has("folder_id") ? String(formData.get("folder_id") ?? "") || null : undefined;
+    if (folderField) await assertFolderInWorkspace(supabase, folderField, access.workspaceId);
     const requestedLearnerIds = requestedStatus === "published" ? submittedLearnerIds : [];
     const [{ data: ownedLearners, error: learnerError }, { data: currentAssignments, error: assignmentReadError }] = await Promise.all([
       submittedLearnerIds.length
@@ -143,6 +281,7 @@ export async function updateMusicItem(_previousState: MusicSaveState, formData: 
       status: requestedStatus,
       review_status: access.isAdmin ? "approved" : "pending_review",
       updated_at: savedAt,
+      ...(folderField === undefined ? {} : { folder_id: folderField }),
     }).eq("id", itemId).select("status,updated_at").single();
     if (updateResult.error || !updateResult.data) throw new Error(updateResult.error?.message ?? "内容资料没有成功写入数据库");
     if (learnerIdsToRemove.length) {
@@ -153,6 +292,7 @@ export async function updateMusicItem(_previousState: MusicSaveState, formData: 
     if (learnerIdsToAdd.length) {
       const { error } = await supabase.from("learner_music_items").upsert(learnerIdsToAdd.map((learnerId) => ({
         learner_id: learnerId, item_id: itemId, assigned_by: user.id, assignment_status: "active", unassigned_at: null,
+        ...(folderField === undefined ? {} : { assigned_via_folder_id: null }),
       })));
       if (error) throw new Error(error.message);
     }

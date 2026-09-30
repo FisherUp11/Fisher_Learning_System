@@ -9,7 +9,7 @@ function escapeXml(value: string) {
   return value.replace(/[<>&'\"]/g, (char) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" })[char] ?? char);
 }
 
-async function synthesize(text: string, slow: boolean, language: "zh" | "en") {
+async function synthesize(text: string, slow: boolean, language: "zh" | "en", learnerId: string | null) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
@@ -26,21 +26,21 @@ async function synthesize(text: string, slow: boolean, language: "zh" | "en") {
     method: "POST",
     headers: { "Ocp-Apim-Subscription-Key": key, "Content-Type": "application/ssml+xml", "X-Microsoft-OutputFormat": "audio-24khz-48kbitrate-mono-mp3", "User-Agent": "ziya-hanzi-learning" },
     body: `<speak version="1.0" xml:lang="${locale}"><voice xml:lang="${locale}" name="${escapeXml(voice)}">${slow ? `<prosody rate="-22%">${escapeXml(text)}</prosody>` : escapeXml(text)}</voice></speak>`,
-  }, { service: "tts", feature: "learning.read_aloud", model: voice, characters: [...text].length });
+  }, { service: "tts", feature: "learning.read_aloud", model: voice, characters: [...text].length, learnerId });
   if (!response.ok) return NextResponse.json({ error: "语音服务暂不可用" }, { status: 502 });
   return new Response(await response.arrayBuffer(), { headers: { "Content-Type": "audio/mpeg", "Cache-Control": "private, max-age=86400" } });
 }
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  try { return await synthesize(url.searchParams.get("text")?.trim() ?? "", url.searchParams.get("slow") === "1", url.searchParams.get("lang") === "en" ? "en" : "zh"); }
+  try { return await synthesize(url.searchParams.get("text")?.trim() ?? "", url.searchParams.get("slow") === "1", url.searchParams.get("lang") === "en" ? "en" : "zh", url.searchParams.get("learner")); }
   catch (e) { return NextResponse.json({error:e instanceof Error ? e.message : "语音暂不可用"},{status:503}); }
 }
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { text?: unknown; slow?: unknown; lang?: unknown };
-    return await synthesize(typeof body.text === "string" ? body.text.trim() : "", body.slow === true, body.lang === "en" ? "en" : "zh");
+    const body = await request.json() as { text?: unknown; slow?: unknown; lang?: unknown; learner?: unknown };
+    return await synthesize(typeof body.text === "string" ? body.text.trim() : "", body.slow === true, body.lang === "en" ? "en" : "zh", typeof body.learner === "string" ? body.learner : null);
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "朗读请求格式无效" }, { status: 400 });
   }

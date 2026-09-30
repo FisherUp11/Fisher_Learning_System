@@ -10,8 +10,8 @@ export function CatechismImportForm({ learners, isAdmin = false }: { learners: L
   return <FeedbackForm className="catechism-import-form" action={(data) => importCatechismCollection(initialCatechismFormState, data)} clearFileOnSuccess pendingLabel="正在校验并导入问答，请稍候…" confirm={{ title: "确认导入这份问答册？", description: isAdmin ? "请确认文件、孩子与发布选项。已有问答和学习记录会保留。" : "确认后将提交给管理员审核。" }}>
     <div className="catechism-form-grid">
       <label>中文问答册名称<input name="collection_title" defaultValue="要理问答" required maxLength={120} /></label>
-      <label>英文名称<input name="english_title" defaultValue="First Catechism: Biblical Truth for God’s Children" maxLength={180} /></label>
-      <label>内容来源<input name="source_note" defaultValue="First Catechism: Biblical Truth for God’s Children" maxLength={500} /></label>
+      <label>英文名称<input name="english_title" placeholder="可选，例如 First Catechism" maxLength={180} /></label>
+      <label>内容来源<input name="source_note" placeholder="可选，填写出版物或版本" maxLength={500} /></label>
       <label>授权说明<input name="license_note" defaultValue="已获得应用内家庭学习使用授权" maxLength={500} /></label>
     </div>
     <fieldset className="learner-assignment">

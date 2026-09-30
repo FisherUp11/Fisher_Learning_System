@@ -2,6 +2,7 @@ import Link from "next/link";
 import { buildCatechismQueue, catechismStageLabel, catechismStatus, formatCatechismDate, loadCatechismProgress, localDateInTimezone, type CatechismProgress } from "@/lib/catechism";
 import { createClient } from "@/lib/supabase/server";
 import { loadAccessContext } from "@/lib/access";
+import { LearnerOptions, orderLearners } from "@/components/learner-options";
 
 export const dynamic = "force-dynamic";
 
@@ -37,7 +38,8 @@ export default async function CatechismPage({ searchParams }: { searchParams: Se
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   const access = user ? await loadAccessContext(supabase, user.id) : null;
-  const { data: learners, error: learnerError } = await supabase.from("learner_profiles").select("id,display_name,timezone,catechism_daily_new_limit,catechism_review_limit").order("created_at");
+  const { data: rawLearners, error: learnerError } = await supabase.from("learner_profiles").select("id,display_name,timezone,catechism_daily_new_limit,catechism_review_limit,family_id,families(name)").order("created_at");
+  const learners = orderLearners(rawLearners, access?.familyId);
   if (learnerError) return <section className="panel"><h1>要理问答还差最后一步</h1><p className="lede">请先在 Supabase SQL Editor 运行数据库脚本，再刷新页面。</p><p className="notice"><code>supabase/010_catechism_learning_mvp.sql</code></p><p className="error">{learnerError.message}</p></section>;
   const learner = learners?.find((row) => row.id === params.learner) ?? learners?.[0];
   if (!learner) return <section className="empty panel"><span className="empty-mark">问</span><h1>先创建孩子档案</h1><p className="lede">创建孩子后，就能分配要理问答并记录每次背诵。</p><Link className="primary" href="/parent">去家长页</Link></section>;
@@ -68,9 +70,9 @@ export default async function CatechismPage({ searchParams }: { searchParams: Se
   const due = items.filter((item) => item.totalAttempts > 0 && item.nextReviewDate && item.nextReviewDate <= today).length;
 
   return <div>
-    <header className="hero catechism-hero"><p className="eyebrow">Catechism & memory</p><h1>要理问答</h1><p className="lede">中英文一起问，先让孩子口头回答，再揭晓答案。家长判断“背出来了”或“还要再背”，系统负责安排下一次。</p></header>
+    <header className="hero catechism-hero"><span hidden data-current-learner={learner.id} /><p className="eyebrow">Catechism & memory</p><h1>要理问答</h1><p className="lede">中英文一起问，先让孩子口头回答，再揭晓答案。家长判断“背出来了”或“还要再背”，系统负责安排下一次。</p></header>
     <section className="catechism-switch panel">
-      <form action="/catechism" method="get" className="learner-switch"><label>查看哪位孩子？<select name="learner" defaultValue={learner.id}>{learners?.map((row) => <option value={row.id} key={row.id}>{row.display_name}</option>)}</select></label><button className="secondary" type="submit">切换</button></form>
+      <form action="/catechism" method="get" className="learner-switch"><label>查看哪位孩子？<select name="learner" defaultValue={learner.id}><LearnerOptions learners={learners} /></select></label><button className="secondary" type="submit">切换</button></form>
     </section>
     <section className="today-card catechism-overview">
       <div className="section-heading"><div><p className="eyebrow">{learner.display_name} 的今日安排</p><h2>{queue.queue.length ? `今天还有 ${queue.queue.length} 问` : "今天已经完成"}</h2></div><Link className="primary" href={`/catechism/study?learner=${encodeURIComponent(learner.id)}`}>{queue.queue.length ? "开始问一问" : "查看今日页面"}</Link></div>
@@ -81,7 +83,7 @@ export default async function CatechismPage({ searchParams }: { searchParams: Se
       <div className="library-header"><div><h2>{learner.display_name} 的问答册</h2><p className="library-meta">共 {items.length} 问 · 筛选到 {filtered.length} 问 · 每页 {PAGE_SIZE} 问{selectedCollection ? ` · ${selectedCollection.title}` : ""}</p></div>{access?.isAdmin && <Link className="text-button" href="/catechism/manage">导入 / 修正内容</Link>}</div>
       <form action="/catechism" method="get" className="catechism-filters">
         <input type="hidden" name="learner" value={learner.id} />
-        <label>搜索<input name="q" defaultValue={query} placeholder="问题、答案、英文或经文出处" /></label>
+        <label>搜索<input name="q" defaultValue={query} placeholder="问题、答案、英文或出处" /></label>
         <label>掌握状态<select name="filter" defaultValue={filter}><option value="all">全部状态</option><option value="new">未开始</option><option value="again">还要再背</option><option value="learning">正在学习</option><option value="stable">稳定记住</option><option value="due">今天到期</option></select></label>
         <label>问答册<select name="collection" defaultValue={selectedCollection?.id ?? ""}><option value="">全部问答册</option>{collections.map((row) => <option value={row.id} key={row.id}>{row.title}</option>)}</select></label>
         <button className="secondary" type="submit">筛选</button>
