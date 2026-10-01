@@ -8,7 +8,7 @@ import { ACCOUNT_MODULES, MODULE_LABELS, type ModuleKey, type ChildModuleKey } f
 export const loadAccountModules = cache(async (supabase: SupabaseClient, access: AccessContext, userId: string): Promise<ModuleKey[]> => {
   const { data, error } = await supabase.from("account_module_access")
     .select("module_key").eq("workspace_id", access.workspaceId).eq("user_id", userId).eq("enabled", true);
-  if (error) throw new Error(`读取模块开通状态失败：${error.message}。请先运行 supabase/024_module_access_and_kids_english.sql`);
+  if (error) throw new Error(`读取模块开通状态失败：${error.message}。请检查是否已运行对应的模块 SQL`);
   const enabled = new Set((data ?? []).map((row) => row.module_key));
   return ACCOUNT_MODULES.filter((key) => enabled.has(key)) as ModuleKey[];
 });

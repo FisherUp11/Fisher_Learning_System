@@ -422,3 +422,7 @@ CLI 镜像 `supabase/migrations/20260925081549_adult_listening_courses.sql` 与 
 ## 13. 024 升级：模块开通与儿童英语
 
 先备份，再在 Supabase SQL Editor **整段运行** [024_module_access_and_kids_english.sql](./supabase/024_module_access_and_kids_english.sql)，成功后部署本版代码。此顺序不可颠倒：新代码会读取模块开通表。迁移保留原孩子学习记录，并给原有账号/孩子回填此前已使用的模块；新账号/孩子需 owner 手动开通。儿童英语还需导入单词册、审核、分配，再用已有私有 R2 桶上传课堂 MP4。逐步操作、CORS、学习规则及验收清单见 [25 号保姆级教程](./25_模块开通与儿童英语配置教程.md)。
+
+## 14. 025 升级：家中箴言
+
+已完成 024 的项目先备份，在 Supabase SQL Editor **整段运行** [025_family_maxims.sql](./supabase/025_family_maxims.sql)，成功后再部署此版代码。owner 为成人账号及孩子分别开通模块；家长才可录入、导入和给孩子分配。分享只提交快照供管理员审核，不公开父母感悟。无需新增环境变量、R2 Bucket 或 Edge Function。逐步操作与上线验收见 [26_家中箴言配置与使用.md](./26_家中箴言配置与使用.md)。

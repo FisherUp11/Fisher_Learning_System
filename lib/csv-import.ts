@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { ImportProblem } from "@/lib/import-safety";
 
-export type ImportKind = "characters" | "poems" | "catechism" | "kids_english";
+export type ImportKind = "characters" | "poems" | "catechism" | "kids_english" | "family_maxims";
 
 type Column = { key: string; label: string; required: boolean; aliases: string[]; hint: string };
 
@@ -45,6 +45,17 @@ export const IMPORT_COLUMNS: Record<ImportKind, Column[]> = {
     col("part_of_speech", "词性", false, "可选，如 noun、verb"),
     col("sequence", "顺序", false, "可选，正整数；留空按 CSV 行顺序"),
   ],
+  family_maxims: [
+    col("text_zh", "中文原句", true, "必填；保留原句，不把父母感悟写进这里"),
+    col("text_en", "英文原句", true, "必填；如为自行翻译，请在译本栏注明"),
+    col("source_title", "出处书名", false, "例如：圣经、论语"),
+    col("source_detail", "具体出处", false, "例如：章节、篇名或页码"),
+    col("translation_version", "译本版本", false, "有译本时建议填写"),
+    col("explanation_zh", "意思介绍", false, "给家长看的解释"),
+    col("child_explanation_zh", "给孩子的解释", false, "用孩子能听懂的话表达，不改写原文"),
+    col("tags", "标签", false, "可选，如 坚持、爱、感恩"),
+    col("reflection", "父母感悟", false, "可选，默认仅本家庭成人可见，不会随分享公开"),
+  ],
 };
 
 const TEMPLATE_EXAMPLES: Record<ImportKind, string[][]> = {
@@ -64,9 +75,12 @@ const TEMPLATE_EXAMPLES: Record<ImportKind, string[][]> = {
     ["circle", "/ˈsɜː.kəl/", "圆形；圆圈", "This is a circle.", "这是一个圆形。", "noun", "1"],
     ["triangle", "/ˈtraɪ.æŋ.ɡəl/", "三角形", "I can see a triangle.", "我看见一个三角形。", "noun", "2"],
   ],
+  family_maxims: [
+    ["今天认真完成一件小事。", "Finish one small thing well today.", "父母的话", "", "家庭自译", "把一件小事做完，也是值得高兴的进步。", "我们一起认真做完今天的小任务。", "坚持", "我也想和孩子一起练习坚持。"],
+  ],
 };
 
-const TEMPLATE_NAMES: Record<ImportKind, string> = { characters: "汉字导入模板", poems: "古诗词导入模板", catechism: "要理问答导入模板", kids_english: "儿童英语单词导入模板" };
+const TEMPLATE_NAMES: Record<ImportKind, string> = { characters: "汉字导入模板", poems: "古诗词导入模板", catechism: "要理问答导入模板", kids_english: "儿童英语单词导入模板", family_maxims: "家中箴言导入模板" };
 
 const csvCell = (value: string) => /[",\n\r]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
 

@@ -4,6 +4,8 @@ import { loadAccessContext } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
 import { DuplicateResourceCleanup } from "@/components/duplicate-resource-cleanup";
 import { displayCatechismTitle } from "@/lib/catechism";
+import { FeedbackForm } from "@/components/feedback-form";
+import { reviewFamilyMaximShare } from "@/lib/family-maxims-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +35,7 @@ export default async function AdminResourcesPage() {
   if (!user) redirect("/login");
   const access = await loadAccessContext(supabase, user.id);
   if (!access?.isAdmin) redirect("/parent");
-  const [packages, poems, music, catechism, kidsBooks, learners, packageEntries, poemEntries, catechismEntries, kidsEntries] = await Promise.all([
+  const [packages, poems, music, catechism, kidsBooks, learners, packageEntries, poemEntries, catechismEntries, kidsEntries, maximShares] = await Promise.all([
     supabase.from("content_packages").select("id,title,status,review_status,created_at,submitted_for_learner_id,fingerprint").eq("workspace_id", access.workspaceId),
     supabase.from("poem_collections").select("id,title,status,review_status,created_at,submitted_for_learner_id,fingerprint").eq("workspace_id", access.workspaceId),
     supabase.from("music_items").select("id,title,status,review_status,created_at,submitted_for_learner_id,fingerprint,item_type,category").eq("workspace_id", access.workspaceId),
@@ -44,6 +46,7 @@ export default async function AdminResourcesPage() {
     supabase.from("poem_collection_items").select("collection_id,poems(title)"),
     supabase.from("catechism_items").select("collection_id,question_zh"),
     supabase.from("kids_english_words").select("book_id,word"),
+    supabase.from("family_maxim_shares").select("id,text_zh,text_en,source_title,source_detail,explanation_zh,created_at").eq("workspace_id",access.workspaceId).eq("status","pending").order("created_at",{ascending:true}).limit(50),
   ]);
   const learnerNames = new Map((learners.data ?? []).map((learner) => [learner.id, learner.display_name]));
   const packagePreviews = makePreviewMap((packageEntries.data ?? []) as Array<Record<string, unknown>>, "package_id", "characters", "character");
@@ -83,6 +86,9 @@ export default async function AdminResourcesPage() {
           {resource.status !== "archived" && <button className="text-button danger" name="decision" value="archive">归档</button>}
         </form>{access.isOwner && resource.kind !== "kids_english" && resource.fingerprint && (fingerprintCounts.get(`${resource.kind}:${resource.fingerprint}`) ?? 0) > 1 && <DuplicateResourceCleanup resourceType={resource.kind} removeId={resource.id} candidates={resources.filter((candidate) => candidate.kind === resource.kind && candidate.fingerprint === resource.fingerprint && candidate.id !== resource.id && candidate.status === "published" && candidate.review_status === "approved").map((candidate) => ({ id: candidate.id, title: candidate.title }))} />}</div>
       </article>)}</div>}
+    </section>
+    <section className="panel"><div className="library-header"><div><h2>家中箴言 · 待审核分享</h2><p className="library-meta">只审核家长主动提交的共享快照，不读取各家的私人感悟。</p></div></div>
+      {maximShares.error?<p className="notice">运行 025 号 SQL 后，这里可以审核家庭之间分享的箴言。</p>:maximShares.data?.length?<div className="admin-resource-list">{maximShares.data.map((share)=><article key={share.id}><span className="resource-kind">箴言</span><div><h3>{share.text_zh}</h3><p lang="en">{share.text_en}</p><p className="library-meta">{[share.source_title,share.source_detail].filter(Boolean).join(" · ")||"未注明出处"}</p>{share.explanation_zh&&<p>{share.explanation_zh}</p>}</div><FeedbackForm action={reviewFamilyMaximShare} className="resource-actions"><input type="hidden" name="share_id" value={share.id}/><button className="primary compact" name="decision" value="approved">通过</button><button className="secondary compact" name="decision" value="rejected">退回</button></FeedbackForm></article>)}</div>:<p className="notice">目前没有待审核的箴言分享。</p>}
     </section>
   </div>;
 }

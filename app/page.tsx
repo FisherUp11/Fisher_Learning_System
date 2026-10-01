@@ -14,7 +14,7 @@ export default async function Home() {
   const modules = await loadAccountModules(supabase, access, user.id);
   const destination = {
     hanzi: "/learn", poem: "/poems", music: "/music", catechism: "/catechism",
-    kids_english: "/kids-english", adult_english: "/english", exercise: "/together",
+    kids_english: "/kids-english", family_maxims: "/maxims/study", adult_english: "/english", exercise: "/together",
   } as const;
   redirect(modules.length ? destination[modules[0]] : access.isAdmin ? "/admin" : "/parent");
 }
