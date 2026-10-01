@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { ImportProblem } from "@/lib/import-safety";
 
-export type ImportKind = "characters" | "poems" | "catechism";
+export type ImportKind = "characters" | "poems" | "catechism" | "kids_english";
 
 type Column = { key: string; label: string; required: boolean; aliases: string[]; hint: string };
 
@@ -36,6 +36,15 @@ export const IMPORT_COLUMNS: Record<ImportKind, Column[]> = {
     col("scripture_reference", "出处", false, "可选，参考出处", ["参考"]),
     col("parent_note", "家长备注", false, "可选，只给家长看", ["备注"]),
   ],
+  kids_english: [
+    col("word", "单词", true, "必填，如 circle；同一字册不重复"),
+    col("phonetic", "音标", true, "必填，如 /ˈsɜː.kəl/；不要求 IPA 完全标准"),
+    col("meaning_zh", "中文意思", true, "必填，简短明确"),
+    col("example_en", "英文例句", true, "必填，适合孩子跟读"),
+    col("example_zh", "例句中文", false, "可选，帮助理解"),
+    col("part_of_speech", "词性", false, "可选，如 noun、verb"),
+    col("sequence", "顺序", false, "可选，正整数；留空按 CSV 行顺序"),
+  ],
 };
 
 const TEMPLATE_EXAMPLES: Record<ImportKind, string[][]> = {
@@ -51,9 +60,13 @@ const TEMPLATE_EXAMPLES: Record<ImportKind, string[][]> = {
     ["q001", "1", "第一部分", "请填写第一个中文问题", "Please enter the first English question", "请填写中文答案", "Please enter the English answer", "", ""],
     ["q002", "2", "第一部分", "请填写第二个中文问题", "Please enter the second English question", "请填写中文答案", "Please enter the English answer", "", ""],
   ],
+  kids_english: [
+    ["circle", "/ˈsɜː.kəl/", "圆形；圆圈", "This is a circle.", "这是一个圆形。", "noun", "1"],
+    ["triangle", "/ˈtraɪ.æŋ.ɡəl/", "三角形", "I can see a triangle.", "我看见一个三角形。", "noun", "2"],
+  ],
 };
 
-const TEMPLATE_NAMES: Record<ImportKind, string> = { characters: "汉字导入模板", poems: "古诗词导入模板", catechism: "要理问答导入模板" };
+const TEMPLATE_NAMES: Record<ImportKind, string> = { characters: "汉字导入模板", poems: "古诗词导入模板", catechism: "要理问答导入模板", kids_english: "儿童英语单词导入模板" };
 
 const csvCell = (value: string) => /[",\n\r]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
 

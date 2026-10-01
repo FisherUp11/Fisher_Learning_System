@@ -3,7 +3,7 @@ import { safeNextPath } from "@/lib/invitation";
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string; reset?: string; error?: string }> }) {
   const params = await searchParams;
-  const nextPath = safeNextPath(params.next);
+  const nextPath = params.next ? safeNextPath(params.next) : "/";
   return (
     <main className="login-page">
       <section className="login-card">

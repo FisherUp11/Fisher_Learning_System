@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 import { deleteR2Object } from "@/lib/r2";
 import { registerActivityReward } from "@/lib/reward-service";
 import { loadAccessContext } from "@/lib/access";
+import { requireChildModule } from "@/lib/module-access";
 
 export type MusicItemType = "song" | "instrument" | "rhythm";
 export type MusicItemStatus = "draft" | "published" | "archived";
@@ -389,7 +390,8 @@ export async function deleteMusicItem(formData: FormData) {
 }
 
 export async function recordMusicPractice(input: { learnerId: string; itemId: string; result: MusicPracticeResult; guessNote?: string; requestId: string }) {
-  const { supabase } = await authenticatedMusicClient();
+  const { supabase, user } = await authenticatedMusicClient();
+  await requireChildModule(supabase, await loadAccessContext(supabase,user.id), user.id, input.learnerId, "music");
   const { data, error } = await supabase.rpc("record_music_practice", {
     p_learner_id: input.learnerId,
     p_item_id: input.itemId,

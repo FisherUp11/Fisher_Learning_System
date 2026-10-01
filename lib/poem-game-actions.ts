@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { loadAccessContext } from "@/lib/access";
+import { requireChildModule } from "@/lib/module-access";
 import { registerActivityReward } from "@/lib/reward-service";
 import type { PoemGameAttemptInput, PoemGameResultInput, PoemGameStage } from "@/lib/poem-game";
 
@@ -33,6 +35,7 @@ export async function recordPoemGameResult(input: PoemGameResultInput) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("请先登录家长账号");
+  await requireChildModule(supabase, await loadAccessContext(supabase,user.id), user.id, input.learnerId, "poem");
   if (!/^[0-9a-f-]{36}$/i.test(input.clientSessionId) || !input.learnerId || !input.poemId) throw new Error("游戏记录编号无效");
   if (!validStages.has(input.completedStage) || !["desktop", "mobile"].includes(input.mode)) throw new Error("游戏结果格式无效");
   const attempts = (Array.isArray(input.attempts) ? input.attempts : []).slice(0, 500).map(cleanAttempt);
@@ -57,6 +60,7 @@ export async function ratePoemGameSession(input: { sessionId: string; learnerId:
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("请先登录家长账号");
+  await requireChildModule(supabase, await loadAccessContext(supabase,user.id), user.id, input.learnerId, "poem");
   const score = Math.floor(Number(input.score));
   if (!input.sessionId || !input.learnerId || !input.poemId || score < 1 || score > 10) throw new Error("请选择 1–10 分的背诵评分");
   const { data, error } = await supabase.rpc("rate_poem_game_session", {
@@ -78,4 +82,3 @@ export async function ratePoemGameSession(input: { sessionId: string; learnerId:
   revalidatePath("/rewards");
   return { reward, duplicate: Boolean(payload.duplicate) };
 }
-

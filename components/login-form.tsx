@@ -4,7 +4,7 @@ import { FormEvent, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 
-export function LoginForm({ nextPath = "/learn" }: { nextPath?: string }) {
+export function LoginForm({ nextPath = "/" }: { nextPath?: string }) {
   const [isSignup, setIsSignup] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");

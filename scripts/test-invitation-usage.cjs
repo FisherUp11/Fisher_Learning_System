@@ -31,22 +31,26 @@ test('Provider usage: actual zero stays zero, missing stays unknown, cache is no
   assert.equal(usage.usageValues({data:[{url:'x'},{b64_json:'x'},{}]},'image').images,2);
 });
 
-test('Metering boundary: authorization, fail-closed start, success, timeout, safe log payload',async()=>{
-  let active=true, mustChange=false, insertError=false, fetchCount=0, throws=false;
-  const writes=[];
+test('Metering boundary: authorization, atomic guard, success, timeout, safe log payload',async()=>{
+  let active=true, mustChange=false, reserveError=false, reserveResult='allowed', fetchCount=0, throws=false;
+  const writes=[], reservations=[];
   const db={auth:{getUser:async()=>({data:{user:{id:'u'}},error:null})},from:table=>({select:()=>({eq:()=>({single:async()=>table==='learning_workspaces'?{data:{status:'active'}}:{data:{must_change_password:mustChange},error:null}})})})};
-  const admin={from:()=>({insert:async row=>{writes.push(row);return {error:insertError?{code:'42P01'}:null};},update:row=>({eq:async()=>{writes.push(row);return {error:null};}})})};
+  const admin={rpc:async(name,args)=>{reservations.push({name,args});return {data:reserveResult,error:reserveError?{code:'42883'}:null};},from:()=>({update:row=>({eq:async()=>{writes.push(row);return {error:null};}})})};
   const m={exports:{}}; const file=fs.readFileSync(path.join(root,'lib/metered-fetch.ts'),'utf8');
   vm.runInNewContext(ts.transpileModule(file,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{
     module:m,exports:m.exports,Response,AbortSignal,console,Date,
     fetch:async()=>{fetchCount++;if(throws) throw Error('timeout');return Response.json({usage:{prompt_tokens:17,completion_tokens:9}});},
-    require:n=>({'server-only':{},'node:crypto':crypto,'@/lib/supabase/server':{createClient:async()=>db},'@/lib/supabase/admin':{createAdminClient:()=>admin},'@/lib/access':{loadAccessContext:async()=>active?{workspaceId:'w'}:null},'./service-usage-values':usage})[n],
+    require:n=>({'server-only':{},'node:crypto':crypto,'@/lib/supabase/server':{createClient:async()=>db},'@/lib/supabase/admin':{createAdminClient:()=>admin},'@/lib/access':{loadAccessContext:async()=>active?{workspaceId:'w'}:null},'./service-usage-values':usage,'./service-guard':{serviceGuardLimits:()=>({workspaceMinute:15,accountMinute:6,workspaceDay:1500,accountDay:300,workspaceUnitsDay:50000,accountUnitsDay:5000}),guardDenialMessage:()=>"达到保护额度"}})[n],
   });
   const run=()=>m.exports.meteredFetch('https://provider.test',{body:'PRIVATE MEETING SECRET'},{service:'text',feature:'test',model:'deployment'});
   active=false; await assert.rejects(run()); assert.equal(fetchCount,0);
   active=true;mustChange=true;await assert.rejects(run());assert.equal(fetchCount,0);
-  mustChange=false;insertError=true;await assert.rejects(run(),/021/);assert.equal(fetchCount,0);
-  insertError=false;await run();assert.equal(fetchCount,1);assert.equal(writes.at(-1).input_tokens,17);
+  mustChange=false;reserveError=true;await assert.rejects(run(),/023/);assert.equal(fetchCount,0);
+  reserveError=false;reserveResult=null;await assert.rejects(run(),/未知状态/);assert.equal(fetchCount,0);
+  reserveError=false;reserveResult='workspace_minute';await assert.rejects(run(),/达到保护额度/);assert.equal(fetchCount,0);
+  reserveResult='allowed';await run();assert.equal(fetchCount,1);assert.equal(writes.at(-1).input_tokens,17);
+  assert.equal(reservations.at(-1).name,'reserve_metered_service_call');
+  assert.equal(reservations.at(-1).args.p_workspace_minute_limit,15);
   throws=true;await assert.rejects(run());assert.equal(writes.at(-1).status,'unknown');
   assert.ok(!JSON.stringify(writes).includes('SECRET'));
 });

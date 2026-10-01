@@ -92,6 +92,9 @@ flowchart TB
 | `supabase/017_owner_user_management_and_duplicate_cleanup.sql` | owner 用户目录、首次改密、邀请升级和重复资源安全合并 | 不修改旧密码；音乐/问答有历史时拒绝永久删除。 |
 | `supabase/018_poem_tank_game.sql` | 诗词游戏地图、场次、逐题、逐句状态和两个保存/评分 RPC | 不修改汉字算法；整首诗掌握仍由家长评分。 |
 | `supabase/022_music_folders_activity_and_cost.sql` | 音乐文件夹与整夹自动分配触发器、App 使用时长、孩子概况与用量统计 RPC | 只新增；取消整夹分配只收回 `assigned_via_folder_id` 带来的分配。 |
+| `supabase/023_capacity_guard_50_learners.sql` | 50 位孩子数据库上限、Azure 原子占位/拦截审计、容量快照与单孩子概况聚合 | 需先有 021、022；先运行 SQL 再部署对应代码，不修改学习规则。 |
+| `lib/service-guard.ts` / `lib/metered-fetch.ts` | Azure 四服务可配置空间/账号阈值、服务端原子占位后调用 | 无 SQL/Secret key 则付费请求 fail closed；不从浏览器暴露密钥。 |
+| `components/admin-capacity-panel.tsx` / `lib/auth-directory.ts` | 管理员容量信号和 Auth 批量目录 | 是应用记录，不是 Azure/Vercel/Supabase 真实账单。 |
 | `lib/csv-import.ts` / `app/api/templates/*` | 三类 CSV 模板（`#` 说明行）、UTF-8/GBK 读取、中文表头别名、逐行收集全部错误 | 有任何错误整份拒绝，写库前完成全部校验。 |
 | `components/poem-adventure-game.tsx` | 默认诗词游戏：听→拼字→过桥→排序→家长裁判赶雾怪 | 阶段映射到 018 的 stage 枚举；星星/伙伴只存浏览器，不影响学习记录。 |
 | `app/(app)/admin/families/page.tsx` / `lib/workspace-overview.ts` | 空间→家庭→孩子组织图、提醒与已分配资源 | 一次 RPC 读取全部孩子，避免每个孩子十几次查询。 |
@@ -491,7 +494,7 @@ npm run build
 
 `scripts/check-parent-azure.cjs` 只有显式 `--live` 才发送虚构句子测试 Azure，可能产生少量费用，不使用真实纪要。浏览器测试部分使用模拟 API；尚需部署后进行真实登录、麦克风、完整作答与第二账号验收，详见 21 号文档。后续不要把模拟流程通过写成生产验收完成。
 
-以后添加儿童英语需单独设计 learner 和家长授权，不直接复用成人私有档案。修改新模块优先阅读本章节、21 号文档和 019 SQL；原儿童的 001–018 规则保持原有文档定义。
+儿童英语已在 024 独立实现，使用孩子档案和 owner 授权，不复用成人私有档案。修改成人模块仍优先阅读本章节、21 号文档和 019 SQL；儿童英语请阅读本文件 11.10 节和 25 号教程。原儿童的 001–018 学习算法仍保持原有文档定义。
 
 ### 11.7 新版会议英语（020，2026-09-25）
 
@@ -521,3 +524,21 @@ SQL Editor 使用 `supabase/020_english_listening_courses.sql`；CLI 迁移镜�
 - `workspace_service_usage` 是 invoker 聚合，RLS 只允许同空间 active owner/admin 查看；家长不能查看或伪造用量。管理页按账号/服务/部署、7/30/90 天查看；仅实际提供方调用计数，缓存命中不重复记。
 - 从上线起计量，不回填未知历史；超时或最终写账失败保留 unknown/started，缺失 Token 为 null。仅使用量，不计算价格/剩余额度/全站硬预算，不包含 R2/Vercel/Supabase 费用。请求成功不保证生成业务内容有效。
 - 回归 `scripts/test-invitation-usage.cjs` 覆盖错误邮箱/过期/撤销/未确认邮箱、重复确认、停用保护、改密证明、客户端拒写、跨空间隔离及 meteredFetch 的拒绝/成功/未知分支。
+
+### 11.9 50 位孩子容量与 Azure 保护（023，2026-10）
+
+- 完整运行 `021`、`022` 后，先安装 `supabase/023_capacity_guard_50_learners.sql` 再部署新版。50 人是**孩子档案上限**，不是 50 个同时在线请求的性能承诺。数据库 BEFORE 触发器在空间级事务锁中检查，避免两个并发创建都通过；归档家庭内档案也计数。若以后要提高上限，必须同步 SQL、UI、文档和压力测试。
+- 所有现有 Azure HTTP 调用继续集中经过 `lib/metered-fetch.ts`。023 的 `reserve_metered_service_call` 仅给服务端 service role 执行，按空间串行，检查空间/账号近 60 秒和北京时间日额度并插入初始事件；超限只写 `service_guard_denials`，不发付费请求。TTS 字符和 STT 音频秒数另设日限。进程中断时初始事件仍占用额度并可在账单页看到 uncertain，优先防止无账请求；未来如需退还未发出的占位，需要另设计可信服务端补偿与防重复调用，不允许由客户端回滚计数。
+- 默认阈值由 `lib/service-guard.ts` 定义，可用 `.env.example` 中的 `AZURE_GUARD_*` 服务端环境变量覆盖。保护的是本 App 对服务的调用，**不是** Azure OpenAI TPM 或供应商实际费用；共享 Azure 资源的其他应用不计入。服务端 Secret key、数据库 RPC 或保护表故障时 fail closed，不自动绕过调用。孩子朗读现有浏览器语音回退保持不变。
+- `workspace_capacity_snapshot` 仅供同空间 admin/owner 获取四项服务的分钟/日请求、拦截和 Azure 429；`components/admin-capacity-panel.tsx` 在管理首页及成本页显示 40/45/50 人和 80% 用量提示。无站外推送或自动购买套餐。`learner_dashboard_snapshot` 将单孩子统计在数据库内准确聚合，避免客户端 1000 行截断；`workspace_today_remaining` 给 owner 目录一次返回所有孩子当天剩余数；Auth 账号批量查询避免 N+1 请求。
+- 023 顺带让 `record_app_activity` 核查孩子级可访问权限，同空间不同家庭不能伪报孩子使用时长。其他孩子学习 RPC 和阶段算法不变。完整运维/验收边界见 [24 号配置](./24_50位孩子容量与Azure限额配置.md)。
+- `scripts/test-capacity-guard.cjs` 在可选本地 PGlite 中两次运行 023，并检查第 51 个档案、空间/账号占位、管理员快照与实际孩子统计；`scripts/test-invitation-usage.cjs` 同时检查 meteredFetch 在 RPC 缺失、未知返回、限额拦截时均不发付费请求。此类本地测试不代表线上已迁移或云配额已核实。
+
+### 11.10 模块开通与儿童英语（024）
+
+- `account_module_access` 与 `learner_module_access` 分离：成人英语/运动只需账号开通；汉字、诗词、音乐、要理、儿童英语同时需要账号与孩子开通。具体内容还需原有资源分配。owner 通过 `owner_set_module_access` 写入并记审计；客户端只能读授权，不能直接改开关。旧账号/孩子原模块权限在 024 中回填，新建默认关闭。贴纸跟随汉字，不单独授权。关闭模块保留历史。
+- 应用外壳按账号权限显示模块，模块 layout 拦截直接访问；具体孩子学习页与核心写入 action 再检查孩子层。Azure Speech 路由也要求携带孩子与模块，并在计费调用前校验两层开通。成人直接表写入增加 restrictive RLS；儿童英语内容与进度有独立 RLS，所有学习状态仅由鉴权 RPC 写入。历史旧模块的 security-definer RPC 会绕过表 RLS，因此 024 在汉字、诗词、音乐和要理的关键学习事实表增加写入触发器，关闭模块后直调旧 RPC 也不能继续写成绩。旧 RPC 的只读结果仍由原有家庭归属逻辑保护，未全部改为按模块授权过滤；下一次改写旧 RPC 时应把模块检查下沉到函数入口。
+- `kids_english_books/words` 为共享内容；`learner_kids_english_books` 管分配，`kids_english_videos` 与 `kids_english_word_videos` 为私有 R2 对象键和多对多链接。家长导入草稿由管理员审核；管理员可直接发布分配。`import_kids_english_book` 在数据库单事务完成指纹查重、内容插入和可选分配，避免半成品。
+- `get_kids_english_queue` 在孩子本地日期首次进入时安排最多 3 新 + 10 到期，不改旧汉字队列。`answer_kids_english_word` 锁定今日卡与状态，按请求 UUID 幂等记录；低阶段双确认、当天答错不限重试、一天只降一次、阶段 0～7 和 1/3/7/14/30/60/90 天间隔。后续如要可调每日量，须同时更新 learner 设置列、队列 RPC 与页面文案。
+- 视频上传走浏览器 → R2 预签名 PUT，Vercel 只签名、存元数据；播放 GET 先验证账号+孩子+词册+链接，再 307 到临时签名。默认私有桶，无公开域名。英文朗读复用现有 Azure Speech；图片/视频播放不自动记作答。
+- 部署顺序：备份 → SQL Editor 运行 `supabase/024_module_access_and_kids_english.sql` → 生产构建/部署 → owner 开通两层权限 → 审核分配单词册 → 真实账号/视频/复习验收。详见 [25 号教程](./25_模块开通与儿童英语配置教程.md)。仓库 CLI 未建立完整历史，本次仍以编号 SQL 为手动交付，不要把单份脚本当空库初始化。

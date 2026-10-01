@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { meteredFetch } from "@/lib/metered-fetch";
+import { loadAccessContext } from "@/lib/access";
+import { requireChildModule } from "@/lib/module-access";
+import { CHILD_MODULES, type ChildModuleKey } from "@/lib/module-keys";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,11 +12,16 @@ function escapeXml(value: string) {
   return value.replace(/[<>&'\"]/g, (char) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" })[char] ?? char);
 }
 
-async function synthesize(text: string, slow: boolean, language: "zh" | "en", learnerId: string | null) {
+async function synthesize(text: string, slow: boolean, language: "zh" | "en", learnerId: string | null, moduleKey: string) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
   if (!text || text.length > 6000) return NextResponse.json({ error: "朗读文本无效" }, { status: 400 });
+  if (!learnerId || !CHILD_MODULES.includes(moduleKey as ChildModuleKey)) return NextResponse.json({ error: "朗读请求缺少孩子或模块" }, { status: 400 });
+  try {
+    const access = await loadAccessContext(supabase, user.id);
+    await requireChildModule(supabase, access, user.id, learnerId, moduleKey as ChildModuleKey);
+  } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "没有此模块权限" }, { status: 403 }); }
   const key = process.env.AZURE_SPEECH_KEY;
   const region = process.env.AZURE_SPEECH_REGION;
   if (!key || !region) return NextResponse.json({ error: "Azure Speech 未配置" }, { status: 503 });
@@ -33,14 +41,14 @@ async function synthesize(text: string, slow: boolean, language: "zh" | "en", le
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  try { return await synthesize(url.searchParams.get("text")?.trim() ?? "", url.searchParams.get("slow") === "1", url.searchParams.get("lang") === "en" ? "en" : "zh", url.searchParams.get("learner")); }
+  try { return await synthesize(url.searchParams.get("text")?.trim() ?? "", url.searchParams.get("slow") === "1", url.searchParams.get("lang") === "en" ? "en" : "zh", url.searchParams.get("learner"), url.searchParams.get("module") ?? "hanzi"); }
   catch (e) { return NextResponse.json({error:e instanceof Error ? e.message : "语音暂不可用"},{status:503}); }
 }
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { text?: unknown; slow?: unknown; lang?: unknown; learner?: unknown };
-    return await synthesize(typeof body.text === "string" ? body.text.trim() : "", body.slow === true, body.lang === "en" ? "en" : "zh", typeof body.learner === "string" ? body.learner : null);
+    const body = await request.json() as { text?: unknown; slow?: unknown; lang?: unknown; learner?: unknown; module?: unknown };
+    return await synthesize(typeof body.text === "string" ? body.text.trim() : "", body.slow === true, body.lang === "en" ? "en" : "zh", typeof body.learner === "string" ? body.learner : null, typeof body.module === "string" ? body.module : "");
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "朗读请求格式无效" }, { status: 400 });
   }

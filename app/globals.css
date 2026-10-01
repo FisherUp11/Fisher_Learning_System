@@ -1081,3 +1081,75 @@ a.music-admin-title { color:inherit; text-decoration:none; }
 .org-resources em { color: var(--muted); font-style: normal; }
 .org-kid-links { display: flex; flex-wrap: wrap; gap: 8px; }
 .org-empty-note { color: var(--muted); font-size: 13px; }
+.capacity-panel { background: linear-gradient(150deg, #fffdf8 0%, #f3f7ee 100%); }
+.capacity-panel .section-heading { align-items: center; }
+.capacity-count { flex: none; border-radius: 999px; padding: 9px 15px; background: #e1eddf; color: #315c45; font: 800 14px/1.2 ui-sans-serif, system-ui, sans-serif; }
+.capacity-count-warn { background: #fff0dc; color: #865223; }
+.capacity-context { margin: 12px 0 0; color: var(--muted); font-size: 13px; line-height: 1.7; }
+.capacity-context a { color: var(--leaf); text-decoration: underline; text-underline-offset: 3px; }
+.capacity-signals { display: grid; gap: 6px; margin: 18px 0; }
+.capacity-signals p { margin: 0; padding: 9px 12px; border-left: 3px solid #acc6a7; border-radius: 4px 11px 11px 4px; background: #eff5eb; color: #315c45; font-size: 13px; line-height: 1.5; }
+.capacity-signals .capacity-signal-warn { border-left-color: #d9a052; background: #fff3e4; color: #865223; }
+.capacity-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(205px, 1fr)); gap: 11px; }
+.capacity-service { min-width: 0; padding: 15px; border: 1px solid #dce6d6; border-radius: 17px; background: #fffefa; }
+.capacity-service-warn { border-color: #e8c79c; }
+.capacity-service-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; color: #233d30; }
+.capacity-service-head span { color: var(--muted); font: 700 12px ui-sans-serif, system-ui, sans-serif; }
+.capacity-bar { height: 7px; margin-top: 12px; overflow: hidden; border-radius: 99px; background: #e9eee4; }
+.capacity-bar span { display: block; height: 100%; border-radius: inherit; background: #6a9776; }
+.capacity-service-warn .capacity-bar span { background: #d59b50; }
+.capacity-service p { margin: 10px 0 4px; color: #365741; font-size: 13px; }
+.capacity-service small { color: var(--muted); font: 12px/1.5 ui-sans-serif, system-ui, sans-serif; }
+@media (max-width: 540px) { .capacity-panel .section-heading { align-items: flex-start; } .capacity-count { margin-top: 8px; } }
+
+/* 儿童英语：沿用纸张、叶绿和暖橙，只让英文单词成为视觉主角。 */
+.module-locked { max-width: 700px; margin-inline: auto; text-align: center; }
+.module-locked > span { display: block; color: var(--sun); font-size: 42px; }
+.module-access-settings { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 13px; }
+.module-access-settings > summary { cursor: pointer; color: var(--leaf); font-weight: 800; }
+.module-access-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 9px; margin: 12px 0; }
+.module-access-toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 13px; border: 1px solid var(--line); border-radius: 15px; background: #fffdf8; }
+.module-access-toggle span { display: grid; gap: 3px; }
+.module-access-toggle small { color: var(--muted); }
+.module-access-toggle button { flex: none; }
+.child-module-section { margin-top: 16px; border-top: 1px dashed var(--line); }
+.child-module-section h4 { margin: 15px 0 0; }
+.kids-hero { background: radial-gradient(circle at 88% 20%,#e8f2dc 0,#fffaf1 42%); }
+.kids-study-wrap { max-width: 880px; margin-inline: auto; }
+.kids-study-top { display: flex; justify-content: space-between; gap: 12px; margin: 18px 5px 12px; color: var(--leaf); font-weight: 800; }
+.kids-study-top span { padding: 7px 13px; border-radius: 999px; background: #e5eee1; }
+.kids-study-top strong { align-self: center; }
+.kids-word-card { padding: clamp(25px,5vw,60px); border: 1px solid #e8dfce; border-radius: 32px; background: #fffdf8; box-shadow: 0 22px 55px rgba(38,57,40,.07); text-align: center; }
+.kids-word-card h1 { margin: 20px 0 0; color: #193928; font: 800 clamp(70px,13vw,150px)/1.08 ui-sans-serif,system-ui,sans-serif; letter-spacing: -.065em; overflow-wrap: anywhere; }
+.kids-phonetic { margin: 8px 0 20px; color: #4f6b57; font: 500 clamp(23px,4vw,36px)/1.2 ui-sans-serif,system-ui,sans-serif; }
+.kids-audio-actions,.kids-video-tabs,.kids-answer-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+.kids-audio-actions button { min-height: 44px; }
+.kids-reveal { display: flex; justify-content: space-between; align-items: center; gap: 14px; width: 100%; margin-top: 30px; padding: 17px 21px; border: 1px dashed #bad0b5; border-radius: 18px; color: var(--leaf); background: #f1f7ed; font-size: 20px; font-weight: 800; cursor: pointer; }
+.kids-reveal span { font-size: 26px; }
+.kids-meaning { margin-top: 28px; padding: 22px; border-radius: 22px; background: #f4eddf; text-align: left; }
+.kids-meaning strong { color: #254531; font-size: clamp(25px,4vw,36px); }
+.kids-meaning p { margin: 15px 0 5px; font: 700 clamp(21px,3vw,28px)/1.4 ui-sans-serif,system-ui,sans-serif; }
+.kids-meaning small { color: var(--muted); font-size: 17px; }
+.kids-video-area { margin-top: 25px; padding-top: 16px; border-top: 1px solid var(--line); }
+.kids-video-area p { margin: 0 0 8px; color: var(--muted); }
+.kids-video-area video { display: block; width: min(100%,680px); margin: 16px auto 0; border-radius: 16px; background: #18291d; }
+.kids-answer-actions { display: grid; grid-template-columns: 1fr 1fr; margin-top: 16px; }
+.kids-answer-actions button { min-height: 70px; font-size: 22px; }
+.kids-study-hint { margin: 12px 5px; color: var(--muted); font-size: 14px; line-height: 1.6; text-align: center; }
+.kids-finish { text-align: center; }
+.kids-finish > span { color: var(--sun); font-size: 72px; }
+.kids-book-tabs { display: flex; gap: 8px; max-width: 100%; margin: 18px 0; overflow-x: auto; }
+.kids-book-tabs a { display: grid; gap: 2px; flex: none; min-width: 130px; padding: 10px 15px; border: 1px solid var(--line); border-radius: 14px; color: var(--leaf); background: #fffdf8; text-decoration: none; }
+.kids-book-tabs a.active { border-color: #9fbea1; background: #e9f2e7; }
+.kids-book-tabs small { color: var(--muted); }
+.kids-video-list { display: grid; gap: 8px; margin-top: 15px; }
+.kids-video-list > div { display: flex; gap: 10px; align-items: center; padding: 10px 14px; border-radius: 12px; background: #f4f7ef; }
+.kids-video-list span { color: var(--leaf); }.kids-video-list small { margin-left: auto; color: var(--muted); }
+.kids-picker-tools { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; color: var(--muted); }
+.kids-word-picker-list { display: grid; grid-template-columns: repeat(auto-fill,minmax(180px,1fr)); gap: 6px; max-height: 340px; overflow: auto; padding: 8px; border: 1px solid var(--line); border-radius: 16px; }
+.kids-word-picker-list label { display: grid; grid-template-columns: auto 1fr; column-gap: 8px; align-items: center; padding: 9px; border-radius: 10px; background: #fffdf8; }
+.kids-word-picker-list label span { grid-column: 2; color: var(--muted); font-size: 12px; }.kids-word-picker-list input { width: 18px; height: 18px; }
+.kids-manage-word-list { display: grid; gap: 6px; margin-top: 16px; }.kids-manage-word-list details { padding: 11px 14px; border: 1px solid var(--line); border-radius: 13px; }.kids-manage-word-list summary { display: flex; flex-wrap: wrap; gap: 10px; cursor: pointer; }.kids-manage-word-list summary strong { min-width: 120px; }.kids-manage-word-list summary span { color: var(--muted); }.kids-manage-word-list summary small { margin-left: auto; color: var(--leaf); }
+.kids-library-filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin: 12px 0 20px; }.kids-library-filters label { flex: 1 1 180px; }
+.kids-library-list { display: grid; gap: 9px; }.kids-library-list article { display: grid; grid-template-columns: minmax(120px,1.2fr) minmax(100px,1fr) auto minmax(140px,1fr); gap: 10px; align-items: center; padding: 14px 16px; border: 1px solid var(--line); border-radius: 16px; background: #fffdf8; }.kids-library-list article strong { font: 800 25px ui-sans-serif,system-ui,sans-serif; }.kids-library-list article div small { display: block; color: var(--muted); }.kids-library-list article p { margin: 0; }.kids-library-list article > small { color: var(--muted); }.kids-stage { padding: 6px 10px; border-radius: 99px; color: var(--leaf); background: #e7f0e4; font-size: 12px; font-weight: 800; white-space: nowrap; }
+@media (max-width: 680px) { .kids-answer-actions { grid-template-columns: 1fr 1fr; }.kids-answer-actions button { min-height: 60px; font-size: 18px; }.kids-library-list article { grid-template-columns: 1fr auto; }.kids-library-list article p { grid-column: 1; }.kids-library-list article > small { grid-column: 1 / -1; }.kids-video-list small { display: none; } }

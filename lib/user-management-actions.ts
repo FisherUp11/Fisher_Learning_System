@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { assertOwner, loadAccessContext } from "@/lib/access";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { ACCOUNT_MODULES, CHILD_MODULES } from "@/lib/module-keys";
 
 export type UserManagementState = {
   status: "idle" | "success" | "error";
@@ -20,6 +21,28 @@ async function ownerSession() {
   const access = await loadAccessContext(supabase, user.id);
   assertOwner(access);
   return { supabase, user, access };
+}
+
+export async function setModuleAccess(formData: FormData): Promise<{ status: "success" | "error"; message: string }> {
+  try {
+    const { supabase, access } = await ownerSession();
+    const moduleKey = String(formData.get("module_key") ?? "");
+    const userId = String(formData.get("user_id") ?? "");
+    const learnerId = String(formData.get("learner_id") ?? "") || null;
+    const enabled = formData.get("enabled") === "true";
+    if (!userId || (!learnerId && !ACCOUNT_MODULES.includes(moduleKey as typeof ACCOUNT_MODULES[number])) || (learnerId && !CHILD_MODULES.includes(moduleKey as typeof CHILD_MODULES[number]))) throw new Error("模块设置无效");
+    const { error } = await supabase.rpc("owner_set_module_access", {
+      p_workspace_id: access.workspaceId, p_user_id: userId, p_learner_id: learnerId,
+      p_module_key: moduleKey, p_enabled: enabled,
+    });
+    if (error) throw new Error(error.message);
+    revalidatePath("/admin/users");
+    revalidatePath("/admin/assignments");
+    revalidatePath("/", "layout");
+    return { status: "success", message: enabled ? "模块已开通，刷新后即可使用。" : "模块已关闭；原学习记录保留。" };
+  } catch (error) {
+    return { status: "error", message: error instanceof Error ? error.message : "模块设置失败" };
+  }
 }
 
 function generatedTemporaryPassword() {

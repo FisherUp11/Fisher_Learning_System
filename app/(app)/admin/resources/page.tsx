@@ -7,8 +7,8 @@ import { displayCatechismTitle } from "@/lib/catechism";
 
 export const dynamic = "force-dynamic";
 
-type Resource = { id: string; title: string; status: string; review_status: string; created_at: string; submitted_for_learner_id: string | null; fingerprint: string | null; kind: "hanzi" | "poem" | "music" | "catechism"; preview: string };
-const labels = { hanzi: "汉字册", poem: "诗词册", music: "音乐", catechism: "要理问答册" } as const;
+type Resource = { id: string; title: string; status: string; review_status: string; created_at: string; submitted_for_learner_id: string | null; fingerprint: string | null; kind: "hanzi" | "poem" | "music" | "catechism" | "kids_english"; preview: string };
+const labels = { hanzi: "汉字册", poem: "诗词册", music: "音乐", catechism: "要理问答册", kids_english: "儿童英语" } as const;
 const musicLabels: Record<string, string> = { song: "唱一唱", instrument: "辨声音", rhythm: "打节奏" };
 
 function relationValue(value: unknown, key: string) {
@@ -33,20 +33,24 @@ export default async function AdminResourcesPage() {
   if (!user) redirect("/login");
   const access = await loadAccessContext(supabase, user.id);
   if (!access?.isAdmin) redirect("/parent");
-  const [packages, poems, music, catechism, learners, packageEntries, poemEntries, catechismEntries] = await Promise.all([
+  const [packages, poems, music, catechism, kidsBooks, learners, packageEntries, poemEntries, catechismEntries, kidsEntries] = await Promise.all([
     supabase.from("content_packages").select("id,title,status,review_status,created_at,submitted_for_learner_id,fingerprint").eq("workspace_id", access.workspaceId),
     supabase.from("poem_collections").select("id,title,status,review_status,created_at,submitted_for_learner_id,fingerprint").eq("workspace_id", access.workspaceId),
     supabase.from("music_items").select("id,title,status,review_status,created_at,submitted_for_learner_id,fingerprint,item_type,category").eq("workspace_id", access.workspaceId),
     supabase.from("catechism_collections").select("id,title,status,review_status,created_at,submitted_for_learner_id,fingerprint").eq("workspace_id", access.workspaceId),
+    supabase.from("kids_english_books").select("id,title,status,review_status,created_at,submitted_for_learner_id,fingerprint").eq("workspace_id", access.workspaceId),
     supabase.from("learner_profiles").select("id,display_name"),
     supabase.from("package_characters").select("package_id,characters(character)"),
     supabase.from("poem_collection_items").select("collection_id,poems(title)"),
     supabase.from("catechism_items").select("collection_id,question_zh"),
+    supabase.from("kids_english_words").select("book_id,word"),
   ]);
   const learnerNames = new Map((learners.data ?? []).map((learner) => [learner.id, learner.display_name]));
   const packagePreviews = makePreviewMap((packageEntries.data ?? []) as Array<Record<string, unknown>>, "package_id", "characters", "character");
   const poemPreviews = makePreviewMap((poemEntries.data ?? []) as Array<Record<string, unknown>>, "collection_id", "poems", "title");
   const catechismPreviews = new Map<string, string[]>();
+  const kidsCounts = new Map<string, number>();
+  for (const row of kidsEntries.data ?? []) kidsCounts.set(row.book_id,(kidsCounts.get(row.book_id) ?? 0)+1);
   for (const row of (catechismEntries.data ?? [])) {
     const values = catechismPreviews.get(row.collection_id) ?? [];
     values.push(String(row.question_zh ?? ""));
@@ -60,6 +64,7 @@ export default async function AdminResourcesPage() {
       const values = (catechismPreviews.get(row.id) ?? []).filter(Boolean);
       return { ...row, title: displayCatechismTitle(row.title), kind: "catechism" as const, preview: `${values.length} 问${values.length ? ` · ${values.slice(0, 3).join("、")}${values.length > 3 ? "…" : ""}` : ""}` };
     }),
+    ...(kidsBooks.data ?? []).map((row) => ({ ...row, kind: "kids_english" as const, preview: `${kidsCounts.get(row.id) ?? 0} 个单词` })),
   ].sort((left, right) => right.created_at.localeCompare(left.created_at));
   const fingerprintCounts = resources.reduce((counts, resource) => {
     if (!resource.fingerprint) return counts;
@@ -76,7 +81,7 @@ export default async function AdminResourcesPage() {
           {resource.review_status !== "approved" && <button className="primary compact" name="decision" value="approve">通过并发布</button>}
           {resource.review_status === "pending_review" && <button className="secondary compact" name="decision" value="reject">退回</button>}
           {resource.status !== "archived" && <button className="text-button danger" name="decision" value="archive">归档</button>}
-        </form>{access.isOwner && resource.fingerprint && (fingerprintCounts.get(`${resource.kind}:${resource.fingerprint}`) ?? 0) > 1 && <DuplicateResourceCleanup resourceType={resource.kind} removeId={resource.id} candidates={resources.filter((candidate) => candidate.kind === resource.kind && candidate.fingerprint === resource.fingerprint && candidate.id !== resource.id && candidate.status === "published" && candidate.review_status === "approved").map((candidate) => ({ id: candidate.id, title: candidate.title }))} />}</div>
+        </form>{access.isOwner && resource.kind !== "kids_english" && resource.fingerprint && (fingerprintCounts.get(`${resource.kind}:${resource.fingerprint}`) ?? 0) > 1 && <DuplicateResourceCleanup resourceType={resource.kind} removeId={resource.id} candidates={resources.filter((candidate) => candidate.kind === resource.kind && candidate.fingerprint === resource.fingerprint && candidate.id !== resource.id && candidate.status === "published" && candidate.review_status === "approved").map((candidate) => ({ id: candidate.id, title: candidate.title }))} />}</div>
       </article>)}</div>}
     </section>
   </div>;

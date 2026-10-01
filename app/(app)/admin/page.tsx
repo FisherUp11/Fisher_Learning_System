@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { loadAccessContext } from "@/lib/access";
-import { loadLearnerDashboard } from "@/lib/dashboard";
 import { firstTryRate, loadWorkspaceOverview } from "@/lib/workspace-overview";
 import { createClient } from "@/lib/supabase/server";
+import { AdminCapacityPanel } from "@/components/admin-capacity-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -22,14 +22,15 @@ export default async function AdminPage() {
     supabase.from("music_items").select("id,review_status").eq("workspace_id", access.workspaceId),
     supabase.from("catechism_collections").select("id,review_status").eq("workspace_id", access.workspaceId),
   ]);
-  const overview = await loadWorkspaceOverview(supabase, access.workspaceId);
-  // Fallback before 022: one dashboard per learner is fine for a handful of children only.
-  const dashboards = overview
-    ? overview.map((row) => ({ learner: { id: row.learner_id, display_name: row.display_name, families: { name: row.family_name } }, dashboard: { stable: Number(row.hanzi_stable), due: Number(row.hanzi_due), firstAttemptRate: firstTryRate(row), todayRemaining: null as number | null } }))
-    : await Promise.all((learners ?? []).map(async (learner) => ({
-      learner,
-      dashboard: await loadLearnerDashboard(supabase, learner.id, learner.timezone) as { stable: number; due: number; firstAttemptRate: number | null; todayRemaining: number | null },
-    })));
+  const [overview, todayResult] = await Promise.all([
+    loadWorkspaceOverview(supabase, access.workspaceId),
+    supabase.rpc("workspace_today_remaining", { p_workspace_id: access.workspaceId }),
+  ]);
+  const todayByLearner = new Map(((todayResult.data ?? []) as Array<{ learner_id: string; remaining: number }>).map((row) => [row.learner_id, Number(row.remaining)]));
+  const dashboards = (overview ?? []).map((row) => ({
+    learner: { id: row.learner_id, display_name: row.display_name, families: { name: row.family_name } },
+    dashboard: { stable: Number(row.hanzi_stable), due: Number(row.hanzi_due), firstAttemptRate: firstTryRate(row), todayRemaining: todayByLearner.get(row.learner_id) ?? null },
+  }));
   const allResources = [packageResult, poemResult, musicResult, catechismResult].flatMap((result) => result.data ?? []);
   const pending = allResources.filter((resource) => resource.review_status === "pending_review").length;
 
@@ -41,6 +42,8 @@ export default async function AdminPage() {
       <div className="metric"><span className="metric-label">公共资源</span><strong className="metric-value">{allResources.length}</strong></div>
       <div className="metric"><span className="metric-label">待审核</span><strong className="metric-value">{pending}</strong></div>
     </div></section>
+    <AdminCapacityPanel db={supabase} workspaceId={access.workspaceId} />
+    {(!overview || todayResult.error) && <section className="panel warning-panel"><p>孩子概况暂未完整加载。请确认已运行 <code>supabase/022</code> 与 <code>supabase/023</code>，然后刷新；系统不会为了补数据对每位孩子重复发起大量查询。</p></section>}
     <section className="admin-shortcuts">
       <Link href="/admin/families"><span>家</span><strong>家庭与孩子总览<small>组织图、提醒与已分配资源</small></strong></Link>
       <Link href="/admin/resources"><span>库</span><strong>审核资源<small>去重、发布与归档</small></strong></Link>

@@ -103,6 +103,7 @@ const resources = {
   poem: { table: "poem_collections", label: "诗词册", assignmentTable: "learner_poem_collections", resourceKey: "collection_id" },
   music: { table: "music_items", label: "音乐内容", assignmentTable: "learner_music_items", resourceKey: "item_id" },
   catechism: { table: "catechism_collections", label: "要理问答册", assignmentTable: "learner_catechism_collections", resourceKey: "collection_id" },
+  kids_english: { table: "kids_english_books", label: "儿童英语单词册", assignmentTable: "learner_kids_english_books", resourceKey: "book_id" },
 } as const;
 
 export async function reviewWorkspaceResource(formData: FormData) {
@@ -173,6 +174,7 @@ const assignments = {
   poem: { table: "learner_poem_collections", resourceTable: "poem_collections", key: "collection_id" },
   music: { table: "learner_music_items", resourceTable: "music_items", key: "item_id" },
   catechism: { table: "learner_catechism_collections", resourceTable: "catechism_collections", key: "collection_id" },
+  kids_english: { table: "learner_kids_english_books", resourceTable: "kids_english_books", key: "book_id" },
 } as const;
 
 export async function toggleWorkspaceAssignment(formData: FormData) {
@@ -239,6 +241,7 @@ export async function toggleWorkspaceAssignment(formData: FormData) {
   revalidatePath("/poems");
   revalidatePath("/music");
   revalidatePath("/catechism");
+  revalidatePath("/kids-english");
 }
 
 async function toggleMusicFolderAssignment(formData: FormData, supabase: Awaited<ReturnType<typeof adminClient>>["supabase"], userId: string, workspaceId: string) {

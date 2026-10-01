@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { loadAccessContext } from "@/lib/access";
 import { usageValues, type ServiceKind } from "./service-usage-values";
+import { guardDenialMessage, serviceGuardLimits } from "./service-guard";
 
 type Meter = { service: ServiceKind; feature: string; model: string; characters?: number; audioSeconds?: number; learnerId?: string | null };
 
@@ -26,16 +27,30 @@ export async function meteredFetch(url: string, init: RequestInit, meter: Meter)
   if (profile.must_change_password) throw new Error("请先修改临时密码，再使用 AI / 语音功能");
   const admin = createAdminClient();
   const id = randomUUID();
-  const row: Record<string, unknown> = {
-    id, workspace_id: access.workspaceId, user_id: user.id, feature: meter.feature,
-    service: meter.service, model: meter.model.slice(0,160),
-    characters: meter.characters ?? 0, audio_seconds: meter.audioSeconds ?? 0,
-  };
-  let { error } = await admin.from("service_usage_events").insert(learner?.id ? { ...row, learner_id: learner.id } : row);
-  // Before migration 022 the learner column is absent; still meter at account level.
-  if (error && learner?.id) ({ error } = await admin.from("service_usage_events").insert(row));
-  // Fail before calling the paid provider if bookkeeping is unavailable.
-  if (error) throw new Error("用量记录服务尚未就绪，请让 owner 运行 021 SQL 并检查服务端 Supabase 密钥；本次未调用 Azure。");
+  const limits = serviceGuardLimits(meter.service);
+  const { data: reservation, error } = await admin.rpc("reserve_metered_service_call", {
+    p_id: id,
+    p_workspace_id: access.workspaceId,
+    p_user_id: user.id,
+    p_learner_id: learner?.id ?? null,
+    p_feature: meter.feature,
+    p_service: meter.service,
+    p_model: meter.model.slice(0, 160),
+    p_characters: meter.characters ?? 0,
+    p_audio_seconds: meter.audioSeconds ?? 0,
+    p_workspace_minute_limit: limits.workspaceMinute,
+    p_account_minute_limit: limits.accountMinute,
+    p_workspace_day_limit: limits.workspaceDay,
+    p_account_day_limit: limits.accountDay,
+    p_workspace_unit_day_limit: limits.workspaceUnitsDay,
+    p_account_unit_day_limit: limits.accountUnitsDay,
+  });
+  // Fail closed before touching a paid provider if the migration or accounting is unavailable.
+  if (error) throw new Error("AI / 语音保护服务尚未就绪：请让 owner 先运行 supabase/023 SQL，检查服务端 Supabase Secret key；本次未调用 Azure。");
+  if (!reservation || !["allowed", "workspace_minute", "account_minute", "workspace_day", "account_day", "workspace_units_day", "account_units_day"].includes(String(reservation))) {
+    throw new Error("AI / 语音保护服务返回了未知状态；本次未调用 Azure，请联系管理员检查数据库日志。");
+  }
+  if (reservation !== "allowed") throw new Error(guardDenialMessage(String(reservation)));
   async function finish(values: Record<string, unknown>) {
     const { error: finishError } = await admin.from("service_usage_events").update({ ...values, completed_at: new Date().toISOString() }).eq("id",id);
     if (finishError) console.warn("service_usage_finalize_failed", id, finishError.code);

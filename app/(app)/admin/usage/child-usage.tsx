@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { familyNameOf, orderLearners, type LearnerChoice } from "@/components/learner-options";
 import { fixedMonthlyUsd, loadCostModel, variableCostUsd, type UsageRow } from "@/lib/usage-cost";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { loadAuthDirectory } from "@/lib/auth-directory";
 
 type Activity = { user_id: string; learner_id: string | null; active_days: number; active_seconds: number; visits: number; last_seen_at: string | null };
 type Learning = { learner_id: string; hanzi_answers: number; poem_records: number; game_sessions: number; game_seconds: number; music_records: number; catechism_records: number };
@@ -56,11 +56,8 @@ export async function ChildUsageSection({ db, workspaceId, ownFamilyId, days, fr
   })).sort((a, b) => b.variableUsd - a.variableUsd);
   const emails = new Map<string, string>();
   try {
-    const admin = createAdminClient();
-    await Promise.all(accounts.map(async ({ id }) => {
-      const { data } = await admin.auth.admin.getUserById(id);
-      if (data.user?.email) emails.set(id, data.user.email);
-    }));
+    const found = await loadAuthDirectory(accounts.map(({ id }) => id));
+    for (const { id } of accounts) if (found.get(id)?.email) emails.set(id, found.get(id)!.email!);
   } catch {}
   const accountLabel = (id: string) => emails.get(id) ?? `账号 ${id.slice(0, 8)}`;
   const accountVariableUsd = accounts.reduce((sum, row) => sum + row.variableUsd, 0);
@@ -75,7 +72,7 @@ export async function ChildUsageSection({ db, workspaceId, ownFamilyId, days, fr
       <div><strong>{yuan(totalUsd, model.usdToCny)}</strong><span>本期估算总成本（含固定月费分摊）</span></div>
       <div><strong>{active.length} / {learners.length}</strong><span>本期活跃孩子 / 全部孩子</span></div>
       <div><strong>{active.length ? yuan(monthly(fixedPeriodUsd / active.length) + avgVariableMonthly, model.usdToCny) : "—"}</strong><span>按当前人数，每位活跃孩子每月</span></div>
-      <div><strong>{yuan(perChildAt(100), model.usdToCny)}</strong><span>若 100 个孩子，每人每月约</span></div>
+      <div><strong>{yuan(perChildAt(50), model.usdToCny)}</strong><span>若 50 个孩子，每人每月约</span></div>
     </div>
     {!perLearner.length ? <p className="notice">还没有孩子档案。</p> : <div className="child-usage-table" role="table" aria-label="每个孩子的使用与成本">
       <div className="child-usage-row head" role="row"><span role="columnheader">孩子</span><span role="columnheader">使用</span><span role="columnheader">学习记录</span><span role="columnheader">AI / 语音</span><span role="columnheader">估算成本</span></div>

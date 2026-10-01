@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import styles from "./app-shell.module.css";
 import { ActivityTracker } from "./activity-tracker";
+import type { ModuleKey } from "@/lib/module-keys";
 
 const hanziLinks = [
   { href: "/learn", label: "学一学", icon: "芽" },
@@ -42,6 +43,12 @@ const musicLinks = [
   { href: "/parent", label: "家长", icon: "家" },
 ];
 
+const kidsEnglishLinks = [
+  { href: "/kids-english", label: "学单词", icon: "词" },
+  { href: "/kids-english/library", label: "单词册", icon: "册" },
+  { href: "/kids-english/manage", label: "家长", icon: "家" },
+];
+
 const adminLinks = [
   { href: "/admin", label: "概览", icon: "总" },
   { href: "/admin/families", label: "家庭", icon: "家" },
@@ -52,16 +59,17 @@ const adminLinks = [
 ];
 
 const moduleLinks = [
-  { href: "/learn", label: "汉字学习", description: "一字一字，建立认读记忆", mark: "字" },
-  { href: "/poems", label: "诗词背诵", description: "记录背诵次数与掌握评分", mark: "诗" },
-  { href: "/music", label: "音乐天地", description: "听、唱、辨音与节奏练习", mark: "乐" },
-  { href: "/catechism", label: "要理问答", description: "一问一答，记要理", mark: "问" },
-  { href: "/rewards", label: "小芽贴纸册", description: "认真完成，积累贴纸兑换礼物", mark: "贴" },
-  { href: "/english", label: "会议英语", description: "爸爸妈妈的听说练习与积累", mark: "英" },
-  { href: "/together", label: "一起坚持", description: "运动打卡，看见全家的坚持", mark: "行" },
+  { key: "hanzi", href: "/learn", label: "汉字学习", description: "一字一字，建立认读记忆", mark: "字" },
+  { key: "poem", href: "/poems", label: "诗词背诵", description: "记录背诵次数与掌握评分", mark: "诗" },
+  { key: "music", href: "/music", label: "音乐天地", description: "听、唱、辨音与节奏练习", mark: "乐" },
+  { key: "catechism", href: "/catechism", label: "要理问答", description: "一问一答，记要理", mark: "问" },
+  { key: "kids_english", href: "/kids-english", label: "儿童英语", description: "单词、例句与课堂视频", mark: "ABC" },
+  { key: "hanzi", href: "/rewards", label: "小芽贴纸册", description: "认真完成，积累贴纸兑换礼物", mark: "贴" },
+  { key: "adult_english", href: "/english", label: "会议英语", description: "爸爸妈妈的听说练习与积累", mark: "英" },
+  { key: "exercise", href: "/together", label: "一起坚持", description: "运动打卡，看见全家的坚持", mark: "行" },
 ];
 
-export function AppShell({ email, isAdmin, isOwner, children }: { email: string; isAdmin: boolean; isOwner: boolean; children: React.ReactNode }) {
+export function AppShell({ email, isAdmin, isOwner, enabledModules, children }: { email: string; isAdmin: boolean; isOwner: boolean; enabledModules: ModuleKey[]; children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -70,7 +78,9 @@ export function AppShell({ email, isAdmin, isOwner, children }: { email: string;
   const menuRef = useRef<HTMLDivElement>(null);
   const menuTriggerRef = useRef<HTMLButtonElement>(null);
   const prefetchedAt = useRef(new Map<string, number>());
-  const navigationLinks = useMemo(() => pathname.startsWith("/together")
+  const navigationLinks = useMemo(() => pathname.startsWith("/kids-english")
+    ? kidsEnglishLinks
+    : pathname.startsWith("/together")
     ? [{ href: "/together", label: "今天", icon: "行" }, { href: "/together/records", label: "坚持记录", icon: "历" }, { href: "/together/settings", label: "目标设置", icon: "设" }]
     : pathname.startsWith("/english")
     ? [{ href: "/english", label: "今日练习", icon: "练" }, { href: "/english/materials", label: "会议资料", icon: "文" }, { href: "/english/progress", label: "我的积累", icon: "积" }]
@@ -85,14 +95,24 @@ export function AppShell({ email, isAdmin, isOwner, children }: { email: string;
       : pathname.startsWith("/music")
         ? musicLinks
         : hanziLinks, [isAdmin, isOwner, pathname]);
-  const availableModules = useMemo(() => isAdmin
-    ? [...moduleLinks, { href: "/admin", label: "管理中心", description: "家庭、内容审核和孩子分配", mark: "管" }]
-    : moduleLinks, [isAdmin]);
+  const availableModules = useMemo(() => {
+    const visible = moduleLinks.filter((link) => enabledModules.includes(link.key as ModuleKey));
+    return isAdmin ? [...visible, { href: "/admin", label: "管理中心", description: "家庭、内容审核和孩子分配", mark: "管" }] : visible;
+  }, [enabledModules, isAdmin]);
+  const homeHref = availableModules[0]?.href ?? "/parent";
+  const visibleNavigationLinks = navigationLinks.filter((link) => {
+    if (link.href === "/learn" || link.href === "/library" || link.href === "/rewards" || link.href === "/rewards/manage") return enabledModules.includes("hanzi");
+    if (link.href.startsWith("/poems")) return enabledModules.includes("poem");
+    if (link.href.startsWith("/music")) return enabledModules.includes("music");
+    if (link.href.startsWith("/catechism")) return enabledModules.includes("catechism");
+    if (link.href.startsWith("/kids-english")) return enabledModules.includes("kids_english");
+    return true;
+  });
 
   // 只预取用户即将访问的目标，避免同时读取所有模块，挤占当前页面的数据库请求。
   function prefetchTarget(href: string) {
     if (href === pathname) return;
-    const now = Date.now();
+    const now = window.performance.now();
     if (now - (prefetchedAt.current.get(href) ?? 0) < 30000) return;
     prefetchedAt.current.set(href, now);
     router.prefetch(href);
@@ -128,7 +148,7 @@ export function AppShell({ email, isAdmin, isOwner, children }: { email: string;
   return (
     <main className="shell">
       <header className="topbar">
-        <Link href="/learn" prefetch={false} className={`brand ${styles.control}`} aria-label="字芽首页" onPointerEnter={() => prefetchTarget("/learn")} onFocus={() => prefetchTarget("/learn")} onTouchStart={() => prefetchTarget("/learn")} onNavigate={(event) => navigateTo("/learn", "学一学", event)}>
+        <Link href={homeHref} prefetch={false} className={`brand ${styles.control}`} aria-label="字芽首页" onNavigate={(event) => navigateTo(homeHref, "首页", event)}>
           <span className="brand-mark">字</span>
           <span>字芽</span>
         </Link>
@@ -136,7 +156,7 @@ export function AppShell({ email, isAdmin, isOwner, children }: { email: string;
           <button ref={menuTriggerRef} className={`module-trigger ${styles.control}`} type="button" aria-expanded={menuOpen} aria-controls="learning-modules" onClick={() => setMenuOpen((open) => !open)}>学习模块 <span aria-hidden="true">{menuOpen ? "⌃" : "⌄"}</span></button>
           {menuOpen && <div className="module-menu" id="learning-modules">
             <p>选择学习内容</p>
-            {availableModules.map((link) => <Link key={link.href} href={link.href} prefetch={false} className={`${styles.control} ${pathname.startsWith(link.href) ? "active" : ""}`} aria-current={pathname.startsWith(link.href) ? "page" : undefined} onPointerEnter={() => prefetchTarget(link.href)} onFocus={() => prefetchTarget(link.href)} onTouchStart={() => prefetchTarget(link.href)} onNavigate={(event) => navigateTo(link.href, link.label, event)}><span>{link.mark}</span><strong>{link.label}<small>{link.description}</small></strong></Link>)}
+            {availableModules.length ? availableModules.map((link) => <Link key={link.href} href={link.href} prefetch={false} className={`${styles.control} ${pathname.startsWith(link.href) ? "active" : ""}`} aria-current={pathname.startsWith(link.href) ? "page" : undefined} onPointerEnter={() => prefetchTarget(link.href)} onFocus={() => prefetchTarget(link.href)} onTouchStart={() => prefetchTarget(link.href)} onNavigate={(event) => navigateTo(link.href, link.label, event)}><span>{link.mark}</span><strong>{link.label}<small>{link.description}</small></strong></Link>) : <p>暂未开通模块，请联系 owner。</p>}
           </div>}
         </div>
         <span className="account">{email}</span>
@@ -147,7 +167,7 @@ export function AppShell({ email, isAdmin, isOwner, children }: { email: string;
       <section className="page">{children}</section>
       <ActivityTracker />
       <nav className="bottom-nav" aria-label="主导航">
-        {navigationLinks.map((link) => (
+        {(visibleNavigationLinks.length ? visibleNavigationLinks : [{ href: homeHref, label: "首页", icon: "芽" }]).map((link) => (
           <Link key={link.href} href={link.href} prefetch={false} className={`nav-link ${styles.control} ${pathname === link.href || (link.href.endsWith("/manage") && pathname.startsWith(`${link.href}/`)) ? "active" : ""} ${isNavigating && navigationTarget.href === link.href ? styles.pending : ""}`} aria-current={pathname === link.href ? "page" : undefined} aria-busy={isNavigating && navigationTarget.href === link.href} onPointerEnter={() => prefetchTarget(link.href)} onFocus={() => prefetchTarget(link.href)} onTouchStart={() => prefetchTarget(link.href)} onNavigate={(event) => navigateTo(link.href, link.label, event)}>
             <span className="nav-icon" aria-hidden="true">{isNavigating && navigationTarget.href === link.href ? <i className={styles.spinner} /> : link.icon}</span>
             <span>{isNavigating && navigationTarget.href === link.href ? "打开中…" : link.label}</span>

@@ -2,6 +2,8 @@ import Link from "next/link";
 import { PoemRecitationForm } from "@/components/poem-recitation-form";
 import { formatPoemDate, loadPoemProgress } from "@/lib/poems";
 import { createClient } from "@/lib/supabase/server";
+import { loadAccessContext } from "@/lib/access";
+import { requireChildModule } from "@/lib/module-access";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +20,9 @@ export default async function PoemDetailPage({ params, searchParams }: PageProps
   if (learnersError) return <section className="panel"><h1>诗词暂时打不开</h1><p className="error">{learnersError.message}</p></section>;
   const learner = learners?.find((item) => item.id === query.learner) ?? learners?.[0];
   if (!learner) return <section className="empty panel"><h1>先创建孩子档案</h1><Link className="primary" href="/parent">去家长页</Link></section>;
+  const { data: { user } } = await supabase.auth.getUser();
+  try { if (user) await requireChildModule(supabase,await loadAccessContext(supabase,user.id),user.id,learner.id,"poem"); }
+  catch (error) { return <section className="panel"><h1>这位孩子暂未开通诗词背诵</h1><p>{error instanceof Error ? error.message : "请联系 owner 开通"}</p></section>; }
   const { poems } = await loadPoemProgress(supabase, learner.id);
   const poem = poems.find((item) => item.id === poemId);
   if (!poem) return <section className="empty panel"><span className="empty-mark">卷</span><h1>没有找到这首诗</h1><p className="lede">它可能不属于 {learner.display_name} 的诗词册，或已经被移除。</p><Link className="secondary" href={`/poems?learner=${learner.id}`}>返回诗词册</Link></section>;

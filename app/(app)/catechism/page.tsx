@@ -3,6 +3,7 @@ import { buildCatechismQueue, catechismStageLabel, catechismStatus, formatCatech
 import { createClient } from "@/lib/supabase/server";
 import { loadAccessContext } from "@/lib/access";
 import { LearnerOptions, orderLearners } from "@/components/learner-options";
+import { requireChildModule } from "@/lib/module-access";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +44,8 @@ export default async function CatechismPage({ searchParams }: { searchParams: Se
   if (learnerError) return <section className="panel"><h1>要理问答还差最后一步</h1><p className="lede">请先在 Supabase SQL Editor 运行数据库脚本，再刷新页面。</p><p className="notice"><code>supabase/010_catechism_learning_mvp.sql</code></p><p className="error">{learnerError.message}</p></section>;
   const learner = learners?.find((row) => row.id === params.learner) ?? learners?.[0];
   if (!learner) return <section className="empty panel"><span className="empty-mark">问</span><h1>先创建孩子档案</h1><p className="lede">创建孩子后，就能分配要理问答并记录每次背诵。</p><Link className="primary" href="/parent">去家长页</Link></section>;
+  try { if (user) await requireChildModule(supabase,access,user.id,learner.id,"catechism"); }
+  catch (error) { return <section className="panel"><h1>这位孩子暂未开通要理问答</h1><p>{error instanceof Error ? error.message : "请联系 owner 开通"}</p></section>; }
 
   let loaded: Awaited<ReturnType<typeof loadCatechismProgress>>;
   try {

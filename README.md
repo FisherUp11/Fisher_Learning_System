@@ -39,6 +39,8 @@
 | [17_Resend密码恢复邮件配置教程.md](./17_Resend密码恢复邮件配置教程.md) | 忘记密码、Resend SMTP、Cloudflare 邮件 DNS、恢复模板与验收 | 所有者、部署者 |
 | [18_诗境守卫战模块说明.md](./18_诗境守卫战模块说明.md) | 电脑/手机诗词游戏、AI 地图、家长评分、018 SQL 与验收 | 家长、部署者、后续 AI Agent |
 | [19_操作反馈与音乐歌单优化说明.md](./19_操作反馈与音乐歌单优化说明.md) | 多选循环播放、关键操作反馈、CSV 防重边界与升级验收 | 家长、部署者、后续 AI Agent |
+| [24_50位孩子容量与Azure限额配置.md](./24_50位孩子容量与Azure限额配置.md) | 50 位孩子容量保护、Azure 分服务限额、管理员告警看板与扩容决策 | owner、部署者、后续 AI Agent |
+| [25_模块开通与儿童英语配置教程.md](./25_模块开通与儿童英语配置教程.md) | 账号/孩子模块开通、儿童英语 CSV、R2 视频关联与验收 | owner、家长、后续 AI Agent |
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | 当前代码边界、数据流、迭代约束与 AI Agent 交接说明 | 后续开发者 / AI Agent |
 
 ## 本次参考了什么
@@ -110,3 +112,11 @@ flowchart LR
 ## 邀请与用量升级（2026-09-26）
 
 完整最新版还需运行 [021_invitation_and_service_usage.sql](./supabase/021_invitation_and_service_usage.sql)，配置服务端 `SUPABASE_SECRET_KEY`（或 legacy service role key）后部署。邀请支持错误反馈、原链接重试与重复确认；owner 也可只填邮箱生成临时密码，首次登录强制改密。管理员从「管理中心 → 用量」查看各账号 AI / Speech 调用和计量，不读取私人学习正文。未完成 021/密钥配置会阻止新付费请求。详细步骤及账单统计边界见 [23 号说明](./23_安全邀请与AI语音用量配置.md)。
+
+## 50 位孩子容量保护（2026-10）
+
+在已有 021、022 的项目中，**先运行** [023_capacity_guard_50_learners.sql](./supabase/023_capacity_guard_50_learners.sql)，再部署本版代码。数据库限制同一空间最多 50 个孩子；Azure 文本、图片、朗读、识别按空间和账号设置原子请求上限，朗读/识别另有提交量日上限。管理首页与「使用与成本」显示接近容量、保护拦截和 Azure 429。家长概况改为单次准确聚合。具体阈值、Vercel/Supabase 套餐检查和真实验收见 [24 号说明](./24_50位孩子容量与Azure限额配置.md)。这些是应用保护，不是云平台账单或未经压测的 50 人同时在线保证。
+
+## 模块开通与儿童英语（024）
+
+先在 Supabase SQL Editor 整份运行 [024_module_access_and_kids_english.sql](./supabase/024_module_access_and_kids_english.sql)，再部署新版。owner 在“用户与家庭”分别开通账号与孩子可用模块；儿童英语另有 CSV 单词册、R2 课堂视频批量关联、每日单词卡和独立复习记录。旧账号/孩子的原模块权限由脚本回填，旧学习记录不删除。完整配置、R2 CORS、导入和验收见 [25 号教程](./25_模块开通与儿童英语配置教程.md)。

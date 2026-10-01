@@ -4,6 +4,7 @@ import { LibraryPriorityManager, type LibraryRowView } from "@/components/librar
 import { loadAccessContext } from "@/lib/access";
 import { orderLearners } from "@/components/learner-options";
 import { createClient } from "@/lib/supabase/server";
+import { requireChildModule } from "@/lib/module-access";
 
 export const dynamic = "force-dynamic";
 
@@ -55,6 +56,8 @@ export default async function LibraryPage({ searchParams }: { searchParams: Sear
   if (learnersError) return <section className="panel"><h1>字库暂时打不开</h1><p className="error">{learnersError.message}</p></section>;
   const learner = learners?.find((item) => item.id === params.learner) ?? learners?.[0];
   if (!learner) return <section className="empty panel"><span className="empty-mark">🌱</span><h1>先创建孩子档案</h1><p className="lede">创建档案并导入字册后，就能在这里维护内容。</p><Link className="primary" href="/parent">去家长页</Link></section>;
+  try { if (user) await requireChildModule(supabase,access,user.id,learner.id,"hanzi"); }
+  catch (error) { return <section className="panel"><h1>这位孩子暂未开通汉字学习</h1><p>{error instanceof Error ? error.message : "请联系 owner 开通"}</p></section>; }
 
   const { data: packageLinks, error: linksError } = await supabase
     .from("learner_content_packages")

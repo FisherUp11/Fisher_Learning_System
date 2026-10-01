@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { localDateInTimezone, type CatechismAttemptResult } from "@/lib/catechism";
 import type { CatechismFormState } from "@/lib/catechism-form-state";
 import { assertAdmin, loadAccessContext } from "@/lib/access";
+import { requireAccountModule, requireChildModule } from "@/lib/module-access";
 import { checkImportWrite, existingImportMessage, finishImportCollection, ImportProblem, prepareImportCollection, retryImportDatabaseCall } from "@/lib/import-safety";
 import { checkLength, checkSequence, ImportIssues, readCsvUpload, readImportTable, STABLE_KEY } from "@/lib/csv-import";
 
@@ -29,6 +30,7 @@ export async function importCatechismCollection(_previousState: CatechismFormSta
     const { supabase, user } = await authenticatedClient();
     const access = await loadAccessContext(supabase, user.id);
     if (!access) throw new Error("当前账号还没有学习空间");
+    if (!access.isAdmin) await requireAccountModule(supabase, access, user.id, "catechism");
     const learnerIds = [...new Set(formData.getAll("learner_ids").map(String).filter(Boolean))];
     const title = String(formData.get("collection_title") ?? "要理问答").trim().slice(0, 120);
     const englishTitle = cleanOptional(formData.get("english_title"), 180);
@@ -136,7 +138,8 @@ export async function recordCatechismAttempt(input: {
   requestId: string;
   note?: string;
 }) {
-  const { supabase } = await authenticatedClient();
+  const { supabase, user } = await authenticatedClient();
+  await requireChildModule(supabase, await loadAccessContext(supabase,user.id), user.id, input.learnerId, "catechism");
   const { data: learner, error: learnerError } = await supabase
     .from("learner_profiles")
     .select("id,timezone")

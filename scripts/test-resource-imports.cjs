@@ -126,13 +126,15 @@ function harness(role = "owner") {
     cache.set(relative, fixtureModule.exports);
     const customRequire = (id) => {
       if (id === "@/lib/import-safety") return load("lib/import-safety.ts");
+      if (id === "@/lib/csv-import") return load("lib/csv-import.ts");
       if (id === "@/lib/supabase/server") return { createClient: async () => supabase };
       if (id === "@/lib/access") return { loadAccessContext: async () => context };
+      if (id === "@/lib/module-access") return { requireAccountModule: async () => {}, requireChildModule: async () => {} };
       if (id === "next/cache") return { revalidatePath: () => {} };
       if (id === "@/lib/reward-service" || id === "@/lib/catechism") return {};
       return require(id);
     };
-    vm.runInNewContext(compiled, { module: fixtureModule, exports: fixtureModule.exports, require: customRequire, console: { error: () => {} }, File, FormData, crypto, Date, Map, Set, setTimeout }, { filename });
+    vm.runInNewContext(compiled, { module: fixtureModule, exports: fixtureModule.exports, require: customRequire, console: { error: () => {} }, File, FormData, TextDecoder, crypto, Date, Map, Set, setTimeout }, { filename });
     return fixtureModule.exports;
   }
   const actions = load("lib/actions.ts");

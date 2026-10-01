@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import { loadAccessContext } from "@/lib/access";
+import { loadAccountModules } from "@/lib/module-access";
 
 export const dynamic = "force-dynamic";
 
@@ -13,5 +14,6 @@ export default async function AuthenticatedLayout({ children }: { children: Reac
   if (!access) redirect("/join");
   const { data: profile } = await supabase.from("workspace_user_profiles").select("must_change_password").eq("user_id", user.id).maybeSingle();
   if (profile?.must_change_password) redirect("/account/change-password");
-  return <AppShell email={user.email ?? "家长"} isAdmin={access.isAdmin} isOwner={access.isOwner}>{children}</AppShell>;
+  const enabledModules = await loadAccountModules(supabase, access, user.id);
+  return <AppShell email={user.email ?? "家长"} isAdmin={access.isAdmin} isOwner={access.isOwner} enabledModules={enabledModules}>{children}</AppShell>;
 }

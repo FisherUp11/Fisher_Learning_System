@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { createClient } from "@/lib/supabase/server";
 import { claimHanziCompletionReward, registerActivityReward } from "@/lib/reward-service";
 import { loadAccessContext } from "@/lib/access";
+import { requireAccountModule, requireChildModule } from "@/lib/module-access";
 import { checkImportWrite, existingImportMessage, finishImportCollection, importFailure, ImportProblem, prepareImportCollection, retryImportDatabaseCall, type ImportResult } from "@/lib/import-safety";
 import { checkLength, checkSequence, derivedPoemKey, ImportIssues, readCsvUpload, readImportTable as readCsvRows, STABLE_KEY } from "@/lib/csv-import";
 
@@ -95,7 +96,8 @@ function normalizeReviewLimit(value: FormDataEntryValue | null, fallback: number
 
 export async function loadTodayQueue(learnerId: string): Promise<QueueLoadResult> {
   try {
-    const { supabase } = await authenticatedClient();
+    const { supabase, user } = await authenticatedClient();
+    await requireChildModule(supabase, await loadAccessContext(supabase,user.id), user.id, learnerId, "hanzi");
     const { data, error } = await supabase.rpc("get_today_queue", { p_learner_id: learnerId });
     if (error) {
       console.error("[learn/queue] get_today_queue failed", {
@@ -129,7 +131,8 @@ export async function answerQueueItem(input: {
   requestId: string;
   assisted: boolean;
 }) {
-  const { supabase } = await authenticatedClient();
+  const { supabase, user } = await authenticatedClient();
+  await requireChildModule(supabase, await loadAccessContext(supabase,user.id), user.id, input.learnerId, "hanzi");
   const { data, error } = await supabase.rpc("answer_queue_item", {
     p_learner_id: input.learnerId,
     p_session_item_id: input.sessionItemId,
@@ -407,6 +410,7 @@ export async function importCharacters(formData: FormData): Promise<ImportResult
     const { supabase, user } = await authenticatedClient();
     const access = await loadAccessContext(supabase, user.id);
     if (!access) throw new ImportProblem("当前账号还没有学习空间");
+    if (!access.isAdmin) await requireAccountModule(supabase, access, user.id, "hanzi");
     const learnerId = String(formData.get("learner_id") ?? "");
     const title = String(formData.get("package_title") ?? "学前识字包").trim().slice(0, 60);
     const file = formData.get("csv_file");
@@ -542,6 +546,7 @@ export async function importPoems(formData: FormData): Promise<ImportResult> {
     const { supabase, user } = await authenticatedClient();
     const access = await loadAccessContext(supabase, user.id);
     if (!access) throw new ImportProblem("当前账号还没有学习空间");
+    if (!access.isAdmin) await requireAccountModule(supabase, access, user.id, "poem");
     const learnerId = String(formData.get("learner_id") ?? "");
     const title = String(formData.get("poem_collection_title") ?? "第一批古诗词").trim().slice(0, 80);
     const file = formData.get("poem_csv_file");
@@ -697,6 +702,7 @@ export async function recordPoemRecitation(formData: FormData) {
   const scoreValue = String(formData.get("score") ?? "").trim();
   const note = String(formData.get("note") ?? "").trim().slice(0, 300) || null;
   if (!learnerId || !poemId) throw new Error("缺少孩子或诗词信息");
+  await requireChildModule(supabase, await loadAccessContext(supabase,user.id), user.id, learnerId, "poem");
   const score = scoreValue ? Number(scoreValue) : null;
   if (score !== null && (!Number.isInteger(score) || score < 1 || score > 10)) throw new Error("掌握评分请选择 1–10 分，或暂不评分");
 

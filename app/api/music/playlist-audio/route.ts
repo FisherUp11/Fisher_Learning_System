@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createR2ReadUrl, isR2Configured } from "@/lib/r2";
 import { createClient } from "@/lib/supabase/server";
+import { loadAccessContext } from "@/lib/access";
+import { requireChildModule } from "@/lib/module-access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,6 +25,7 @@ export async function GET(request: Request) {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return fail("请先登录后播放", 401);
+    await requireChildModule(supabase, await loadAccessContext(supabase,user.id), user.id, learnerId, "music");
 
     // All reads retain the caller's RLS context; an arbitrary learner or asset
     // cannot be used to obtain another family's private file URL.

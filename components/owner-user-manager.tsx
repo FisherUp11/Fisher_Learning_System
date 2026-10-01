@@ -8,12 +8,15 @@ import {
   resetWorkspaceUserPassword,
   updateWorkspaceUser,
   type UserManagementState,
+  setModuleAccess,
 } from "@/lib/user-management-actions";
+import { ACCOUNT_MODULES, CHILD_MODULES, MODULE_LABELS } from "@/lib/module-keys";
+import { FeedbackForm } from "@/components/feedback-form";
 
 const initialState: UserManagementState = { status: "idle", message: "" };
 
 type FamilyOption = { id: string; name: string };
-type ChildPulse = { id: string; name: string; stable: number; due: number; todayRemaining: number };
+type ChildPulse = { id: string; name: string; stable: number; due: number; todayRemaining: number | null };
 
 function ResultNotice({ state }: { state: UserManagementState }) {
   const [copyMessage, setCopyMessage] = useState("");
@@ -40,17 +43,23 @@ export function OwnerUserCreateForm({ families }: { families: FamilyOption[] }) 
   </form>;
 }
 
-export function OwnerUserCard({ member, families, childPulses }: {
+export function OwnerUserCard({ member, families, childPulses, accountModules, childModules }: {
   member: { userId: string; email: string; displayName: string; role: string; status: string; familyId: string | null; mustChangePassword: boolean; lastSignInLabel: string; isOwner: boolean };
   families: FamilyOption[];
   childPulses: ChildPulse[];
+  accountModules: string[];
+  childModules: Record<string, string[]>;
 }) {
   const [updateState, updateAction, updatePending] = useActionState(updateWorkspaceUser, initialState);
   const [resetState, resetAction, resetPending] = useActionState(resetWorkspaceUserPassword, initialState);
   const [role, setRole] = useState(member.role);
   return <article className="owner-user-card">
     <div className="owner-user-heading"><span className="resource-kind">{member.isOwner ? "主" : member.role === "admin" ? "管" : "家"}</span><div><h3>{member.displayName}</h3><p>{member.email} · {member.isOwner ? "所有者" : member.role === "admin" ? "管理员" : "家长"} · {member.status === "active" ? "正常" : "已停用"}</p><small>最近登录：{member.lastSignInLabel}{member.mustChangePassword ? " · 等待首次修改密码" : ""}</small></div></div>
-    {childPulses.length > 0 && <div className="member-child-pulses">{childPulses.map((child) => <div key={child.id}><strong>{child.name}</strong><span>稳定认识 {child.stable}</span><span>到期 {child.due}</span><span>今日剩余 {child.todayRemaining}</span></div>)}</div>}
+    {childPulses.length > 0 && <div className="member-child-pulses">{childPulses.map((child) => <div key={child.id}><strong>{child.name}</strong><span>稳定认识 {child.stable}</span><span>到期 {child.due}</span><span>今日剩余 {child.todayRemaining ?? "—"}</span></div>)}</div>}
+    <details className="module-access-settings"><summary>开通学习模块</summary><p className="helper-text">账号开通后，儿童模块还需要单独为孩子开通，再由管理员分配具体字册或课程。关闭只隐藏入口并阻止新的学习，不删除历史。</p>
+      <div className="module-access-grid">{ACCOUNT_MODULES.map((key) => { const enabled = accountModules.includes(key); return <FeedbackForm key={key} action={setModuleAccess} className="module-access-toggle" pendingLabel="正在更新权限…" successMessage="已更新权限"><input type="hidden" name="user_id" value={member.userId} /><input type="hidden" name="module_key" value={key} /><input type="hidden" name="enabled" value={String(!enabled)} /><span><strong>{MODULE_LABELS[key]}</strong><small>{enabled ? "已开通" : "未开通"}</small></span><button className={enabled ? "secondary compact" : "primary compact"} disabled={member.isOwner && enabled}>{enabled ? "关闭" : "开通"}</button></FeedbackForm>; })}</div>
+      {childPulses.map((child) => <div className="child-module-section" key={child.id}><h4>{child.name} · 儿童模块</h4><div className="module-access-grid">{CHILD_MODULES.map((key) => { const enabled = (childModules[child.id] ?? []).includes(key); return <FeedbackForm key={key} action={setModuleAccess} className="module-access-toggle" pendingLabel="正在更新权限…"><input type="hidden" name="user_id" value={member.userId} /><input type="hidden" name="learner_id" value={child.id} /><input type="hidden" name="module_key" value={key} /><input type="hidden" name="enabled" value={String(!enabled)} /><span><strong>{MODULE_LABELS[key]}</strong><small>{enabled ? "已开通" : "未开通"}</small></span><button className={enabled ? "secondary compact" : "primary compact"}>{enabled ? "关闭" : "开通"}</button></FeedbackForm>; })}</div></div>)}
+    </details>
     {!member.isOwner && <details><summary>修改账号权限与家庭</summary><form action={updateAction} className="admin-user-form compact-form"><input type="hidden" name="user_id" value={member.userId} /><div className="field-grid"><label>账号称呼<input name="display_name" defaultValue={member.displayName} required /></label><label>角色<select name="role" value={role} onChange={(event) => setRole(event.target.value)}><option value="parent">家长</option><option value="admin">管理员</option></select></label></div><div className="field-grid">{role === "parent" ? <label>所属家庭<select name="family_id" defaultValue={member.familyId ?? ""} required><option value="" disabled>请选择家庭</option>{families.map((family) => <option key={family.id} value={family.id}>{family.name}</option>)}</select></label> : <span />}<label>状态<select name="status" defaultValue={member.status}><option value="active">正常</option><option value="suspended">停用（保留资料）</option></select></label></div><button className="secondary" disabled={updatePending}>{updatePending ? "保存中…" : "保存账号设置"}</button><ResultNotice state={updateState} /></form>
       <form action={resetAction} className="password-reset-row" onSubmit={e => { if (!confirm(`确认重置 ${member.email} 的密码？原密码将不能用于新的登录。`)) e.preventDefault(); }}><input type="hidden" name="user_id" value={member.userId} /><div><strong>忘记密码？</strong><p>生成新的临时密码，并要求下次登录后重新设置。</p></div><button className="text-button danger" disabled={resetPending}>{resetPending ? "重置中…" : "重置临时密码"}</button></form><ResultNotice state={resetState} />
     </details>}
@@ -60,6 +69,6 @@ export function OwnerUserCard({ member, families, childPulses }: {
 export function InitialPasswordForm() {
   const [state, action, pending] = useActionState(changeInitialPassword, initialState);
   const router = useRouter();
-  useEffect(() => { if (state.status === "success") { const timer = window.setTimeout(() => router.replace("/learn"), 500); return () => window.clearTimeout(timer); } }, [router, state.status]);
+  useEffect(() => { if (state.status === "success") { const timer = window.setTimeout(() => router.replace("/"), 500); return () => window.clearTimeout(timer); } }, [router, state.status]);
   return <form action={action} className="login-form"><label>新密码<input name="password" type="password" minLength={12} autoComplete="new-password" required /></label><label>再次输入新密码<input name="password_confirmation" type="password" minLength={12} autoComplete="new-password" required /></label><p className="helper-text">至少 12 位，同时包含字母和数字。请不要继续使用家长收到的临时密码。</p><button className="primary" disabled={pending}>{pending ? "正在设置…" : "保存新密码并进入系统"}</button><ResultNotice state={state} /></form>;
 }

@@ -57,7 +57,7 @@ export function CatechismStudyExperience({ learnerId, learnerName, initialQueue,
     setError("");
     setSpeaking(label);
     try {
-      const response = await fetch("/api/speech", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, lang: language, slow: true, learner: learnerId }) });
+      const response = await fetch("/api/speech", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, lang: language, slow: true, learner: learnerId, module: "catechism" }) });
       if (!response.ok) throw new Error("azure-unavailable");
       const source = URL.createObjectURL(await response.blob());
       audioUrlRef.current = source;

@@ -14,6 +14,7 @@ const modules = {
   music: { label: "音乐内容", table: "music_items", assignmentTable: "learner_music_items", resourceKey: "item_id" },
   music_folder: { label: "音乐文件夹", table: "music_folders", assignmentTable: "learner_music_folders", resourceKey: "folder_id" },
   catechism: { label: "要理问答册", table: "catechism_collections", assignmentTable: "learner_catechism_collections", resourceKey: "collection_id" },
+  kids_english: { label: "儿童英语单词册", table: "kids_english_books", assignmentTable: "learner_kids_english_books", resourceKey: "book_id" },
 } as const;
 
 export default async function AdminAssignmentsPage({ searchParams }: { searchParams: Promise<{ learner?: string; module?: string }> }) {
