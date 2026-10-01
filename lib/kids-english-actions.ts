@@ -5,10 +5,15 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { loadAccessContext } from "@/lib/access";
 import { requireAccountModule, requireChildModule } from "@/lib/module-access";
+import { ImportProblem } from "@/lib/import-safety";
 import { checkLength, checkSequence, ImportIssues, readCsvUpload, readImportTable } from "@/lib/csv-import";
 
 export type KidsEnglishFeedback = { status: "success" | "error"; message: string; details?: string[] };
-const failed = (error: unknown): KidsEnglishFeedback => ({ status: "error", message: error instanceof Error ? error.message : "操作失败" });
+const failed = (error: unknown): KidsEnglishFeedback => ({
+  status: "error",
+  message: error instanceof Error ? error.message : "操作失败",
+  details: error instanceof ImportProblem ? error.details : undefined,
+});
 
 async function session() {
   const supabase = await createClient();
@@ -39,7 +44,7 @@ export async function importKidsEnglishBook(formData: FormData): Promise<KidsEng
       const example_zh = row.get("example_zh");
       const part_of_speech = row.get("part_of_speech");
       const sequence = checkSequence(issues, row, index + 1, seenSequence);
-      if (!/^[a-zA-Z][a-zA-Z '-]*$/.test(word)) issues.add(row.line, "单词请使用英文字母、空格、连字符或撇号");
+      if (!/^[a-zA-Z][a-zA-Z '-]*[.!?]?$/.test(word)) issues.add(row.line, "单词或短语请使用英文字母、空格、连字符或撇号，末尾可有一个句号、问号或感叹号");
       if (!phonetic || !meaning_zh || !example_en) issues.add(row.line, "音标、中文意思和英文例句不能为空");
       if (!/[a-zA-Z]/.test(example_en)) issues.add(row.line, "英文例句需要包含英文单词");
       for (const [label, value, max] of [["单词",word,100],["音标",phonetic,100],["中文意思",meaning_zh,300],["英文例句",example_en,500],["例句中文",example_zh,500],["词性",part_of_speech,40]] as const) checkLength(issues,row,label,value,max);

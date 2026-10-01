@@ -1,0 +1,23 @@
+word（单词）,phonetic（音标）,meaning_zh（中文意思）,example_en（英文例句）,example_zh（例句中文）,part_of_speech（词性）,sequence（顺序）
+shape,/ʃeɪp/,形状,What shape is it?,这是什么形状？,noun,1
+circle,/ˈsɜː.kəl/,圆形；圆圈,This is a circle.,这是一个圆形。,noun,2
+triangle,/ˈtraɪ.æŋ.ɡəl/,三角形,I can see a triangle.,我看见一个三角形。,noun,3
+square,/skweər/,正方形,This is a square.,这是一个正方形。,noun,4
+rectangle,/ˈrek.tæŋ.ɡəl/,长方形；矩形,This is a rectangle.,这是一个长方形。,noun,5
+oval,/ˈəʊ.vəl/,椭圆形,The egg is oval.,这个鸡蛋是椭圆形的。,noun / adjective,6
+diamond,/ˈdaɪ.ə.mənd/,菱形,I can see a diamond.,我看见一个菱形。,noun,7
+heart,/hɑːt/,心形；心,This is a heart.,这是一个心形。,noun,8
+star,/stɑːr/,星形；星星,I can see a star.,我看见一颗星星。,noun,9
+cross,/krɒs/,十字形；十字,This is a cross.,这是一个十字形。,noun,10
+pentagon,/ˈpen.tə.ɡən/,五边形,This is a pentagon.,这是一个五边形。,noun,11
+hexagon,/ˈhek.sə.ɡən/,六边形,This is a hexagon.,这是一个六边形。,noun,12
+heptagon,/ˈhep.tə.ɡən/,七边形,This is a heptagon.,这是一个七边形。,noun,13
+octagon,/ˈɒk.tə.ɡən/,八边形,This is an octagon.,这是一个八边形。,noun,14
+clock,/klɒk/,时钟；钟,Look at the clock.,看看时钟。,noun,15
+time,/taɪm/,时间,What time is it?,现在几点？,noun,16
+o'clock,/əˈklɒk/,……点钟,It is eight o'clock.,现在是八点钟。,adverb,17
+go to school,/ɡəʊ tə skuːl/,去上学,It is time to go to school.,该去上学了。,verb phrase,18
+play guitar,/pleɪ ɡɪˈtɑːr/,弹吉他,It is time to play guitar.,该弹吉他了。,verb phrase,19
+sing some more,/sɪŋ səm mɔːr/,再唱一会儿；继续唱,Let's sing some more.,我们再唱一会儿吧。,verb phrase,20
+go to bed,/ɡəʊ tə bed/,上床睡觉,It is time to go to bed.,该上床睡觉了。,verb phrase,21
+Good night,/ɡʊd naɪt/,晚安！,"Good night, Hudson",哈森，晚安！,expression,22
