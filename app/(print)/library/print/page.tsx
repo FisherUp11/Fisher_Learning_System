@@ -8,17 +8,24 @@ import styles from "./print.module.css";
 
 export const dynamic = "force-dynamic";
 
-type PrintMode = "all" | "recent30" | "recent60" | "ongoing";
-type PrintRow = { id: string; hanzi: string; stage: number; attempt_count: number; due: boolean };
+type PrintMode = "all" | "recent30" | "recent60" | "ongoing" | "upcoming7" | "upcoming14";
+type PrintRow = {
+  id: string; hanzi: string; stage?: number; attempt_count?: number; due?: boolean;
+  pinyin_marked?: string; is_priority?: boolean; planned_order?: number;
+};
 type PrintSheet = {
-  printed_on: string; learned_total: number; selected_total: number;
-  stable_total: number; mastered_total: number; due_total: number; rows: PrintRow[];
+  printed_on?: string; learned_total?: number; selected_total: number;
+  stable_total?: number; mastered_total?: number; due_total?: number;
+  as_of?: string; starts_on?: string; ends_on?: string;
+  daily_goal?: number; potential_slots?: number; available_total?: number;
+  priority_total?: number; rows: PrintRow[];
 };
 
 const PAGE_SIZE = 176;
 const LABELS: Record<PrintMode, string> = {
   all: "全部学过", recent30: "最近 30 天练过",
   recent60: "最近 60 天练过", ongoing: "所有尚未熟练",
+  upcoming7: "未来 7 天预计新字", upcoming14: "未来 14 天预计新字",
 };
 
 function stageLabel(stage: number, due: boolean) {
@@ -51,15 +58,21 @@ export default async function HanziPrintPage({
   }
 
   const mode: PrintMode = params.mode === "recent30" || params.mode === "recent60" || params.mode === "ongoing"
+    || params.mode === "upcoming7" || params.mode === "upcoming14"
     ? params.mode : "all";
-  const onlyUnmastered = params.unmastered === "1";
-  const { data, error } = await supabase.rpc("get_hanzi_print_sheet", {
-    p_learner_id: learner.id, p_mode: mode, p_only_unmastered: onlyUnmastered,
-  });
+  const isUpcoming = mode === "upcoming7" || mode === "upcoming14";
+  const onlyUnmastered = !isUpcoming && params.unmastered === "1";
+  const { data, error } = isUpcoming
+    ? await supabase.rpc("get_hanzi_upcoming_print_sheet", {
+      p_learner_id: learner.id, p_days: mode === "upcoming14" ? 14 : 7,
+    })
+    : await supabase.rpc("get_hanzi_print_sheet", {
+      p_learner_id: learner.id, p_mode: mode, p_only_unmastered: onlyUnmastered,
+    });
   if (error || !data) return <main className={styles.errorPage}>
     <h1>暂时无法生成学习表</h1>
     <p>{error?.message ?? "没有取得学习记录"}</p>
-    <p>请确认已在 Supabase 执行 026 号 SQL，并确认这位孩子已开通汉字模块。</p>
+    <p>请确认已在 Supabase 执行 {isUpcoming ? "027" : "026"} 号 SQL，并确认这位孩子已开通汉字模块。</p>
     <Link href="/library">返回字库</Link>
   </main>;
   const sheet = data as PrintSheet;
@@ -67,6 +80,7 @@ export default async function HanziPrintPage({
   const pages = Array.from({ length: Math.max(1, Math.ceil(rows.length / PAGE_SIZE)) }, (_, index) =>
     rows.slice(index * PAGE_SIZE, (index + 1) * PAGE_SIZE));
   const rangeLabel = LABELS[mode] + (onlyUnmastered && mode !== "ongoing" ? " · 尚未熟练" : "");
+  const dateLabel = isUpcoming ? `${sheet.starts_on}—${sheet.ends_on}` : sheet.printed_on;
 
   return <main className={styles.page}>
     <div className={styles.toolbar}>
@@ -81,34 +95,54 @@ export default async function HanziPrintPage({
           <option value="recent30">最近 30 天练过</option>
           <option value="recent60">最近 60 天练过</option>
           <option value="ongoing">所有尚未熟练</option>
+          <option value="upcoming7">未来 7 天预计新字</option>
+          <option value="upcoming14">未来 14 天预计新字</option>
         </select></label>
-        <label className={styles.checkbox}><input type="checkbox" name="unmastered" value="1" defaultChecked={onlyUnmastered} />只看尚未到阶段 7</label>
+        {!isUpcoming && <label className={styles.checkbox}><input type="checkbox" name="unmastered" value="1" defaultChecked={onlyUnmastered} />只看尚未到阶段 7</label>}
         <button type="submit" className={styles.filterButton}>更新预览</button>
       </form>
       <PrintAction className={styles.printButton} />
       <Link href={`/library?learner=${learner.id}`} className={styles.back}>返回字库</Link>
     </div>
-    <p className={styles.screenNote}>同一个字跨字册只印一次。纸上的勾选供线下复核，不会自动改变系统阶段；阶段 7 仍会定期复习。</p>
+    <p className={styles.screenNote}>{isUpcoming
+      ? "这是按当前每天新字数量和字册顺序生成的候选清单，不会提前排入学习队列；复习积压、重点字调整或字册变动都可能改变实际学习日期。"
+      : "同一个字跨字册只印一次。纸上的勾选供线下复核，不会自动改变系统阶段；阶段 7 仍会定期复习。"}</p>
     <div className={styles.sheets}>
       {pages.map((pageRows, pageIndex) => <section className={styles.sheet} key={pageIndex} aria-label={`第 ${pageIndex + 1} 页`}>
         <header className={styles.sheetHead}>
-          <div><p className={styles.kicker}>字芽 · 学习足迹</p><h1>{learner.display_name} 的汉字学习表</h1><p>{rangeLabel} · {sheet.printed_on}</p></div>
-          <div className={styles.summary}><strong>{sheet.selected_total}</strong><span>本次打印</span></div>
+          <div><p className={styles.kicker}>字芽 · {isUpcoming ? "下一程" : "学习足迹"}</p><h1>{learner.display_name} 的{isUpcoming ? "新字预习表" : "汉字学习表"}</h1><p>{rangeLabel} · {dateLabel}</p></div>
+          <div className={styles.summary}><strong>{sheet.selected_total}</strong><span>{isUpcoming ? "预计候选" : "本次打印"}</span></div>
         </header>
         <div className={styles.metrics}>
-          <span>累计学过 <b>{sheet.learned_total}</b></span>
-          <span>阶段 5–6 <b>{sheet.stable_total}</b></span>
-          <span>阶段 7 <b>{sheet.mastered_total}</b></span>
-          <span>已到期 <b>{sheet.due_total}</b></span>
+          {isUpcoming ? <>
+            <span>当前目标 <b>{sheet.daily_goal}</b> 字／天</span>
+            <span>最多 <b>{sheet.potential_slots}</b> 个名额</span>
+            <span>未学候选 <b>{sheet.available_total}</b></span>
+            <span>本次重点 <b>{sheet.priority_total}</b></span>
+          </> : <>
+            <span>累计学过 <b>{sheet.learned_total}</b></span>
+            <span>阶段 5–6 <b>{sheet.stable_total}</b></span>
+            <span>阶段 7 <b>{sheet.mastered_total}</b></span>
+            <span>已到期 <b>{sheet.due_total}</b></span>
+          </>}
         </div>
         {pageRows.length ? <div className={styles.grid}>
-          {pageRows.map((row) => <div className={styles.cell} key={row.id} title={`${row.hanzi}：${stageLabel(row.stage, row.due)}，练习 ${row.attempt_count} 次`}>
+          {pageRows.map((row) => <div className={styles.cell} key={row.id} title={isUpcoming
+            ? `${row.hanzi}：预计顺序 ${row.planned_order}${row.is_priority ? "，重点字" : ""}`
+            : `${row.hanzi}：${stageLabel(row.stage ?? 0, Boolean(row.due))}，练习 ${row.attempt_count} 次`}>
+            {isUpcoming && row.is_priority && <span className={styles.priority} aria-label="重点字">★</span>}
             <span className={styles.hanzi}>{row.hanzi}</span>
-            <span className={styles.cellMeta}>阶 {row.stage} · {row.attempt_count} 次{row.due ? " · 复" : ""}</span>
+            <span className={styles.cellMeta}>{isUpcoming
+              ? `${row.planned_order} · ${row.pinyin_marked ?? "待学"}`
+              : `阶 ${row.stage} · ${row.attempt_count} 次${row.due ? " · 复" : ""}`}</span>
             <span className={styles.check} aria-hidden="true" />
           </div>)}
-        </div> : <div className={styles.empty}>这个范围内暂时没有学过的字。试试“全部学过”或放宽日期范围。</div>}
-        <footer className={styles.sheetFooter}><span>阶段 0–4：正在记忆　/　5–6：稳定认识　/　7：熟练掌握　/　复：到期复习</span><span>{pageIndex + 1} / {pages.length}</span></footer>
+        </div> : <div className={styles.empty}>{isUpcoming
+          ? "目前没有符合条件的未学新字。可以检查孩子是否已分配、发布新字册。"
+          : "这个范围内暂时没有学过的字。试试“全部学过”或放宽日期范围。"}</div>}
+        <footer className={styles.sheetFooter}><span>{isUpcoming
+          ? "★ 重点字优先 · 仅供预习，不代表确定的学习日期；当天复习压力可能减少新字。"
+          : "阶段 0–4：正在记忆　/　5–6：稳定认识　/　7：熟练掌握　/　复：到期复习"}</span><span>{pageIndex + 1} / {pages.length}</span></footer>
       </section>)}
     </div>
   </main>;

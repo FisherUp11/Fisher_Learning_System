@@ -430,3 +430,7 @@ CLI 镜像 `supabase/migrations/20260925081549_adult_listening_courses.sql` 与 
 ## 15. 026 升级：汉字学习表打印与儿童英语新词节奏
 
 已完成 025 的项目先备份，在 Supabase SQL Editor **整段运行** [026_hanzi_print_and_kids_daily_limit.sql](./supabase/026_hanzi_print_and_kids_daily_limit.sql)，成功后再部署新版代码。本次新增打印 RPC、儿童英语节奏设置及队列补差额，不删除旧记录；无需新增环境变量、R2 桶或 Edge Function。家长从「册」打开 A4 打印页，在「儿童英语 → 内容工作台」设置今天／明天生效的新词数。完整操作和验收见 [27_汉字打印与儿童英语新词节奏.md](./27_汉字打印与儿童英语新词节奏.md)。
+
+## 16. 027 升级：未来一周／两周新字预习打印
+
+已完成 026 的项目先备份，在 Supabase SQL Editor **整段运行** [027_hanzi_upcoming_print.sql](./supabase/027_hanzi_upcoming_print.sql)，成功后再部署新版代码。不需要重跑 026，也没有新的环境变量。进入「册 → 打印学习表」测试未来 7／14 天选项。打印只是按当前设置预测候选，**不提前生成未来学习队列**；具体规则和验收见 [27 号教程](./27_汉字打印与儿童英语新词节奏.md)。

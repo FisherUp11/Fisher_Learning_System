@@ -555,3 +555,8 @@ SQL Editor 使用 `supabase/020_english_listening_courses.sql`；CLI 迁移镜�
 - 打印入口在 `app/(app)/library/page.tsx`，独立无应用导航的 `app/(print)/library/print/page.tsx` 提供浏览器 A4 预览与打印。`get_hanzi_print_sheet` 再次校验孩子汉字模块授权，将孩子**有真实作答**的汉字（包括后续解除字册分配的历史）汇总为单个 JSON 快照；当前有效字册仅用于排序，同字跨册去重，次数合计，状态取最近作答的那条。支持全量、最近 30／60 天、阶段未满 7，以及可叠加的未熟练筛选。纸质勾选不回写学习状态。不要受字库浏览页分页限制而截断打印。
 - `kids_english_learning_settings` 以 `learner_id` 为主键保存 `daily_new_limit` 与待生效目标/日期；只有授予孩子儿童英语模块的账号可读，修改须走 `set_kids_english_daily_limit`。`get_kids_english_queue` 在孩子时区的本地日确定生效目标：首次生成复习队列仍最多 10 条；当天提高目标只补入尚未学过且未在今日队列出现的差额，已完成/待完成项不删、答题 RPC 不改。事务级孩子+日期锁防止同时打开或保存造成重复。明日生效无需定时任务；到日期后读取即按待生效目标计算。
 - 先运行 [026 SQL](./supabase/026_hanzi_print_and_kids_daily_limit.sql) 再部署。页面和操作细节见 [27 号教程](./27_汉字打印与儿童英语新词节奏.md)；升级不需要新环境变量。
+
+### 11.13 未来 7／14 天预计新字打印（027）
+
+- `get_hanzi_upcoming_print_sheet(learner_id,days)` 是独立、只读、鉴权的 RPC，不修改 016 的汉字队列或 026 的历史打印 RPC。仅接受 7／14 天，先由 `private.can_use_learner_module(...,'hanzi')` 校验两层授权。候选须在有效分配且已发布/审核的字册中，没有孩子学习状态，也未进入孩子当地今天的任何队列。查询按重点字勾选时间、字册分配顺序、CSV 顺序排列，与当前 `get_today_queue` 的新字优先级相符；按 `daily_new_limit × days` 截取（最多 700 项），单个 JSON 快照返回，不受 Data API 默认行数限制。
+- 该 RPC **不推算未来复习积压、自适应降速和之后设置变动**，因此打印页必须持续标注“预计候选／非确定日期”，不得将序号显示为承诺的具体某天。它不调用 `get_today_queue`，不创建未来 `daily_sessions`，不会为了打印消耗今日名额。027 SQL 须在 026 后运行，使用说明见 [27 号教程](./27_汉字打印与儿童英语新词节奏.md)。

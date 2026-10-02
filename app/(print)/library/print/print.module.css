@@ -92,6 +92,7 @@
 }
 .hanzi { font: 600 23px/1.1 "Songti SC", "STSong", "Noto Serif SC", serif; color: #15291c; }
 .cellMeta { margin-top: .4mm; max-width: 100%; overflow: hidden; white-space: nowrap; font-size: 8px; line-height: 1; color: #576b5e; }
+.priority { position: absolute; top: .8mm; left: 1mm; color: #bc8a42; font-size: 9px; line-height: 1; }
 .check { position: absolute; top: 1mm; right: 1mm; width: 2.5mm; height: 2.5mm; border: 1px solid #a8bbaa; }
 .empty { padding: 35mm 10mm; text-align: center; color: #627767; font-size: 14px; }
 .sheetFooter { display: flex; justify-content: space-between; gap: 4mm; margin-top: auto; padding-top: 2mm; border-top: 1px solid #d9e2d8; font-size: 8px; color: #627767; }
