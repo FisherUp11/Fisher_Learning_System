@@ -4,6 +4,8 @@ import { meteredFetch } from "@/lib/metered-fetch";
 import type { DailyPlan, EnglishLesson } from "@/lib/adult-learning";
 import type { ListeningSession } from "@/lib/english-listening";
 import { listeningAudioText } from "@/lib/english-audio";
+import { loadAccessContext } from "@/lib/access";
+import { requireAccountModule } from "@/lib/module-access";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 const headers = { "Cache-Control": "private, no-store" };
@@ -13,6 +15,7 @@ export async function POST(request: Request) {
     const origin = request.headers.get("origin");
     if (origin && new URL(origin).host !== request.headers.get("host")) throw new Error("请求来源无效");
     const ctx = await adultContext();
+    await requireAccountModule(ctx.db, await loadAccessContext(ctx.db, ctx.user.id), ctx.user.id, "adult_english");
     if (request.headers.get("content-type")?.includes("multipart/form-data")) {
       if (Number(request.headers.get("content-length") ?? 0) > 1200000) throw new Error("录音请控制在 30 秒以内");
       const form = await request.formData(); const id = uuid(form.get("id"));
@@ -38,8 +41,11 @@ export async function POST(request: Request) {
     const b = await request.json(); let text = "";
     if (b.concept_id) {
       const concept = checked(await ctx.db.from("adult_english_concepts").select("phrase,example").eq("id",uuid(b.concept_id)).eq("owner_id",ctx.user.id).single());
-      if (b.field !== undefined && b.field !== "phrase" && b.field !== "example") throw new Error("朗读类型无效");
-      text = b.field === "example" ? concept.example : concept.phrase;
+      if (b.field !== undefined && !["phrase","example","source_quote"].includes(b.field)) throw new Error("朗读类型无效");
+      if (b.field === "source_quote") {
+        const link = checked(await ctx.db.from("adult_academic_source_concepts").select("source_quote").eq("source_id",uuid(b.academic_source_id)).eq("concept_id",uuid(b.concept_id)).eq("owner_id",ctx.user.id).single());
+        text = link.source_quote;
+      } else text = b.field === "example" ? concept.example : concept.phrase;
     } else if (b.session_id) {
       const session = checked(await ctx.db.from("adult_listening_sessions").select("*").eq("id",uuid(b.session_id)).eq("owner_id",ctx.user.id).single()) as ListeningSession;
       const target = String(b.target ?? "summary");

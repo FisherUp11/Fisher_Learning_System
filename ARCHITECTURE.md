@@ -560,3 +560,12 @@ SQL Editor 使用 `supabase/020_english_listening_courses.sql`；CLI 迁移镜�
 
 - `get_hanzi_upcoming_print_sheet(learner_id,days)` 是独立、只读、鉴权的 RPC，不修改 016 的汉字队列或 026 的历史打印 RPC。仅接受 7／14 天，先由 `private.can_use_learner_module(...,'hanzi')` 校验两层授权。候选须在有效分配且已发布/审核的字册中，没有孩子学习状态，也未进入孩子当地今天的任何队列。查询按重点字勾选时间、字册分配顺序、CSV 顺序排列，与当前 `get_today_queue` 的新字优先级相符；按 `daily_new_limit × days` 截取（最多 700 项），单个 JSON 快照返回，不受 Data API 默认行数限制。
 - 该 RPC **不推算未来复习积压、自适应降速和之后设置变动**，因此打印页必须持续标注“预计候选／非确定日期”，不得将序号显示为承诺的具体某天。它不调用 `get_today_queue`，不创建未来 `daily_sessions`，不会为了打印消耗今日名额。027 SQL 须在 026 后运行，使用说明见 [27 号教程](./27_汉字打印与儿童英语新词节奏.md)。
+
+### 11.14 父母专业英语（028）
+
+- 入口 `/english/academic` 仍受账号级 `adult_english` 模块授权保护，与会议英语并列；不新增儿童模块开关。完整使用与部署见 [28 号教程](./28_父母专业英语配置与使用.md)。
+- `adult_academic_courses → adult_academic_sources → adult_academic_chunks` 管理课程、整篇私有原文和可恢复的 AI 分段候选。导入按账号正文哈希去重；英文主体从原文确定性识别，Azure 每次只处理一段。AI 引文必须能在清理后的英文原文中找到；生成候选不等于发布词库。
+- 审核调用 `adult_academic_publish` 原子复用／新增 `adult_english_concepts`，写 `adult_academic_terms` 的规范词义映射和 `adult_academic_source_concepts` 的多来源关联。同形异义由家长在发布前选择；不得凭中文译文差异无条件新建第二张卡，也不得清空被复用的进度。
+- 学习继续使用 `adult_english_word_states(profile_id,concept_id)`，因此与会议英语相同词义共用阶段、次数与到期日；`adult_academic_daily_items` 独立保存专业英语当天队列，不消耗 `adult_listening_sessions`。`adult_academic_answer` 锁定当日词卡、按请求 UUID 幂等，首次新词需当天二次确认，复习首次答对可完成，答错最多降一级且随后正确不立即补级。正向间隔 1／3／7／14／30 天。
+- `app/api/adult/media/route.ts` 在朗读专业英语原句时必须按账号同时核对 `source_id + concept_id` 的来源关联；不能把前端任意文本直接送入 Speech。AI 提取使用 `adult.academic` 计费特征，其余成人付费保护与私有缓存照旧。
+- 028 是独立编号 SQL，依赖 019、020；先运行 SQL 再部署。新增表账号私有 RLS，跨账号复合外键、invoker RPC 与明确授权齐全。`scripts/test-adult-academic.cjs` 有纯文本测试；数据库集成测试仅在配置 PGlite 后运行。上线时还必须用两个真实登录账号验证隔离与真实 Azure 调用，不能把本地构建等同于线上验收。

@@ -78,6 +78,7 @@ export function AdultHub({ area, tab }: { area: "exercise" | "english"; tab: str
     <header className={s.hero}><div><span className={s.eyebrow}>{area === "exercise" ? "SMALL STEPS · TOGETHER" : "YOUR MEETINGS, YOUR ENGLISH"}</span><h1>{area === "exercise" ? "一起坚持" : "会议英语"}</h1><p>{area === "exercise" ? "孩子在成长，我们也为自己留一点时间。" : "把真实工作中的英文，练成下次开会时的从容。"}</p></div>
       {!!data?.profiles.length && <div className={s.profiles} aria-label="选择成人档案">{data.profiles.filter(p => !p.archived).map(p => <button key={p.id} disabled={pending} className={data.profile?.id === p.id ? s.selected : ""} onClick={() => select(p.id)} aria-pressed={data.profile?.id === p.id}>{p.name}</button>)}</div>}
     </header>
+    {area === "english" && <nav className={s.tabs} aria-label="父母英语学习方向"><Link className={`${s.button} ${s.primary}`} href="/english">会议英语</Link><Link className={s.button} href="/english/academic">专业英语 · 生物学等</Link></nav>}
     {pending && <div className={s.banner} role="status">{aiWaits[pendingAction] ? <WaitCountdown key={pendingAction} waitKey={`adult-${pendingAction}`} fallbackSeconds={aiWaits[pendingAction].seconds} label={aiWaits[pendingAction].label} /> : "正在处理，请稍候…"}</div>}
     {error && <div className={`${s.banner} ${s.error}`} role="alert">{error}<div><button className={s.button} disabled={pending} onClick={() => { setError(""); setLoading(true); setRefresh(n => n + 1); }}>重新加载</button></div></div>}
     {notice && <div className={s.banner} role="status">{notice}</div>}
