@@ -141,7 +141,7 @@ export default async function LibraryPage({ searchParams }: { searchParams: Sear
       </section>
 
       <section className="panel">
-        <div className="library-header"><div><h2>{learner.display_name} 的全部字库</h2><p className="library-meta">{overviewTitle} · 共 {totalCount} 个不同汉字 · 筛选到 {filteredCount} 个 · 每页 {PAGE_SIZE} 个</p></div></div>
+        <div className="library-header"><div><h2>{learner.display_name} 的全部字库</h2><p className="library-meta">{overviewTitle} · 共 {totalCount} 个不同汉字 · 筛选到 {filteredCount} 个 · 每页 {PAGE_SIZE} 个</p></div><Link className="secondary" href={`/library/print?learner=${learner.id}`} target="_blank" rel="noopener noreferrer">打印学习表 ↗</Link></div>
         {rows.length === 0 ? <p className="notice">没有找到符合条件的汉字。可以清除筛选条件，或先从全部字库勾选重点字。</p> : <LibraryPriorityManager key={rows.map((row) => `${row.character_id}:${row.is_priority ? 1 : 0}`).join("|")} rows={rows} learnerId={learner.id} selectedPackage={selectedPackage} totalPriorityCount={priorityCount} canManageContent={Boolean(access?.isAdmin)} />}
         <LibraryPagination learnerId={learner.id} query={query} status={status} attempts={attempts} priority={priority} packageId={packageId} page={currentPage} pageCount={pageCount} />
       </section>

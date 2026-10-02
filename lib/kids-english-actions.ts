@@ -79,6 +79,37 @@ export async function answerKidsEnglishWord(input: { learnerId: string; wordId: 
   return data as { passed?: boolean; remaining?: number; idempotent?: boolean };
 }
 
+export async function saveKidsEnglishDailyLimit(formData: FormData): Promise<KidsEnglishFeedback & { redirectTo?: string }> {
+  try {
+    const { supabase, user, access } = await session();
+    const learnerId = String(formData.get("learner_id") ?? "");
+    await requireChildModule(supabase, access, user.id, learnerId, "kids_english");
+    const amount = Number(formData.get("daily_new_limit"));
+    const effective = String(formData.get("effective") ?? "");
+    if (!Number.isInteger(amount) || amount < 1 || amount > 20 ||
+      (effective !== "today" && effective !== "tomorrow")) {
+      throw new Error("每天新词请选择 1～20 个，并选择“今天”或“明天”生效");
+    }
+    const { data, error } = await supabase.rpc("set_kids_english_daily_limit", {
+      p_learner_id: learnerId, p_daily_new_limit: amount, p_effective: effective,
+    });
+    if (error) throw new Error(error.message);
+    const result = data as { added_today?: number; today_assigned?: number };
+    revalidatePath("/kids-english/manage");
+    revalidatePath("/kids-english");
+    const bookId = String(formData.get("book_id") ?? "");
+    const query = new URLSearchParams({ learner: learnerId, saved: String(Date.now()) });
+    if (bookId) query.set("book", bookId);
+    return {
+      status: "success",
+      message: effective === "tomorrow"
+        ? `已预约：明天起每天安排 ${amount} 个新词；今天的学习卡保持不变。`
+        : `今天起目标为 ${amount} 个新词；本次补入 ${result?.added_today ?? 0} 个，今天累计已安排 ${result?.today_assigned ?? 0} 个。已安排的卡片不会被删除。`,
+      redirectTo: `/kids-english/manage?${query.toString()}`,
+    };
+  } catch (error) { return failed(error); }
+}
+
 export async function registerKidsEnglishVideo(input: { title: string; objectKey: string; originalName: string; contentType: string; byteSize: number }): Promise<KidsEnglishFeedback> {
   try {
     const { supabase, user, access } = await session();

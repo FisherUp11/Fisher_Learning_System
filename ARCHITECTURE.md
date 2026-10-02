@@ -539,7 +539,7 @@ SQL Editor 使用 `supabase/020_english_listening_courses.sql`；CLI 迁移镜�
 - `account_module_access` 与 `learner_module_access` 分离：成人英语/运动只需账号开通；汉字、诗词、音乐、要理、儿童英语同时需要账号与孩子开通。具体内容还需原有资源分配。owner 通过 `owner_set_module_access` 写入并记审计；客户端只能读授权，不能直接改开关。旧账号/孩子原模块权限在 024 中回填，新建默认关闭。贴纸跟随汉字，不单独授权。关闭模块保留历史。
 - 应用外壳按账号权限显示模块，模块 layout 拦截直接访问；具体孩子学习页与核心写入 action 再检查孩子层。Azure Speech 路由也要求携带孩子与模块，并在计费调用前校验两层开通。成人直接表写入增加 restrictive RLS；儿童英语内容与进度有独立 RLS，所有学习状态仅由鉴权 RPC 写入。历史旧模块的 security-definer RPC 会绕过表 RLS，因此 024 在汉字、诗词、音乐和要理的关键学习事实表增加写入触发器，关闭模块后直调旧 RPC 也不能继续写成绩。旧 RPC 的只读结果仍由原有家庭归属逻辑保护，未全部改为按模块授权过滤；下一次改写旧 RPC 时应把模块检查下沉到函数入口。
 - `kids_english_books/words` 为共享内容；`learner_kids_english_books` 管分配，`kids_english_videos` 与 `kids_english_word_videos` 为私有 R2 对象键和多对多链接。家长导入草稿由管理员审核；管理员可直接发布分配。`import_kids_english_book` 在数据库单事务完成指纹查重、内容插入和可选分配，避免半成品。
-- `get_kids_english_queue` 在孩子本地日期首次进入时安排最多 3 新 + 10 到期，不改旧汉字队列。`answer_kids_english_word` 锁定今日卡与状态，按请求 UUID 幂等记录；低阶段双确认、当天答错不限重试、一天只降一次、阶段 0～7 和 1/3/7/14/30/60/90 天间隔。后续如要可调每日量，须同时更新 learner 设置列、队列 RPC 与页面文案。
+- `get_kids_english_queue` 在孩子本地日期首次进入时安排默认最多 3 新 + 10 到期，不改旧汉字队列；026 起每日新词目标可为每个孩子单独调整为 1～20，见 11.12。`answer_kids_english_word` 锁定今日卡与状态，按请求 UUID 幂等记录；低阶段双确认、当天答错不限重试、一天只降一次、阶段 0～7 和 1/3/7/14/30/60/90 天间隔。
 - 视频上传走浏览器 → R2 预签名 PUT，Vercel 只签名、存元数据；播放 GET 先验证账号+孩子+词册+链接，再 307 到临时签名。默认私有桶，无公开域名。英文朗读复用现有 Azure Speech；图片/视频播放不自动记作答。
 - 部署顺序：备份 → SQL Editor 运行 `supabase/024_module_access_and_kids_english.sql` → 生产构建/部署 → owner 开通两层权限 → 审核分配单词册 → 真实账号/视频/复习验收。详见 [25 号教程](./25_模块开通与儿童英语配置教程.md)。仓库 CLI 未建立完整历史，本次仍以编号 SQL 为手动交付，不要把单份脚本当空库初始化。
 
@@ -549,3 +549,9 @@ SQL Editor 使用 `supabase/020_english_listening_courses.sql`；CLI 迁移镜�
 - `learner_family_maxims` 控制本家庭某孩子的具体条目；账号、孩子两层 `family_maxims` 模块开关还须同时启用。`family_maxim_states` 按孩子/条目/语种保存阶段及到期日，`family_maxim_attempts` 每次练习单独追加。中文与英文互不替代；`record_family_maxim_attempt` 在事务内重新验证家庭、模块与分配，锁状态并通过 UUID 幂等，阶段同日最多升/降一次。默认每天 1 新、3 复习，可在孩子页调整。
 - `family_maxim_shares` 是经过确认的**共享快照**，不含感悟、孩子解释或学习进度。家长提交待审，管理员只审核快照；另一个家庭主动收入时建立自己家庭的独立副本。撤回/归档阻止以后收入，但不改变既有副本。CSV 由 `import_family_maxims` 单事务追加，重复跳过且不覆盖父母感悟；UI 用现有 `FeedbackForm` 确认和成功/错误反馈。
 - 朗读复用 `/api/speech`：请求必须包含孩子与 `family_maxims` 模块，现有 Azure 计量与保护继续生效；失败退回浏览器语音。无额外付费模型、Storage 或 Edge Function。新代码先运行 [025 SQL](./supabase/025_family_maxims.sql) 再部署，逐步验收见 [26 号教程](./26_家中箴言配置与使用.md)。
+
+### 11.12 汉字打印与儿童英语新词节奏（026）
+
+- 打印入口在 `app/(app)/library/page.tsx`，独立无应用导航的 `app/(print)/library/print/page.tsx` 提供浏览器 A4 预览与打印。`get_hanzi_print_sheet` 再次校验孩子汉字模块授权，将孩子**有真实作答**的汉字（包括后续解除字册分配的历史）汇总为单个 JSON 快照；当前有效字册仅用于排序，同字跨册去重，次数合计，状态取最近作答的那条。支持全量、最近 30／60 天、阶段未满 7，以及可叠加的未熟练筛选。纸质勾选不回写学习状态。不要受字库浏览页分页限制而截断打印。
+- `kids_english_learning_settings` 以 `learner_id` 为主键保存 `daily_new_limit` 与待生效目标/日期；只有授予孩子儿童英语模块的账号可读，修改须走 `set_kids_english_daily_limit`。`get_kids_english_queue` 在孩子时区的本地日确定生效目标：首次生成复习队列仍最多 10 条；当天提高目标只补入尚未学过且未在今日队列出现的差额，已完成/待完成项不删、答题 RPC 不改。事务级孩子+日期锁防止同时打开或保存造成重复。明日生效无需定时任务；到日期后读取即按待生效目标计算。
+- 先运行 [026 SQL](./supabase/026_hanzi_print_and_kids_daily_limit.sql) 再部署。页面和操作细节见 [27 号教程](./27_汉字打印与儿童英语新词节奏.md)；升级不需要新环境变量。

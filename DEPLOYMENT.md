@@ -426,3 +426,7 @@ CLI 镜像 `supabase/migrations/20260925081549_adult_listening_courses.sql` 与 
 ## 14. 025 升级：家中箴言
 
 已完成 024 的项目先备份，在 Supabase SQL Editor **整段运行** [025_family_maxims.sql](./supabase/025_family_maxims.sql)，成功后再部署此版代码。owner 为成人账号及孩子分别开通模块；家长才可录入、导入和给孩子分配。分享只提交快照供管理员审核，不公开父母感悟。无需新增环境变量、R2 Bucket 或 Edge Function。逐步操作与上线验收见 [26_家中箴言配置与使用.md](./26_家中箴言配置与使用.md)。
+
+## 15. 026 升级：汉字学习表打印与儿童英语新词节奏
+
+已完成 025 的项目先备份，在 Supabase SQL Editor **整段运行** [026_hanzi_print_and_kids_daily_limit.sql](./supabase/026_hanzi_print_and_kids_daily_limit.sql)，成功后再部署新版代码。本次新增打印 RPC、儿童英语节奏设置及队列补差额，不删除旧记录；无需新增环境变量、R2 桶或 Edge Function。家长从「册」打开 A4 打印页，在「儿童英语 → 内容工作台」设置今天／明天生效的新词数。完整操作和验收见 [27_汉字打印与儿童英语新词节奏.md](./27_汉字打印与儿童英语新词节奏.md)。
