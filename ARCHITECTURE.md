@@ -32,6 +32,7 @@ flowchart TB
 5. **任何跨家庭读取都必须失败。** 前端隐藏、页面跳转不是权限控制，RLS 和函数内验证才是。
 6. **奖励只能引用真实学习记录，且不能反向改变学习历史。** 贴纸余额由不可变流水求和；奖励失败时原学习记录仍然成功。
 7. **owner 是 admin 的严格超集。** admin 审核/分配，owner 额外管理用户、邀请、临时密码和永久清理；破坏性操作默认归档，必须证明历史安全才删除。
+8. **拼音与汉字是两个记忆域。** 029 增加拼音独立状态/队列/事实日志；汉字提示是 `helped` 中性结果，不可统计为独立答对或答错，也不可由前端直接改阶段。
 
 ## 2. 目录与责任地图
 
@@ -39,6 +40,8 @@ flowchart TB
 | --- | --- | --- |
 | `app/(app)/learn/page.tsx` | 已登录后的儿童学习入口 | 不在此处写复习算法。 |
 | `components/learning-experience.tsx` | 卡片状态、揭示答案、提交回答、朗读回退、临时联想图 | 图片只留在当前浏览器内存，不能阻塞答题。 |
+| `components/pinyin-practice.tsx` / `components/pinyin-parent-panel.tsx` | 汉字完成后的拼音小练习、家长设置和逐拼音统计 | 不复用汉字阶段或贴纸；浏览器只提交人工判断。 |
+| `lib/pinyin-actions.ts` | 拼音模式保存、拼音队列/作答及汉字中性提示 RPC | 服务端校验家长会话和孩子汉字模块权限；需先运行 029。 |
 | `app/(app)/library/page.tsx` | 全字册掌握统计、服务端筛选与分页 | `get_library_rows` 的参数/返回字段必须与最新 SQL 同步。 |
 | `components/library-priority-manager.tsx` | 本页重点字勾选、批量保存反馈与字卡详情 | 只提交选择，不计算复习日或阶段。 |
 | `app/(app)/parent/page.tsx` | 家长档案、导入、基础进度 | 所有写入走 `lib/actions.ts`。 |
@@ -91,6 +94,7 @@ flowchart TB
 | `supabase/016_adaptive_queue_and_shared_content_rpcs.sql` | 新权限边界下的学习 RPC、字库查询与有界自适应队列 | 保持 014 真值表不变，只调整每日取题数。 |
 | `supabase/017_owner_user_management_and_duplicate_cleanup.sql` | owner 用户目录、首次改密、邀请升级和重复资源安全合并 | 不修改旧密码；音乐/问答有历史时拒绝永久删除。 |
 | `supabase/018_poem_tank_game.sql` | 诗词游戏地图、场次、逐题、逐句状态和两个保存/评分 RPC | 不修改汉字算法；整首诗掌握仍由家长评分。 |
+| `supabase/029_pinyin_learning.sql` | 29 个拼音单元、孩子设置/状态/每日队列/事实日志、RLS、索引与 3 个 RPC | 汉字仅扩充 `helped` 事实及中性重试；原 `answer_queue_item` 不变。 |
 | `supabase/022_music_folders_activity_and_cost.sql` | 音乐文件夹与整夹自动分配触发器、App 使用时长、孩子概况与用量统计 RPC | 只新增；取消整夹分配只收回 `assigned_via_folder_id` 带来的分配。 |
 | `supabase/023_capacity_guard_50_learners.sql` | 50 位孩子数据库上限、Azure 原子占位/拦截审计、容量快照与单孩子概况聚合 | 需先有 021、022；先运行 SQL 再部署对应代码，不修改学习规则。 |
 | `lib/service-guard.ts` / `lib/metered-fetch.ts` | Azure 四服务可配置空间/账号阈值、服务端原子占位后调用 | 无 SQL/Secret key 则付费请求 fail closed；不从浏览器暴露密钥。 |
@@ -124,6 +128,13 @@ erDiagram
   CONTENT_PACKAGES ||--o{ PACKAGE_CHARACTERS : contains
   CHARACTERS ||--o{ PACKAGE_CHARACTERS : appears_in
   LEARNER_PROFILES ||--o{ LEARNING_STATES : has
+  LEARNER_PROFILES ||--o| PINYIN_SETTINGS : configures
+  LEARNER_PROFILES ||--o{ PINYIN_STATES : remembers
+  PINYIN_UNITS ||--o{ PINYIN_STATES : tracks
+  LEARNER_PROFILES ||--o{ PINYIN_DAILY_SESSIONS : starts
+  PINYIN_DAILY_SESSIONS ||--o{ PINYIN_DAILY_ITEMS : queues
+  PINYIN_DAILY_SESSIONS ||--o{ PINYIN_DAILY_PROGRESS : confirms
+  PINYIN_DAILY_ITEMS ||--o| PINYIN_ATTEMPTS : records
   CHARACTERS ||--o{ LEARNING_STATES : tracks
   LEARNER_PROFILES ||--o{ LEARNER_CHARACTER_PRIORITIES : chooses
   CHARACTERS ||--o{ LEARNER_CHARACTER_PRIORITIES : prioritizes

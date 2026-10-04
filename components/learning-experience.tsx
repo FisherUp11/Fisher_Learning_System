@@ -7,6 +7,8 @@ import { RewardCelebration } from "@/components/reward-celebration";
 import type { RewardOutcome } from "@/lib/reward-types";
 import { ParentGrowthInvitation } from "@/components/parent-growth-invitation";
 import { rememberWaitDuration, WaitCountdown } from "@/components/wait-countdown";
+import { recordHanziHintRetry } from "@/lib/pinyin-actions";
+import { PinyinPractice } from "@/components/pinyin-practice";
 
 function kindLabel(kind: QueueItem["queue_kind"]) {
   if (kind === "new" || kind === "new_reinforcement") return "今天的新朋友";
@@ -61,7 +63,10 @@ function playAudio(audio: HTMLAudioElement) {
 export function LearningExperience({ learner }: { learner: Learner }) {
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [revealedFor, setRevealedFor] = useState<string | null>(null);
+  const [pinyinPeekFor, setPinyinPeekFor] = useState<string | null>(null);
   const [assistedFor, setAssistedFor] = useState<string | null>(null);
+  const [lastKnown, setLastKnown] = useState<{ hanzi: string; pinyin: string } | null>(null);
+  const [lastKnownVisible, setLastKnownVisible] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [answering, setAnswering] = useState(false);
@@ -81,7 +86,8 @@ export function LearningExperience({ learner }: { learner: Learner }) {
   const current = queue[0];
   const guidedAssistance = Boolean(current && current.failed_streak >= 3);
   const revealed = Boolean(current && (guidedAssistance || revealedFor === current.session_item_id));
-  const assisted = Boolean(current && (guidedAssistance || assistedFor === current.session_item_id));
+  const assisted = Boolean(current && (guidedAssistance || assistedFor === current.session_item_id || pinyinPeekFor === current.session_item_id));
+  const pinyinPeeked = Boolean(current && pinyinPeekFor === current.session_item_id);
   const currentMemoryImage = current
     ? (memoryImage?.characterId === current.character_id ? memoryImage.source : null)
     : null;
@@ -146,7 +152,7 @@ export function LearningExperience({ learner }: { learner: Learner }) {
     return () => { active = false; };
   }, [learner.id]);
 
-  async function answer(result: "known" | "again", usedAssistance = assisted) {
+  async function answer(result: "known" | "again" | "helped", usedAssistance = assisted) {
     if (!current || answering) return;
     // 先取消任何过期的后台同步，避免它把旧队列写回界面。
     queueRequest.current += 1;
@@ -154,7 +160,11 @@ export function LearningExperience({ learner }: { learner: Learner }) {
     setError("");
     try {
       stopSpeaking();
-      const saved = await answerQueueItem({
+      const saved = result === "helped" ? await recordHanziHintRetry({
+        learnerId: learner.id,
+        sessionItemId: current.session_item_id,
+        requestId: crypto.randomUUID(),
+      }) : await answerQueueItem({
         learnerId: learner.id,
         sessionItemId: current.session_item_id,
         result,
@@ -166,8 +176,13 @@ export function LearningExperience({ learner }: { learner: Learner }) {
       const remaining = queue.slice(1);
       setQueue(remaining);
       setRevealedFor(null);
+      setPinyinPeekFor(null);
       setAssistedFor(null);
       setMemoryImageVisibleFor(null);
+      if (result === "known" && !usedAssistance) {
+        setLastKnown({ hanzi: current.hanzi, pinyin: current.pinyin_marked });
+        setLastKnownVisible(false);
+      }
       if (
         typeof saved.today_total === "number"
         && typeof saved.today_passed === "number"
@@ -179,13 +194,16 @@ export function LearningExperience({ learner }: { learner: Learner }) {
           remaining: saved.today_remaining,
         });
       }
-      if (saved.reward?.awarded) setEarnedReward(saved.reward);
-      if (usedAssistance) {
-        setAnswerNotice("这次是在帮助下认识的。已经放到后面，稍后再自己认两次。");
+      const reward = "reward" in saved ? saved.reward as RewardOutcome | null : null;
+      if (reward?.awarded) setEarnedReward(reward);
+      if (result === "helped") {
+        setAnswerNotice("看提示后想起来了，不会降级；稍后藏起提示再独立认。");
+      } else if (result === "again") {
+        setAnswerNotice("没关系，记下今天还没认出；过几张再试一次。");
       } else if (saved.daily_passed) {
-        const attemptNumber = saved.attempt_number ?? 1;
+        const attemptNumber = "attempt_number" in saved ? saved.attempt_number ?? 1 : 1;
         setAnswerNotice(attemptNumber === 1 ? "一次就独立认出来啦！" : "两次都独立认出来啦，今天认住它了！");
-      } else if (saved.clean_streak === 1 && saved.required_confirmations === 2) {
+      } else if ("clean_streak" in saved && "required_confirmations" in saved && saved.clean_streak === 1 && saved.required_confirmations === 2) {
         setAnswerNotice("第一次独立认出啦！过几张再确认一次。");
       } else {
         setAnswerNotice("没关系，先认识一下，过几张我们再见。");
@@ -270,6 +288,11 @@ export function LearningExperience({ learner }: { learner: Learner }) {
   function markAssisted() {
     if (!current) return;
     setAssistedFor(current.session_item_id);
+  }
+
+  function revealAnswer() {
+    if (!current) return;
+    markAssisted();
     setRevealedFor(current.session_item_id);
   }
 
@@ -277,7 +300,7 @@ export function LearningExperience({ learner }: { learner: Learner }) {
   if (error && !current) return <section className="panel"><p className="error">{error}</p><button className="secondary" onClick={() => void refreshQueue()}>重新加载</button></section>;
   if (!current && syncing && todayProgress.remaining > 0) return <section className="empty panel"><span className="empty-mark">🌱</span><h1>正在准备下一张</h1><p className="lede">刚才的字已经放到后面，稍后再独立认一认。</p></section>;
   if (!current) {
-    return <section className="empty panel"><span className="empty-mark">🌱</span><h1>今天完成啦！</h1><p className="lede">今天的汉字都独立认出来了，慢慢记住最厉害。</p>{earnedReward && <p className="reward-complete-note">一枚“识字小达人”贴纸已经放进贴纸册。</p>}<button className="secondary" onClick={() => void refreshQueue()}>看看有没有新任务</button><ParentGrowthInvitation />{earnedReward && <RewardCelebration learnerId={learner.id} reward={earnedReward} message="今天的汉字都独立认出来啦！一枚“识字小达人”贴纸住进贴纸册啦！" />}</section>;
+    return <><section className="empty panel"><span className="empty-mark">🌱</span><h1>今天完成啦！</h1><p className="lede">今天的汉字都独立认出来了，慢慢记住最厉害。</p>{earnedReward && <p className="reward-complete-note">一枚“识字小达人”贴纸已经放进贴纸册。</p>}<button className="secondary" onClick={() => void refreshQueue()}>看看有没有新任务</button><ParentGrowthInvitation />{earnedReward && <RewardCelebration learnerId={learner.id} reward={earnedReward} message="今天的汉字都独立认出来啦！一枚“识字小达人”贴纸住进贴纸册啦！" />}</section><PinyinPractice learnerId={learner.id} /></>;
   }
 
   const percentage = todayProgress.total > 0
@@ -293,6 +316,7 @@ export function LearningExperience({ learner }: { learner: Learner }) {
       </div>
       <div className="progress-line"><span style={{ width: `${percentage}%` }} /></div>
       <p className="adaptive-plan-note">{current.review_mode === "adaptive" ? "智能复习" : "固定复习"} · 今日计划复习最多 {current.planned_review_limit} 个、新字 {current.planned_new_limit} 个{current.due_backlog > current.planned_review_limit ? ` · 到期 ${current.due_backlog} 个，将分日消化` : ""}</p>
+      {lastKnown && <div className="last-known-pinyin"><span>刚才的字：{lastKnown.hanzi}</span><button type="button" className="text-button" onClick={() => setLastKnownVisible(!lastKnownVisible)}>{lastKnownVisible ? "收起拼音" : "看刚才的拼音"}</button>{lastKnownVisible && <strong>{lastKnown.pinyin}</strong>}</div>}
       <article className="character-card">
         <div className="card-status-row">
           <span className={`card-kind ${current.queue_kind === "review" || current.queue_kind === "carry" ? "review" : ""}`}>{kindLabel(current.queue_kind)}</span>
@@ -307,8 +331,13 @@ export function LearningExperience({ learner }: { learner: Learner }) {
         <div className="character" aria-label={`汉字 ${current.hanzi}`}>{current.hanzi}</div>
         <div className="card-tools">
           <button className="listen" disabled={Boolean(speaking)} onClick={() => void speakText(current.hanzi, 3, "character")}>{speaking === "character" ? "正在慢读…" : "🔊 汉字慢读 3 遍"}</button>
+          {!revealed && <button className="listen" type="button" onClick={() => {
+            if (pinyinPeeked) setPinyinPeekFor(null);
+            else { setPinyinPeekFor(current.session_item_id); setAssistedFor(current.session_item_id); }
+          }}>{pinyinPeeked ? "收起拼音" : "看拼音 · 声调"}</button>}
           <button className="memory-image-button" disabled={memoryImageLoading} onClick={() => void showMemoryImage()}>{memoryImageLoading ? "正在画联想图…" : currentMemoryImage ? "🖼 再看联想图" : "🖼 看联想图"}</button>
         </div>
+        {pinyinPeeked && !revealed && <p className="pinyin-peek" aria-live="polite">{current.pinyin_marked}<small>看过提示后，不算独立认出；汉字阶段不会因看提示而自动降级。</small></p>}
         {memoryImageLoading && <div className="memory-image-wait"><WaitCountdown waitKey="memory-image" fallbackSeconds={12} label="小画家正在画联想图" /></div>}
         {memoryImageVisible && currentMemoryImage && <section className="memory-image-panel" aria-label={`${current.hanzi} 的联想图`}>
           {/* GPT 图片以受保护的 data URL 返回，Next/Image 无法优化它。 */}
@@ -328,15 +357,19 @@ export function LearningExperience({ learner }: { learner: Learner }) {
           </div>
         </div>}
       </article>
-      {!revealed ? <>
+      {!revealed && !assisted ? <>
         <div className="answers">
           <button className="answer-known" disabled={answering} onClick={() => void answer("known", false)}>{answering ? "记录中…" : "我自己认出来了"}</button>
-          <button className="answer-again" disabled={answering} onClick={markAssisted}>还要再学一次</button>
+          <button className="answer-again" disabled={answering} onClick={revealAnswer}>还要再学一次</button>
         </div>
         <p className="hint">没有听朗读、看答案或得到提示，才算独立认出。</p>
       </> : <>
-        <button className="secondary full assisted-finish" disabled={answering} onClick={() => void answer("again", true)}>{answering ? "记录中…" : "学好了，稍后再自己认"}</button>
-        <p className="hint assisted-hint">这次得到过帮助，不计独立确认；稍后会重新隐藏答案。</p>
+        {!revealed && <button className="secondary full" disabled={answering} onClick={revealAnswer}>看完整答案 · 词语和句子</button>}
+        <div className="answers">
+          <button className="secondary assisted-finish" disabled={answering} onClick={() => void answer("helped", true)}>{answering ? "记录中…" : "提示后想起来了"}</button>
+          <button className="answer-again" disabled={answering} onClick={() => void answer("again", true)}>{answering ? "记录中…" : "确实没认出来"}</button>
+        </div>
+        <p className="hint assisted-hint">提示后想起：不降级，稍后重认；确实没认出：按原记忆规则记录并复习。</p>
       </>}
       {answerNotice && <p className="answer-notice" aria-live="polite">{answerNotice}</p>}
       {syncing && <p className="hint">已记录，正在准备后面的字…</p>}

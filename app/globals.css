@@ -116,6 +116,35 @@ h1 { margin:0; font-size: clamp(32px, 8vw, 58px); line-height:1.05; letter-spaci
 .parent-learning-options p { margin:8px 0 5px; line-height:1.55; }
 .hint { margin:0; text-align:center; color:var(--muted); font-size:14px; }
 .answer-notice { margin:0; padding:10px 12px; border-radius:13px; color:var(--leaf); background:var(--leaf-soft); text-align:center; font-size:14px; line-height:1.45; }
+.pinyin-peek { position:relative; z-index:1; margin:12px auto 0; padding:10px 16px; border-radius:16px; color:var(--leaf); background:var(--leaf-soft); text-align:center; font:800 clamp(28px,6vw,38px)/1.3 ui-sans-serif,system-ui,sans-serif; }
+.pinyin-peek small { display:block; max-width:420px; color:var(--muted); font:500 12px/1.5 ui-sans-serif,system-ui,sans-serif; }
+.last-known-pinyin { display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; padding:9px 14px; border:1px solid var(--line); border-radius:15px; background:rgba(255,253,248,.8); color:var(--muted); font:600 13px/1.4 ui-sans-serif,system-ui,sans-serif; }
+.last-known-pinyin strong { color:var(--leaf); font-size:19px; }
+.pinyin-practice { display:grid; gap:14px; margin-top:18px; }
+.pinyin-practice h2,.pinyin-parent-panel h2 { margin:0; font-size:clamp(23px,5vw,30px); }
+.pinyin-practice .muted,.pinyin-parent-panel .muted { margin:0; line-height:1.6; }
+.pinyin-practice-card { display:grid; justify-items:center; gap:12px; min-height:250px; padding:20px; border:1px solid var(--line); border-radius:24px; background:#fffdf8; }
+.pinyin-practice-card > strong { align-self:center; color:var(--ink); font:800 clamp(108px,29vw,180px)/1 ui-sans-serif,system-ui,sans-serif; }
+.pinyin-practice-card > small { color:var(--leaf); font:700 13px/1.4 ui-sans-serif,system-ui,sans-serif; }
+.pinyin-example { margin:0; color:var(--leaf); text-align:center; font-size:21px; }
+.pinyin-example span { font-family:ui-sans-serif,system-ui,sans-serif; }
+.pinyin-example small { display:block; color:var(--muted); font-size:12px; line-height:1.5; }
+.pinyin-practice-actions { display:flex; flex-wrap:wrap; gap:10px; }
+.pinyin-practice-actions button { flex:1 1 160px; }
+.pinyin-finish { margin:4px 0; padding:18px; border-radius:18px; background:var(--leaf-soft); color:var(--leaf); text-align:center; font-size:19px; font-weight:800; }
+.pinyin-parent-panel { display:grid; gap:16px; margin-top:18px; }
+.pinyin-settings-form { display:grid; gap:10px; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); align-items:end; padding:14px; border:1px solid var(--line); border-radius:18px; background:#fffdf8; }
+.pinyin-settings-form label,.pinyin-filter { display:grid; gap:6px; color:var(--ink); font-weight:700; }
+.pinyin-settings-form select,.pinyin-filter select { width:100%; min-height:46px; padding:8px 12px; border:1px solid var(--line); border-radius:12px; background:white; }
+.pinyin-summary { display:flex; flex-wrap:wrap; gap:9px; }
+.pinyin-summary span { padding:9px 12px; border-radius:99px; background:var(--leaf-soft); color:var(--leaf); font-size:13px; }
+.pinyin-stat-wrap { display:grid; gap:12px; }
+.pinyin-filter { max-width:240px; }
+.pinyin-stat-list { display:grid; gap:7px; max-height:390px; overflow:auto; padding-right:4px; }
+.pinyin-stat-row { display:grid; grid-template-columns:55px minmax(100px,1fr) 95px minmax(150px,1.5fr) minmax(110px,1fr); align-items:center; gap:9px; padding:10px 12px; border:1px solid var(--line); border-radius:14px; background:#fffdf8; font:600 12px/1.45 ui-sans-serif,system-ui,sans-serif; }
+.pinyin-stat-row strong { color:var(--leaf); font-size:23px; }
+.pinyin-stat-row small { color:var(--muted); font-size:12px; }
+@media(max-width:700px) { .pinyin-stat-row { grid-template-columns:44px 1fr auto; } .pinyin-stat-row small { grid-column:2/-1; } }
 
 .panel { padding:20px; }
 .panel + .panel { margin-top:16px; }

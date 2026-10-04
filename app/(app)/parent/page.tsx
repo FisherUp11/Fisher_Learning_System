@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { createLearner, importCharacters, importPoems, signOut, updateLearnerSettings } from "@/lib/actions";
 import { DeleteLearnerForm } from "@/components/delete-learner-form";
 import { createClient } from "@/lib/supabase/server";
@@ -9,6 +10,7 @@ import { FeedbackForm } from "@/components/feedback-form";
 import { LearnerOptions, orderLearners } from "@/components/learner-options";
 import { loadAccountModules } from "@/lib/module-access";
 import { CHILD_MODULES } from "@/lib/module-keys";
+import { PinyinParentPanel } from "@/components/pinyin-parent-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +32,13 @@ export default async function ParentPage({ searchParams }: { searchParams: Promi
   // Admins can see every family; keep this desk focused on their own family plus the child being viewed.
   const settingsLearners = access.isAdmin ? learners.filter((learner) => learner.family_id === access.familyId || learner.id === selectedLearner?.id) : learners;
   const hiddenLearnerCount = learners.length - settingsLearners.length;
-  const dashboard = selectedLearner && enabled.has("hanzi") ? await loadLearnerDashboard(supabase, selectedLearner.id) : null;
+  const [dashboard, childHanziResult] = await Promise.all([
+    selectedLearner && enabled.has("hanzi") ? loadLearnerDashboard(supabase, selectedLearner.id) : Promise.resolve(null),
+    selectedLearner && enabled.has("hanzi")
+      ? supabase.from("learner_module_access").select("enabled").eq("learner_id", selectedLearner.id).eq("module_key", "hanzi").maybeSingle()
+      : Promise.resolve({ data: null }),
+  ]);
+  const childHanziAccess = childHanziResult.data;
 
   return (
     <div>
@@ -47,6 +55,8 @@ export default async function ParentPage({ searchParams }: { searchParams: Promi
         </div><div className="dashboard-module-strip"><span>汉字册 {dashboard.assignedPackages}</span><span>诗词册 {dashboard.assignedPoemCollections}</span><span>音乐 {dashboard.assignedMusicItems}（到期 {dashboard.musicDue}）</span><span>问答册 {dashboard.assignedCatechismCollections}（到期 {dashboard.catechismDue}）</span></div></> : <p className="notice">创建孩子档案后，这里会显示真实学习概况。</p>}
         <p className="small muted">首答率只统计最近 7 天每个字的第一次独立回答，不把同日反复确认当成成绩，更能反映真实记忆。</p>
       </section>}
+
+      {enabled.has("hanzi") && selectedLearner && childHanziAccess?.enabled && <Suspense fallback={<section className="panel"><p className="muted">正在读取拼音学习概况…</p></section>}><PinyinParentPanel supabase={supabase} learnerId={selectedLearner.id} learnerName={selectedLearner.display_name} timezone={selectedLearner.timezone ?? "Asia/Shanghai"} /></Suspense>}
 
       {hasChildModule && <section className="panel">
         <h2>已有孩子 · 学习设置</h2>
