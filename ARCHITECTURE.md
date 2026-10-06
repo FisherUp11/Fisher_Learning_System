@@ -580,3 +580,9 @@ SQL Editor 使用 `supabase/020_english_listening_courses.sql`；CLI 迁移镜�
 - 学习继续使用 `adult_english_word_states(profile_id,concept_id)`，因此与会议英语相同词义共用阶段、次数与到期日；`adult_academic_daily_items` 独立保存专业英语当天队列，不消耗 `adult_listening_sessions`。`adult_academic_answer` 锁定当日词卡、按请求 UUID 幂等，首次新词需当天二次确认，复习首次答对可完成，答错最多降一级且随后正确不立即补级。正向间隔 1／3／7／14／30 天。
 - `app/api/adult/media/route.ts` 在朗读专业英语原句时必须按账号同时核对 `source_id + concept_id` 的来源关联；不能把前端任意文本直接送入 Speech。AI 提取使用 `adult.academic` 计费特征，其余成人付费保护与私有缓存照旧。
 - 028 是独立编号 SQL，依赖 019、020；先运行 SQL 再部署。新增表账号私有 RLS，跨账号复合外键、invoker RPC 与明确授权齐全。`scripts/test-adult-academic.cjs` 有纯文本测试；数据库集成测试仅在配置 PGlite 后运行。上线时还必须用两个真实登录账号验证隔离与真实 Azure 调用，不能把本地构建等同于线上验收。
+
+### 11.15 汉字听音游戏：青蛙跳字岛（030–032）
+
+- `/learn/frog` 属于现有 `hanzi` 模块，沿用账号＋孩子两层权限。`get_hanzi_frog_pool` 只读从孩子当前有效分配、已审核发布的字册与 `learning_states` 交集取最多 180 个候选，到期字靠前；不调用会初始化正式每日队列的 `get_today_queue`。前端 `lib/hanzi-frog.ts` 纯逻辑从候选中组题，避开同音候选，易／中／难分别展示 4／5／6 字。错字间隔两跳再出现，最多额外两次。
+- Azure Speech 由现有 `/api/speech` 的汉字模块鉴权与计量保护。可选 BGM 有三种来源：孩子专用 `hanzi_frog_music_tracks` 的 HTTPS 直链（031）、同表中的私有 R2 对象键（032），以及沿用 `/api/music/playlist-audio` 的「唱一唱」音乐授权。游戏专用配乐由汉字模块两层权限和 RLS 管理，不需音乐模块。R2 上传经 `/api/hanzi-frog/music/upload-url` 签发 10 分钟 PUT、浏览器直传，登记前 `HeadObject` 核对，播放经 `/api/hanzi-frog/music/audio` 重查权限并重定向到短效 GET，不代理 MP3 大文件；密钥只在服务器。网页 HTML URL 不能作为音频源；单一配乐失败不影响游戏。三幕池塘背景为本地 CSS/SVG，不调用图像模型。
+- 一局结束，Server Action 再次检查汉字模块授权，调用 `save_hanzi_frog_game` 原子核对目标和全部候选属于孩子已学字册，再存 `hanzi_frog_sessions`／`hanzi_frog_taps`。同一 `request_id` 幂等。游戏数据仅是有提示的听音辨字，不参与 `learning_states`、`learning_attempts`、`daily_sessions`、每日队列、贴纸或记忆阶段计算；结算页明确引导回正式字卡。部署与验收见 [30 号教程](./30_青蛙跳字岛配置与使用.md)。

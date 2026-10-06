@@ -1,6 +1,6 @@
 import "server-only";
 
-import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 type R2Config = {
@@ -49,6 +49,12 @@ export async function createR2UploadUrl(input: { objectKey: string; contentType:
 export async function createR2ReadUrl(objectKey: string) {
   const { client, bucket } = getR2Client();
   return getSignedUrl(client, new GetObjectCommand({ Bucket: bucket, Key: objectKey }), { expiresIn: 3600 });
+}
+
+export async function headR2Object(objectKey: string) {
+  const { client, bucket } = getR2Client();
+  const result = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: objectKey }));
+  return { byteSize: result.ContentLength ?? 0, contentType: result.ContentType ?? "" };
 }
 
 export async function deleteR2Object(objectKey: string) {

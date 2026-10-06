@@ -30,6 +30,8 @@ sequenceDiagram
 
 Cloudflare 官方说明：[R2 Bucket 默认不公开](https://developers.cloudflare.com/r2/buckets/create-buckets/)；浏览器使用预签名 URL 时仍需 [配置 CORS](https://developers.cloudflare.com/r2/buckets/cors/)。
 
+「芽 → 青蛙跳字岛 → 家长维护游戏配乐」上传伴奏也复用**同一个私有 Bucket、同一组 R2 环境变量和这里的 PUT／Content-Type CORS 配置**；无需另建 Bucket、公开域名或 Workers。对应的 Supabase 032 SQL 和使用方法见 [青蛙跳字岛教程](./30_青蛙跳字岛配置与使用.md)。
+
 ## 1. 先在 Supabase 运行音乐 SQL
 
 1. 打开 Supabase Dashboard → 您的项目 → **SQL Editor** → **New query**。

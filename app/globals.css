@@ -53,6 +53,11 @@ a { color: inherit; text-decoration: none; }
 .nav-icon { font-size: 17px; line-height: 1; }
 
 .hero { display:grid; gap:8px; margin: 30px 0 18px; }
+.frog-entry { display:flex; align-items:center; gap:14px; margin:4px 0 18px; padding:14px 18px; border:1px solid #c8e2d6; border-radius:19px; background:linear-gradient(110deg,#e9f7e5,#f8fff3); color:#245c4d; box-shadow:0 8px 23px #3b745024; }
+.frog-entry > span:first-child { font-size:32px; }
+.frog-entry > span:nth-child(2) { display:grid; gap:4px; flex:1; }
+.frog-entry strong { font-size:17px; }.frog-entry small { color:#688275; font:600 12px/1.5 ui-sans-serif,system-ui,sans-serif; }
+.frog-entry > span:last-child { font:800 13px/1 ui-sans-serif,system-ui,sans-serif; white-space:nowrap; }
 .eyebrow { margin:0; color:var(--leaf); font: 700 12px/1 ui-sans-serif, system-ui, sans-serif; letter-spacing:.14em; text-transform:uppercase; }
 h1 { margin:0; font-size: clamp(32px, 8vw, 58px); line-height:1.05; letter-spacing: .02em; }
 .lede { margin:0; color:var(--muted); font-size:17px; line-height:1.65; }

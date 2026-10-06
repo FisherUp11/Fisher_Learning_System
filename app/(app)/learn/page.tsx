@@ -3,6 +3,7 @@ import { LearningExperience } from "@/components/learning-experience";
 import { loadAccessContext } from "@/lib/access";
 import { requireChildModule } from "@/lib/module-access";
 import { LearnerOptions, orderLearners } from "@/components/learner-options";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +30,7 @@ export default async function LearnPage({ searchParams }: { searchParams: Promis
   }
   return <>
     {(learners?.length ?? 0) > 1 && <form action="/learn" className="learner-switch"><label>今天是谁学习？<select name="learner" defaultValue={learner.id}><LearnerOptions learners={learners} /></select></label><button className="secondary" type="submit">切换</button></form>}
+    <Link className="frog-entry" href={`/learn/frog?learner=${learner.id}`}><span aria-hidden="true">🐸</span><span><strong>青蛙跳字岛</strong><small>听一个字，找一片字叶 · 趣味复习，不替代正式认字</small></span><span aria-hidden="true">去玩 →</span></Link>
     <LearningExperience key={learner.id} learner={learner} />
     <span hidden data-current-learner={learner.id} />
   </>;

@@ -438,3 +438,7 @@ CLI 镜像 `supabase/migrations/20260925081549_adult_listening_courses.sql` 与 
 ## 16. 027 升级：未来一周／两周新字预习打印
 
 已完成 026 的项目先备份，在 Supabase SQL Editor **整段运行** [027_hanzi_upcoming_print.sql](./supabase/027_hanzi_upcoming_print.sql)，成功后再部署新版代码。不需要重跑 026，也没有新的环境变量。进入「册 → 打印学习表」测试未来 7／14 天选项。打印只是按当前设置预测候选，**不提前生成未来学习队列**；具体规则和验收见 [27 号教程](./27_汉字打印与儿童英语新词节奏.md)。
+
+## 17. 030–032 升级：青蛙跳字岛及双来源配乐
+
+当前连接的 Fisher Learning Supabase 项目已由 Codex 应用并验证 030、031、032；无需重复执行。其他项目先备份，在 SQL Editor 顺序整段运行 [030_hanzi_frog_game.sql](./supabase/030_hanzi_frog_game.sql)、[031_hanzi_frog_music.sql](./supabase/031_hanzi_frog_music.sql)、[032_hanzi_frog_r2_music.sql](./supabase/032_hanzi_frog_r2_music.sql)，成功后部署新版代码。032 保留已有在线 URL，新增私有 R2 文件模式；不重置字库、正式学习状态或贴纸。复用现有 R2 Bucket、环境变量及 CORS，**无需新 Bucket**。家长从「芽 → 青蛙跳字岛 → 家长维护游戏配乐」分别验证 HTTPS 音频直链试听、MP3 上传 R2 后试听、游戏循环播放与停止。详细见 [30 号教程](./30_青蛙跳字岛配置与使用.md)。
