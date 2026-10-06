@@ -283,6 +283,16 @@ textarea { min-height:112px; resize:vertical; line-height:1.65; }
 .poem-detail-byline { position:relative; z-index:1; margin:12px 0 0; color:var(--muted); font-size:17px; }
 .poem-lines { position:relative; z-index:1; display:grid; gap:14px; margin:36px auto 4px; font:clamp(24px,6.8vw,36px)/1.45 "Kaiti SC","STKaiti","KaiTi",serif; letter-spacing:.08em; }
 .poem-lines p { margin:0; }
+.poem-learning-actions { position:relative; z-index:2; display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:10px; margin:28px auto 0; }
+.poem-learning-actions .poem-game-entry { margin:0; }
+.poem-video-link { display:inline-flex; align-items:center; justify-content:center; gap:10px; }
+.poem-video-link span { font:800 17px/1 ui-sans-serif,system-ui,sans-serif; }
+.poem-video-note { position:relative; z-index:2; max-width:480px; margin:13px auto 0; color:var(--muted); font:600 12px/1.55 ui-sans-serif,system-ui,sans-serif; }
+.poem-video-editor { padding:20px 24px; }
+.poem-video-editor summary { color:var(--leaf); cursor:pointer; font-size:18px; font-weight:800; }
+.poem-video-editor p { margin:12px 0; }
+.poem-video-editor input { overflow:hidden; text-overflow:ellipsis; }
+.poem-video-editor .form-grid { margin-top:14px; }
 .poem-detail-summary { margin:0; }
 .recitation-form { display:grid; gap:15px; padding:22px; border:1px solid #cfe0ce; border-radius:24px; background:linear-gradient(130deg, rgba(226,237,223,.86), rgba(255,253,248,.92)); }
 .recitation-form h2 { margin:0; font-size:23px; }
