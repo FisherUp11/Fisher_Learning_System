@@ -7,7 +7,7 @@ import { requireChildModule } from "@/lib/module-access";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const headers = { "Cache-Control": "private, no-store" };
 function fail(error: string, status: number) { return NextResponse.json({ error }, { status, headers }); }
 
