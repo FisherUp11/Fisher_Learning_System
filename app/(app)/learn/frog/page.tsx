@@ -73,7 +73,7 @@ export default async function FrogPage({ searchParams }: { searchParams: Promise
         .sort((left, right) => right.wrongCount - left.wrongCount || left.hanzi.localeCompare(right.hanzi, "zh-CN")).slice(0, 6);
     }
   }
-  return <HanziFrogGame learnerId={learner.id} learnerName={learner.display_name}
+  return <HanziFrogGame key={learner.id} learnerId={learner.id} learnerName={learner.display_name}
     words={(pool ?? []) as FrogWord[]}
     songs={[...((frogTracks ?? []).map((track) => ({
       id: track.id, title: track.title + (track.source_type === "r2" ? " · 已上传" : " · 在线"),

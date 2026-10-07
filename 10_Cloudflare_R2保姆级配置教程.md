@@ -32,6 +32,8 @@ Cloudflare 官方说明：[R2 Bucket 默认不公开](https://developers.cloudfl
 
 「芽 → 青蛙跳字岛 → 家长维护游戏配乐」上传伴奏也复用**同一个私有 Bucket、同一组 R2 环境变量和这里的 PUT／Content-Type CORS 配置**；无需另建 Bucket、公开域名或 Workers。对应的 Supabase 032 SQL 和使用方法见 [青蛙跳字岛教程](./30_青蛙跳字岛配置与使用.md)。
 
+青蛙游戏的标准朗读缓存也放在这个 Bucket，但独立使用 `learning-audio/hanzi-frog/v1/<空间编号>/zh-CN/<音色>/<朗读规格>/<哈希分片>/<哈希>.mp3`，与伴奏的 `hanzi-frog/<孩子编号>/…` 分开。服务端自动写入，浏览器以短效 GET 签名提前下载；沿用下面包含 GET 的 CORS 配置即可，无需开公开访问、新建 Bucket 或运行额外 SQL。缓存目录中没有孩子姓名、学习次数或私人学习记录。
+
 ## 1. 先在 Supabase 运行音乐 SQL
 
 1. 打开 Supabase Dashboard → 您的项目 → **SQL Editor** → **New query**。

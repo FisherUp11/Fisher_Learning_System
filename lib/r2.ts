@@ -51,6 +51,31 @@ export async function createR2ReadUrl(objectKey: string) {
   return getSignedUrl(client, new GetObjectCommand({ Bucket: bucket, Key: objectKey }), { expiresIn: 3600 });
 }
 
+// Generated learning audio stays private. A missing object is a cache miss;
+// permissions/network failures must not silently trigger another paid synthesis.
+export async function cachedR2AudioUrl(objectKey: string) {
+  const { client, bucket } = getR2Client();
+  try {
+    const result = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: objectKey }), {
+      abortSignal: AbortSignal.timeout(3000),
+    });
+    if ((result.ContentLength ?? 0) < 100 || result.ContentType !== "audio/mpeg") return null;
+    return createR2ReadUrl(objectKey);
+  } catch (error) {
+    const info = error as { name?: string; $metadata?: { httpStatusCode?: number } };
+    if (info.name === "NotFound" || info.name === "NoSuchKey" || info.$metadata?.httpStatusCode === 404) return null;
+    throw new Error("朗读缓存暂时无法读取，请检查 R2 网络和对象读取权限");
+  }
+}
+
+export async function writeR2Audio(objectKey: string, bytes: Uint8Array) {
+  const { client, bucket } = getR2Client();
+  await client.send(new PutObjectCommand({
+    Bucket: bucket, Key: objectKey, Body: bytes, ContentType: "audio/mpeg",
+    CacheControl: "private, max-age=31536000, immutable",
+  }), { abortSignal: AbortSignal.timeout(3000) });
+}
+
 export async function headR2Object(objectKey: string) {
   const { client, bucket } = getR2Client();
   const result = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: objectKey }));

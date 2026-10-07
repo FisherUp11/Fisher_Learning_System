@@ -81,6 +81,7 @@ flowchart TB
 | `lib/poems.ts` | 诗词册、内容与背诵记录的只读聚合 | 供诗词页面使用；不要混入汉字 stage。 |
 | `lib/supabase/*`、`proxy.ts` | Supabase SSR cookie 会话刷新 | 跟随 Supabase SSR 官方模式；不要改为 localStorage-only。 |
 | `app/api/speech/route.ts` | 持有 Azure Speech key 的服务器端语音代理 | 绝不把 Azure key 返回给浏览器。 |
+| `app/api/hanzi-frog/speech/route.ts` / `lib/hanzi-frog-speech-{cache,server,client}.ts` | 游戏慢读两遍、R2 内容哈希缓存、短效读取签名与客户端预加载 | 仅接受已学游戏字 ID；缓存命中不调用 Azure；音频不写入学习状态，不能放宽付费保护。 |
 | `app/api/ai/character-content/route.ts` | 预留的受保护 AI 生成接口 | 输出必须审核/缓存后才给孩子端。 |
 | `app/api/ai/character-memory-image/route.ts` | 临时儿童联想图 | 先验证家长、孩子和字库归属；只传服务端规范内容给 Azure。 |
 | `supabase/001_hanzi_mvp.sql` | 识字基础表、RLS、RPC、索引 | 当前数据库结构以已按顺序执行的迁移脚本累计结果为准。 |
@@ -584,5 +585,8 @@ SQL Editor 使用 `supabase/020_english_listening_courses.sql`；CLI 迁移镜�
 ### 11.15 汉字听音游戏：青蛙跳字岛（030–032）
 
 - `/learn/frog` 属于现有 `hanzi` 模块，沿用账号＋孩子两层权限。`get_hanzi_frog_pool` 只读从孩子当前有效分配、已审核发布的字册与 `learning_states` 交集取最多 180 个候选，到期字靠前；不调用会初始化正式每日队列的 `get_today_queue`。前端 `lib/hanzi-frog.ts` 纯逻辑从候选中组题，避开同音候选，易／中／难分别展示 4／5／6 字。错字间隔两跳再出现，最多额外两次。
-- Azure Speech 由现有 `/api/speech` 的汉字模块鉴权与计量保护。可选 BGM 有三种来源：孩子专用 `hanzi_frog_music_tracks` 的 HTTPS 直链（031）、同表中的私有 R2 对象键（032），以及沿用 `/api/music/playlist-audio` 的「唱一唱」音乐授权。游戏专用配乐由汉字模块两层权限和 RLS 管理，不需音乐模块。R2 上传经 `/api/hanzi-frog/music/upload-url` 签发 10 分钟 PUT、浏览器直传，登记前 `HeadObject` 核对，播放经 `/api/hanzi-frog/music/audio` 重查权限并重定向到短效 GET，不代理 MP3 大文件；密钥只在服务器。网页 HTML URL 不能作为音频源；单一配乐失败不影响游戏。三幕池塘背景为本地 CSS/SVG，不调用图像模型。
+- 游戏朗读独立走 `/api/hanzi-frog/speech`，其他模块的 `/api/speech` 不变。每次最多 3 个 ID，先验证家长、账号／孩子汉字权限，再用 `get_hanzi_frog_pool` 核对有效已学内容；前端不能提交任意文本触发付费。规范音频为 -32% 慢读两遍、650ms 间隔，SSML 用 SAPI 拼音锁定所学读音。
+- 音频保存在现有私有 Bucket 的 `learning-audio/hanzi-frog/v1/<workspace>/zh-CN/<voice>/slow32-repeat2-gap650/<hash前两位>/<hash>.mp3`，哈希包含汉字、规范拼音、音色与规格；同空间复用，与上传配乐／成人缓存分开。先查 R2，只有未命中才经过 `meteredFetch` 的 023 原子占位与计量（特征 `hanzi.frog.read_aloud`，字符估算包含重复正文及内层 SSML，中文字符双计；实际费用以 Azure 为准）；命中不占 Azure 次数。缓存读取失败不触发付费，写失败保留本次临时音频。进程内同键合并，不保证跨 Vercel 实例冷缓存恰好生成一次；没有新数据库表／SQL。
+- 首题单独优先准备、开场等待最多 8 秒，接着预加载后两题；浏览器提前下载到有界内存 Blob 缓存，重听不请求后端，离开页撤销 Blob／中止预加载。未准备好的单题约 2.5 秒后回退设备慢读两遍；总体语音 watchdog 12 秒防卡死。声音实际开始后开放点选并开始计时；切题需等待两遍播完，不用固定计时截断纠正音频。切题取消标识和语音 token 防止旧异步回调污染新题。付费保护默认值保持原样，首次大量冷缓存遇限额时提示并退避，仍能播放其他已有缓存。
+- 可选 BGM 有三种来源：孩子专用 `hanzi_frog_music_tracks` 的 HTTPS 直链（031）、同表中的私有 R2 对象键（032），以及沿用 `/api/music/playlist-audio` 的「唱一唱」音乐授权。游戏专用配乐由汉字模块两层权限和 RLS 管理，不需音乐模块。R2 上传经 `/api/hanzi-frog/music/upload-url` 签发 10 分钟 PUT、浏览器直传，登记前 `HeadObject` 核对，播放经 `/api/hanzi-frog/music/audio` 重查权限并重定向到短效 GET，不代理 MP3 大文件；密钥只在服务器。网页 HTML URL 不能作为音频源；单一配乐失败不影响游戏。三幕池塘背景为本地 CSS/SVG，不调用图像模型。
 - 一局结束，Server Action 再次检查汉字模块授权，调用 `save_hanzi_frog_game` 原子核对目标和全部候选属于孩子已学字册，再存 `hanzi_frog_sessions`／`hanzi_frog_taps`。同一 `request_id` 幂等。游戏数据仅是有提示的听音辨字，不参与 `learning_states`、`learning_attempts`、`daily_sessions`、每日队列、贴纸或记忆阶段计算；结算页明确引导回正式字卡。部署与验收见 [30 号教程](./30_青蛙跳字岛配置与使用.md)。
