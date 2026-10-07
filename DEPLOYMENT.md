@@ -20,7 +20,7 @@
 
 **2026-10 父母专业英语**：若要启用“父母英语 → 专业英语”，在已运行 019、020 的同一 Supabase 项目中，先备份成人表，再完整运行 [028_adult_academic_english.sql](./supabase/028_adult_academic_english.sql)，成功后部署新代码。此模块不需要新 Azure 模型或环境变量；详见 [28 号教程](./28_父母专业英语配置与使用.md)。
 
-**2026-10 拼音随字学**：本次前端调用新增的拼音与汉字提示 RPC。已有项目请**先**在同一 Supabase 项目的 SQL Editor 整段运行 [029_pinyin_learning.sql](./supabase/029_pinyin_learning.sql)，再部署代码。它不删除任何原有学习记录，也无需新增环境变量、Azure 模型或 R2 配置。运行后到“家 → 拼音小练习”给孩子选择“只学韵母 / 只学声母 / 全部”，每天 3–5 个；详细验收见 [29 号说明](./29_拼音随字学配置与使用.md)。
+**2026-10 拼音随字学（029/034/035）**：基础为 [029_pinyin_learning.sql](./supabase/029_pinyin_learning.sql)，选学／顺序或随机新单元／口诀维护升级为 [034_pinyin_categories_and_random.sql](./supabase/034_pinyin_categories_and_random.sql)，前／后鼻韵母和旧客户端兼容补充为 [035_pinyin_nasal_finals.sql](./supabase/035_pinyin_nasal_finals.sql)。当前连接的 Fisher Learning 项目已应用并验证 034、035，**此项目只需部署前端，无需重跑 SQL**；其他项目先确认 024 与 029 前置，再依次整份执行 034、035 后部署。已有 034 的项目只补 035。它不清空记录或改变已有阶段，新类别默认不启用，无新环境变量、Azure 模型或 R2 配置。到“家 → 拼音小练习”勾选六类，每天 3–5 个（含复习），新单元可选随机且首次加入不重复；详细规则与验收见 [29 号说明](./29_拼音随字学配置与使用.md)。升级后不要单独重跑旧 029 覆盖新版 RPC。
 
 ## 1. 首次准备清单
 

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { answerPinyin, loadPinyinToday } from "@/lib/pinyin-actions";
+import { pinyinCategoryLabel } from "@/lib/pinyin-catalog";
 
 type Today = Awaited<ReturnType<typeof loadPinyinToday>>;
 
@@ -93,14 +94,15 @@ export function PinyinPractice({ learnerId }: { learnerId: string }) {
     <p className="muted">今天 {today.passed} / {today.total} 个拼音已认住。拼音成绩与汉字成绩分开记录。</p>
     {current ? <>
       <div className="pinyin-practice-card">
-        <span className="card-kind">{current.category === "final" ? "单韵母" : "声母"}{current.kind === "spot" ? " · 轻松抽查" : ""}</span>
+        <span className="card-kind">{pinyinCategoryLabel(current.category, current.unit_code)} · {current.kind === "new" ? "新拼音" : current.kind === "spot" ? "轻松抽查" : current.kind === "retry" ? "再确认一次" : "复习／续学"}</span>
         <strong>{current.unit_code}</strong>
         {current.required_confirmations === 2 && <small>独立认出 {current.clean_streak} / 2 次</small>}
         {revealed && <p className="pinyin-example">示例音：{current.example_hanzi} <span>{current.example_pinyin}</span><small>这是完整音节示例，由家长带孩子读字母发音。</small></p>}
+        {revealed && current.mnemonic && <p className="pinyin-mnemonic"><small>记忆口诀</small>{current.mnemonic}</p>}
       </div>
       {!revealed ? <div className="pinyin-practice-actions">
         <button className="answer-known" disabled={busy} onClick={() => void answer("known")}>自己认出来了</button>
-        <button className="answer-again" disabled={busy} onClick={() => setRevealed(true)}>还要学一下</button>
+        <button className="answer-again" disabled={busy} onClick={() => setRevealed(true)}>看口诀／再学一下</button>
       </div> : <>
         <div className="pinyin-practice-actions">
           <button className="secondary" disabled={busy || listening} onClick={() => void listen()}>{listening ? "正在慢读…" : heard ? "🔊 再听示例音" : "🔊 听示例音"}</button>
@@ -110,7 +112,7 @@ export function PinyinPractice({ learnerId }: { learnerId: string }) {
         <p className="hint">提示后想起不会降级；真的没有认出才记作“还没认出来”。</p>
       </>}
       {busy && <p className="hint">正在记录…</p>}
-    </> : <p className="pinyin-finish">拼音小练习完成！明天再见。🌿</p>}
+    </> : <p className="pinyin-finish">{today.total ? "拼音小练习完成！明天再见。🌿" : "今天没有这几类的待练卡片；新勾选的类别将在下一份每日计划里安排。"}</p>}
     {message && <p className="answer-notice" role="status">{message}</p>}
     {error && <p className="error" role="alert">{error} <button className="text-button" onClick={() => void reload()}>重新加载</button></p>}
   </section>;

@@ -32,7 +32,7 @@ flowchart TB
 5. **任何跨家庭读取都必须失败。** 前端隐藏、页面跳转不是权限控制，RLS 和函数内验证才是。
 6. **奖励只能引用真实学习记录，且不能反向改变学习历史。** 贴纸余额由不可变流水求和；奖励失败时原学习记录仍然成功。
 7. **owner 是 admin 的严格超集。** admin 审核/分配，owner 额外管理用户、邀请、临时密码和永久清理；破坏性操作默认归档，必须证明历史安全才删除。
-8. **拼音与汉字是两个记忆域。** 029 增加拼音独立状态/队列/事实日志；汉字提示是 `helped` 中性结果，不可统计为独立答对或答错，也不可由前端直接改阶段。
+8. **拼音与汉字是两个记忆域。** 029 增加拼音独立状态/队列/事实日志；034/035 增加六类选学、随机新拼音、首次加入去重与孩子专用口诀，不改变记忆真值表。汉字提示是 `helped` 中性结果，不可统计为独立答对或答错，也不可由前端直接改阶段。
 
 ## 2. 目录与责任地图
 
@@ -41,7 +41,8 @@ flowchart TB
 | `app/(app)/learn/page.tsx` | 已登录后的儿童学习入口 | 不在此处写复习算法。 |
 | `components/learning-experience.tsx` | 卡片状态、揭示答案、提交回答、朗读回退、临时联想图 | 图片只留在当前浏览器内存，不能阻塞答题。 |
 | `components/pinyin-practice.tsx` / `components/pinyin-parent-panel.tsx` | 汉字完成后的拼音小练习、家长设置和逐拼音统计 | 不复用汉字阶段或贴纸；浏览器只提交人工判断。 |
-| `lib/pinyin-actions.ts` | 拼音模式保存、拼音队列/作答及汉字中性提示 RPC | 服务端校验家长会话和孩子汉字模块权限；需先运行 029。 |
+| `lib/pinyin-actions.ts` / `lib/pinyin-catalog.ts` | 六类选学、顺序/随机模式、孩子口诀维护、拼音队列/作答及汉字中性提示 RPC | 服务端校验家长会话和孩子汉字模块权限；需先运行 029、034、035。use server 文件只导出 async 函数。 |
+| `components/pinyin-mnemonic-editor.tsx` | 家长按拼音修改/隐藏/恢复口诀 | 只保存孩子覆盖，不修改公共题库或阶段；提示内容默认藏起。 |
 | `app/(app)/library/page.tsx` | 全字册掌握统计、服务端筛选与分页 | `get_library_rows` 的参数/返回字段必须与最新 SQL 同步。 |
 | `components/library-priority-manager.tsx` | 本页重点字勾选、批量保存反馈与字卡详情 | 只提交选择，不计算复习日或阶段。 |
 | `app/(app)/parent/page.tsx` | 家长档案、导入、基础进度 | 所有写入走 `lib/actions.ts`。 |
@@ -96,6 +97,8 @@ flowchart TB
 | `supabase/017_owner_user_management_and_duplicate_cleanup.sql` | owner 用户目录、首次改密、邀请升级和重复资源安全合并 | 不修改旧密码；音乐/问答有历史时拒绝永久删除。 |
 | `supabase/018_poem_tank_game.sql` | 诗词游戏地图、场次、逐题、逐句状态和两个保存/评分 RPC | 不修改汉字算法；整首诗掌握仍由家长评分。 |
 | `supabase/029_pinyin_learning.sql` | 29 个拼音单元、孩子设置/状态/每日队列/事实日志、RLS、索引与 3 个 RPC | 汉字仅扩充 `helped` 事实及中性重试；原 `answer_queue_item` 不变。 |
+| `supabase/034_pinyin_categories_and_random.sql` | 扩至 54 单元、四类选学/新单元顺序、首次加入记录、孩子口诀覆盖、兼容升级 RPC | 保留现有设置及阶段，默认不启用新类别；不同单元首次加入不重复，正常复习可反复出现。 |
+| `supabase/035_pinyin_nasal_finals.sql` | 追加前鼻韵母 5、后鼻韵母 4，共 63 单元、六类独立选学；兼容旧 mode 单独更新 | 不搬动原 sort_order、不重置成绩或自动开启新类别；继续复用 034 的选卡、随机与记忆规则。 |
 | `supabase/022_music_folders_activity_and_cost.sql` | 音乐文件夹与整夹自动分配触发器、App 使用时长、孩子概况与用量统计 RPC | 只新增；取消整夹分配只收回 `assigned_via_folder_id` 带来的分配。 |
 | `supabase/023_capacity_guard_50_learners.sql` | 50 位孩子数据库上限、Azure 原子占位/拦截审计、容量快照与单孩子概况聚合 | 需先有 021、022；先运行 SQL 再部署对应代码，不修改学习规则。 |
 | `lib/service-guard.ts` / `lib/metered-fetch.ts` | Azure 四服务可配置空间/账号阈值、服务端原子占位后调用 | 无 SQL/Secret key 则付费请求 fail closed；不从浏览器暴露密钥。 |
@@ -366,7 +369,7 @@ sequenceDiagram
 
 ### 拼音小助手（1.1）
 
-新增 `pinyin_parts` 或由服务端可靠词典预计算，不要在浏览器用正则猜所有拼音。卡片只展示，学习状态仍使用 `learning_states`。
+汉字卡内的拼音分解可新增 `pinyin_parts` 或由服务端可靠词典预计算，不要在浏览器用正则猜所有拼音。**这仅是汉字卡的辅助展示，不是独立拼音练习。** 后者已由 029/034/035 的 `pinyin_states` 等表独立记录，不得混入 `learning_states`。
 
 ### AI 内容审核（1.1）
 
@@ -590,3 +593,11 @@ SQL Editor 使用 `supabase/020_english_listening_courses.sql`；CLI 迁移镜�
 - 首题单独优先准备、开场等待最多 8 秒，接着预加载后两题；浏览器提前下载到有界内存 Blob 缓存，重听不请求后端，离开页撤销 Blob／中止预加载。未准备好的单题约 2.5 秒后回退设备慢读两遍；总体语音 watchdog 12 秒防卡死。声音实际开始后开放点选并开始计时；切题需等待两遍播完，不用固定计时截断纠正音频。切题取消标识和语音 token 防止旧异步回调污染新题。付费保护默认值保持原样，首次大量冷缓存遇限额时提示并退避，仍能播放其他已有缓存。
 - 可选 BGM 有三种来源：孩子专用 `hanzi_frog_music_tracks` 的 HTTPS 直链（031）、同表中的私有 R2 对象键（032），以及沿用 `/api/music/playlist-audio` 的「唱一唱」音乐授权。游戏专用配乐由汉字模块两层权限和 RLS 管理，不需音乐模块。R2 上传经 `/api/hanzi-frog/music/upload-url` 签发 10 分钟 PUT、浏览器直传，登记前 `HeadObject` 核对，播放经 `/api/hanzi-frog/music/audio` 重查权限并重定向到短效 GET，不代理 MP3 大文件；密钥只在服务器。网页 HTML URL 不能作为音频源；单一配乐失败不影响游戏。三幕池塘背景为本地 CSS/SVG，不调用图像模型。
 - 一局结束，Server Action 再次检查汉字模块授权，调用 `save_hanzi_frog_game` 原子核对目标和全部候选属于孩子已学字册，再存 `hanzi_frog_sessions`／`hanzi_frog_taps`。同一 `request_id` 幂等。游戏数据仅是有提示的听音辨字，不参与 `learning_states`、`learning_attempts`、`daily_sessions`、每日队列、贴纸或记忆阶段计算；结算页明确引导回正式字卡。部署与验收见 [30 号教程](./30_青蛙跳字岛配置与使用.md)。
+
+### 11.16 拼音六类选学、随机首次加入与口诀（034/035）
+
+- 入口仍是“家 → 拼音小练习”和汉字结束后的同一“芽”流程，不新增模块权限键。六类为单韵母、声母、复韵母（同组选特殊 er）、前鼻韵母、后鼻韵母、整体认读，共 63 个题库单元。`lib/pinyin-catalog.ts` 负责纯类型、标签和表单校验，不可从 `use server` 文件导出常量。035 鼻韵母仅接续旧排序，新类别初始关闭。
+- `pinyin_settings.enabled_categories/new_order` 经授权 Server Action 保存。`pinyin_get_today` 在孩子级事务锁和当天会话行锁下调用内部 `private.pinyin_plan_units`：到期／续学先于新单元，随机只用于从未排入的单元；最多 3–5 个不同拼音包含复习，队列持久化后不重洗。取消勾选立即过滤未答卡及进度汇总，保留历史；新增类别/改数量和顺序不扩张已生成当天计划。035 的 settings 触发器兼容仍只更新旧 mode 的客户端，不改新版显式类别组合。
+- `pinyin_introductions(learner_id,unit_code)` 保存首次排入，而 `pinyin_states` 只在真实作答后创建，两者不能混同。引入记录来自最早历史计划回填，避免随机重新引入以前已经排过但没练过的单元。`pinyin_mnemonics(learner_id,unit_code)` 保存孩子专属覆盖；空白隐藏、删除恢复默认。两表引用原孩子与单元，首次会话引用每日会话，RLS 和新增外键索引已设置；口诀只能在已有汉字模块权限下维护。
+- 原 029 的双确认、当天一次降级与 1/3/7/14/30/60/90/180 天规则不变。默认藏口诀，显示后只记 `helped/again`，不独立 `known`；卡片显示新拼音/续学/再确认/抽查，统计列表可按六类和到期、暂停、尚未加入等状态筛选。拼音不会进入汉字、贴纸或其他模块的状态表。
+- 034/035 已应用到当前连接项目；后续其他项目按 029 → 034 → 035 安装。`scripts/test-pinyin-categories.mjs` 是纯配置/种子测试，`scripts/test-pinyin-database.sql` 在临时孩子/JWT上下文验证真实 RPC、RLS、去重、鼻韵母和旧新版兼容后回滚。生产构建及模拟浏览器检查不等同于 Vercel 已上线或真实 Azure 发音验收；上线与操作见 [29 号教程](./29_拼音随字学配置与使用.md)。

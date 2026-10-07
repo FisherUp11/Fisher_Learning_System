@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { loadAccessContext } from "@/lib/access";
 import { requireChildModule } from "@/lib/module-access";
+import { pinyinSettingsPayload, type PinyinCategory } from "@/lib/pinyin-catalog";
 
 async function authorized(learnerId: string) {
   const supabase = await createClient();
@@ -15,17 +16,32 @@ async function authorized(learnerId: string) {
 
 export async function savePinyinSettings(formData: FormData) {
   const learnerId = String(formData.get("learner_id") ?? "");
-  const mode = String(formData.get("mode") ?? "off");
-  const dailyLimit = Number(formData.get("daily_limit") ?? 4);
-  if (!learnerId || !["off", "finals", "initials", "both"].includes(mode)) throw new Error("请选择有效的拼音模式");
-  if (![3, 4, 5].includes(dailyLimit)) throw new Error("每天请选择 3–5 个拼音");
+  if (!learnerId) throw new Error("请先选择孩子");
+  const settings = pinyinSettingsPayload(formData);
   const supabase = await authorized(learnerId);
   const { error } = await supabase.from("pinyin_settings")
-    .upsert({ learner_id: learnerId, mode, daily_limit: dailyLimit, updated_at: new Date().toISOString() });
+    .upsert({ learner_id: learnerId, ...settings, updated_at: new Date().toISOString() });
   if (error) throw new Error(`拼音设置保存失败：${error.message}`);
   revalidatePath("/parent");
   revalidatePath("/learn");
-  return { status: "success", message: "拼音设置已保存。尚未开始的今日拼音任务会立即采用；已生成的任务保留至今天结束，明天按新设置生成。" };
+  return { status: "success", message: "拼音设置已保存。取消勾选的类别立即暂停、记录保留；新增类别、数量和顺序在尚未生成的今日任务或明日任务生效。随机新拼音不会重复首次加入，复习仍按记忆曲线安排。" };
+}
+
+export async function savePinyinMnemonic(formData: FormData) {
+  const learnerId = String(formData.get("learner_id") ?? "");
+  const code = String(formData.get("unit_code") ?? "").trim();
+  const mnemonic = String(formData.get("mnemonic") ?? "").trim();
+  const reset = formData.get("intent") === "reset";
+  if (!learnerId || !code || [...mnemonic].length > 160) throw new Error("请选择拼音，口诀最多 160 字");
+  const supabase = await authorized(learnerId);
+  const { data: unit, error: lookupError } = await supabase.from("pinyin_units").select("code").eq("code", code).maybeSingle();
+  if (lookupError || !unit) throw new Error("这个拼音不存在，请刷新后再试");
+  const { error } = reset ? await supabase.from("pinyin_mnemonics").delete().eq("learner_id", learnerId).eq("unit_code", code)
+    : await supabase.from("pinyin_mnemonics").upsert({ learner_id: learnerId, unit_code: code, mnemonic, updated_at: new Date().toISOString() });
+  if (error) throw new Error(`口诀保存失败：${error.message}`);
+  revalidatePath("/parent");
+  revalidatePath("/learn");
+  return { status: "success", message: reset ? "已恢复这个拼音的默认口诀。" : "口诀已保存，仅用于这位孩子，不影响学习次数和记忆阶段。" };
 }
 
 export async function loadPinyinToday(learnerId: string) {
@@ -36,8 +52,9 @@ export async function loadPinyinToday(learnerId: string) {
     mode: "off" | "finals" | "initials" | "both";
     total: number;
     passed: number;
+    selected_categories: PinyinCategory[];
     items: Array<{
-      item_id: string; unit_code: string; category: "final" | "initial";
+      item_id: string; unit_code: string; category: PinyinCategory; mnemonic: string;
       example_hanzi: string; example_pinyin: string; kind: "new" | "review" | "spot" | "retry";
       stage: number; clean_streak: number; required_confirmations: number; attempts: number;
     }>;
