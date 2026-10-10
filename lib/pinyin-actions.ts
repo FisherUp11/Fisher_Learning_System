@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { loadAccessContext } from "@/lib/access";
 import { requireChildModule } from "@/lib/module-access";
 import { pinyinSettingsPayload, type PinyinCategory } from "@/lib/pinyin-catalog";
+import { committedHanziQueue } from "@/lib/study-queue-server";
 
 async function authorized(learnerId: string) {
   const supabase = await createClient();
@@ -67,7 +68,16 @@ export async function answerPinyin(input: { learnerId: string; itemId: string; r
     p_learner_id: input.learnerId, p_item_id: input.itemId, p_result: input.result, p_request_id: input.requestId,
   });
   if (error) throw new Error(error.message);
-  return data as { passed?: boolean; stage?: number; idempotent?: boolean };
+  const saved = data as { passed?: boolean; stage?: number; idempotent?: boolean };
+  try {
+    const { data: today, error: syncError } = await supabase.rpc("pinyin_get_today", { p_learner_id: input.learnerId });
+    if (syncError || !today || !Array.isArray(today.items) || typeof today.total !== "number" || typeof today.passed !== "number") {
+      throw new Error(syncError?.message ?? "拼音队列响应格式不正确");
+    }
+    return { ...saved, today: today as Awaited<ReturnType<typeof loadPinyinToday>>, queueError: null };
+  } catch {
+    return { ...saved, today: null, queueError: "回答已保存，拼音队列暂未同步" };
+  }
 }
 
 export async function recordHanziHintRetry(input: { learnerId: string; sessionItemId: string; requestId: string }) {
@@ -76,5 +86,6 @@ export async function recordHanziHintRetry(input: { learnerId: string; sessionIt
     p_learner_id: input.learnerId, p_session_item_id: input.sessionItemId, p_request_id: input.requestId,
   });
   if (error) throw new Error(error.code === "PGRST202" ? "请先运行 supabase/029_pinyin_learning.sql" : error.message);
-  return data as { today_total?: number; today_passed?: number; today_remaining?: number; daily_passed?: boolean };
+  return { ...(data as { today_total?: number; today_passed?: number; today_remaining?: number; daily_passed?: boolean; idempotent?: boolean }),
+    ...await committedHanziQueue(supabase, input.learnerId) };
 }

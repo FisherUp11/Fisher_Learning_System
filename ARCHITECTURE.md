@@ -601,3 +601,10 @@ SQL Editor 使用 `supabase/020_english_listening_courses.sql`；CLI 迁移镜�
 - `pinyin_introductions(learner_id,unit_code)` 保存首次排入，而 `pinyin_states` 只在真实作答后创建，两者不能混同。引入记录来自最早历史计划回填，避免随机重新引入以前已经排过但没练过的单元。`pinyin_mnemonics(learner_id,unit_code)` 保存孩子专属覆盖；空白隐藏、删除恢复默认。两表引用原孩子与单元，首次会话引用每日会话，RLS 和新增外键索引已设置；口诀只能在已有汉字模块权限下维护。
 - 原 029 的双确认、当天一次降级与 1/3/7/14/30/60/90/180 天规则不变。默认藏口诀，显示后只记 `helped/again`，不独立 `known`；卡片显示新拼音/续学/再确认/抽查，统计列表可按六类和到期、暂停、尚未加入等状态筛选。拼音不会进入汉字、贴纸或其他模块的状态表。
 - 034/035 已应用到当前连接项目；后续其他项目按 029 → 034 → 035 安装。`scripts/test-pinyin-categories.mjs` 是纯配置/种子测试，`scripts/test-pinyin-database.sql` 在临时孩子/JWT上下文验证真实 RPC、RLS、去重、鼻韵母和旧新版兼容后回滚。生产构建及模拟浏览器检查不等同于 Vercel 已上线或真实 Azure 发音验收；上线与操作见 [29 号教程](./29_拼音随字学配置与使用.md)。
+
+### 11.17 学习卡即时切换与作答同步（2026-10-10，无 SQL）
+
+- `components/use-immediate-study.ts` 为汉字、拼音共用的单写入状态机：`loading → ready → saving → ready/save-error/sync-error`。卡片可提前移到已加载的下一项，进度/阶段/奖励只用权威响应；写入及队列同步确认前作答按钮锁定，避免成绩乱序。没有下一张时显示确认等待，不预测重认卡，不提前开启拼音或庆祝完成。
+- `lib/study-answer-sync.ts` 保存标签页级最小 pending input，key 含学习域与孩子，重试/刷新恢复使用原 UUID；清除时比对 requestId，防旧页面迟到响应删除较新作答。禁用 sessionStorage 时保守退回先保存后切换；此机制不是持久跨设备离线队列，不能保证强制关标签页仍恢复。离开页面后的异步响应不得写回已卸载组件。
+- `answerQueueItem`、`recordHanziHintRetry` 在提交后通过 `lib/study-queue-server.ts` 复用已鉴权客户端读取队列；`answerPinyin` 同理返回 `today`。读取失败须返回 `queue=null`/`today=null`（已经提交），不得把读失败伪装成整个写入回滚。确认写入后清 pending；客户端仅重读。写入响应丢失仍留 pending，同 UUID 重试由原 RPC 幂等处理。提示、双确认、降级、贴纸规则均未修改。
+- 纯逻辑测试 `scripts/test-study-answer-sync.mjs` 覆盖域/孩子隔离、相同请求恢复、旧响应不能清新记录和存储异常。浏览器对真实组件注入慢响应与故障；上线后还需用真实账号验证实际网络下的体验。前端不得为了提速直接写 `learning_states/pinyin_states` 或在客户端生成最终阶段。

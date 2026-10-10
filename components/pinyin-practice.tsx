@@ -3,57 +3,44 @@
 import { useEffect, useRef, useState } from "react";
 import { answerPinyin, loadPinyinToday } from "@/lib/pinyin-actions";
 import { pinyinCategoryLabel } from "@/lib/pinyin-catalog";
+import { useImmediateStudy } from "@/components/use-immediate-study";
+import type { StudyAnswer } from "@/lib/study-answer-sync";
 
 type Today = Awaited<ReturnType<typeof loadPinyinToday>>;
+function savePinyin(answer: StudyAnswer) { return answerPinyin(answer); }
+function advancePinyin(today: Today): Today { return { ...today, items: today.items.slice(1) }; }
+function reconcilePinyin(saved: Awaited<ReturnType<typeof answerPinyin>>): Today | null { return saved.today; }
 
 export function PinyinPractice({ learnerId }: { learnerId: string }) {
-  const [today, setToday] = useState<Today | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
+  const study = useImmediateStudy({ scope: "pinyin", learnerId, load: loadPinyinToday, save: savePinyin, advance: advancePinyin, reconcile: reconcilePinyin });
+  const today = study.data;
+  const busy = study.blocked;
   const [revealed, setRevealed] = useState(false);
   const [heard, setHeard] = useState(false);
   const [listening, setListening] = useState(false);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
   const current = today?.items[0];
-  const request = useRef(0);
-  const saving = useRef(false);
+  const speechToken = useRef(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const commit = study.lastCommit;
+  const message = study.status !== "ready" || !commit ? "" : commit.saved.idempotent ? "上次的记录已经同步，不会重复计数。" : commit.saved.passed ? "今天这个拼音认住啦！"
+    : commit.answer.result === "known" ? "先记住一次，稍后再独立认一次。" : commit.answer.result === "helped" ? "提示不算答错；稍后藏起来再认。" : "没关系，稍后我们再见一次。";
 
   useEffect(() => {
-    const id = ++request.current;
-    void loadPinyinToday(learnerId).then((result) => {
-      if (request.current === id) setToday(result);
-    }).catch((cause) => {
-      if (request.current === id) setError(cause instanceof Error ? cause.message : "拼音任务暂时无法加载");
-    }).finally(() => { if (request.current === id) setLoading(false); });
-    return () => { request.current += 1; };
+    return () => {
+      speechToken.current += 1;
+      audioRef.current?.pause();
+      audioRef.current?.dispatchEvent(new Event("ended"));
+      if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+    };
   }, [learnerId]);
 
-  async function answer(result: "known" | "again" | "helped") {
-    if (!current || saving.current) return;
-    saving.current = true;
-    setBusy(true);
-    setError("");
-    let recorded = false;
-    try {
-      const saved = await answerPinyin({ learnerId, itemId: current.item_id, result, requestId: crypto.randomUUID() });
-      recorded = true;
-      setMessage(saved.passed ? "今天这个拼音认住啦！" : result === "known" ? "先记住一次，稍后再独立认一次。" : result === "helped" ? "提示不算答错；稍后藏起来再认。" : "没关系，稍后我们再见一次。");
+  function answer(result: "known" | "again" | "helped") {
+    if (!current || busy || listening) return;
+    if (study.submit({ itemId: current.item_id, result, assisted: revealed || heard })) {
+      speechToken.current += 1;
       setRevealed(false);
       setHeard(false);
-      const refreshed = await loadPinyinToday(learnerId);
-      setToday(refreshed);
-    } catch (cause) {
-      setError(recorded ? "已经记录成功，但后面的拼音没有刷新出来，请点重新加载。" : cause instanceof Error ? cause.message : "这次没有保存，请重试");
-    } finally { saving.current = false; setBusy(false); }
-  }
-
-  async function reload() {
-    setLoading(true);
-    setError("");
-    try { setToday(await loadPinyinToday(learnerId)); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "拼音任务暂时无法加载"); }
-    finally { setLoading(false); }
+    }
   }
 
   async function listen() {
@@ -61,12 +48,15 @@ export function PinyinPractice({ learnerId }: { learnerId: string }) {
     setHeard(true);
     setRevealed(true);
     setListening(true);
+    const token = ++speechToken.current;
     try {
       const response = await fetch(`/api/speech?text=${encodeURIComponent(current.example_hanzi)}&slow=1&learner=${encodeURIComponent(learnerId)}`);
       if (!response.ok) throw new Error("speech unavailable");
       const url = URL.createObjectURL(await response.blob());
       try {
+        if (token !== speechToken.current) return;
         const audio = new Audio(url);
+        audioRef.current = audio;
         audio.playbackRate = 0.88;
         await new Promise<void>((resolve, reject) => {
           audio.onended = () => resolve();
@@ -75,18 +65,22 @@ export function PinyinPractice({ learnerId }: { learnerId: string }) {
         });
       } finally { URL.revokeObjectURL(url); }
     } catch {
-      if ("speechSynthesis" in window) {
+      if (token === speechToken.current && "speechSynthesis" in window) {
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(current.example_hanzi);
         utterance.lang = "zh-CN";
         utterance.rate = 0.7;
         window.speechSynthesis.speak(utterance);
       }
-    } finally { setListening(false); }
+    } finally { if (token === speechToken.current) { audioRef.current = null; setListening(false); } }
   }
 
-  if (loading) return <section className="pinyin-practice panel"><p className="muted">正在准备拼音小练习…</p></section>;
-  if (error && !today) return <section className="pinyin-practice panel"><h2>拼音稍后再学</h2><p className="error">{error}</p><button className="secondary" onClick={() => void reload()}>重新加载</button></section>;
+  const feedback = <div className="study-sync-feedback" role="status">
+    {study.status === "saving" && <p className="hint">上一张正在后台保存，可以先认下一个拼音；保存后即可继续作答。</p>}
+    {study.error && <><p className="error">{study.error}</p><button className="secondary" onClick={study.retry}>{study.status === "save-error" ? "重试保存上一张" : "重试加载"}</button>{study.status === "save-error" && <button className="text-button" onClick={study.discard}>以数据库记录重新加载</button>}</>}
+  </div>;
+  if (study.status === "loading" && !today) return <section className="pinyin-practice panel"><p className="muted">正在准备拼音小练习…</p></section>;
+  if (!today) return <section className="pinyin-practice panel"><h2>正在同步拼音记录</h2>{feedback}</section>;
   if (!today || today.mode === "off") return null;
   return <section className="pinyin-practice panel" aria-label="今日拼音小练习">
     <p className="eyebrow">今天的小尾巴 · 拼音</p>
@@ -101,19 +95,18 @@ export function PinyinPractice({ learnerId }: { learnerId: string }) {
         {revealed && current.mnemonic && <p className="pinyin-mnemonic"><small>记忆口诀</small>{current.mnemonic}</p>}
       </div>
       {!revealed ? <div className="pinyin-practice-actions">
-        <button className="answer-known" disabled={busy} onClick={() => void answer("known")}>自己认出来了</button>
-        <button className="answer-again" disabled={busy} onClick={() => setRevealed(true)}>看口诀／再学一下</button>
+        <button className="answer-known" disabled={busy || listening} onClick={() => answer("known")}>自己认出来了</button>
+        <button className="answer-again" onClick={() => setRevealed(true)}>看口诀／再学一下</button>
       </div> : <>
         <div className="pinyin-practice-actions">
-          <button className="secondary" disabled={busy || listening} onClick={() => void listen()}>{listening ? "正在慢读…" : heard ? "🔊 再听示例音" : "🔊 听示例音"}</button>
+          <button className="secondary" disabled={listening} onClick={() => void listen()}>{listening ? "正在慢读…" : heard ? "🔊 再听示例音" : "🔊 听示例音"}</button>
           <button className="secondary" disabled={busy || listening} onClick={() => void answer("helped")}>提示后想起来了</button>
           <button className="answer-again" disabled={busy || listening} onClick={() => void answer("again")}>还没认出来</button>
         </div>
         <p className="hint">提示后想起不会降级；真的没有认出才记作“还没认出来”。</p>
       </>}
-      {busy && <p className="hint">正在记录…</p>}
-    </> : <p className="pinyin-finish">{today.total ? "拼音小练习完成！明天再见。🌿" : "今天没有这几类的待练卡片；新勾选的类别将在下一份每日计划里安排。"}</p>}
+    </> : <p className="pinyin-finish">{study.status !== "ready" ? "正在确认刚才的记录，暂不算完成。" : today.total ? "拼音小练习完成！明天再见。🌿" : "今天没有这几类的待练卡片；新勾选的类别将在下一份每日计划里安排。"}</p>}
     {message && <p className="answer-notice" role="status">{message}</p>}
-    {error && <p className="error" role="alert">{error} <button className="text-button" onClick={() => void reload()}>重新加载</button></p>}
+    {feedback}
   </section>;
 }

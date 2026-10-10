@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createHash } from "node:crypto";
 import { createClient } from "@/lib/supabase/server";
 import { claimHanziCompletionReward, registerActivityReward } from "@/lib/reward-service";
+import { committedHanziQueue } from "@/lib/study-queue-server";
 import { loadAccessContext } from "@/lib/access";
 import { requireAccountModule, requireChildModule } from "@/lib/module-access";
 import { checkImportWrite, existingImportMessage, finishImportCollection, importFailure, ImportProblem, prepareImportCollection, retryImportDatabaseCall, type ImportResult } from "@/lib/import-safety";
@@ -167,10 +168,11 @@ export async function answerQueueItem(input: {
     today_remaining?: number;
     idempotent?: boolean;
   };
-  const reward = saved.today_remaining === 0
+  const next = await committedHanziQueue(supabase, input.learnerId);
+  const reward = saved.today_remaining === 0 || (saved.idempotent && next.queue?.length === 0)
     ? await claimHanziCompletionReward(supabase, input.learnerId)
     : null;
-  return { ...saved, reward };
+  return { ...saved, reward, ...next };
 }
 
 export async function createLearner(formData: FormData) {
