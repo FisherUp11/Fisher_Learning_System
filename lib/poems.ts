@@ -1,13 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-
-type RawAttempt = {
-  id: string;
-  poem_id: string;
-  recited_at: string;
-  recited_local_date: string;
-  score: number | null;
-  note: string | null;
-};
+import { loadPracticeSummaries, loadResourceBatches, loadResourceRows } from "@/lib/resource-queries";
 
 export type PoemProgress = {
   id: string;
@@ -26,7 +18,6 @@ export type PoemProgress = {
   lastScore: number | null;
   averageScore: number | null;
   scoreCount: number;
-  attempts: RawAttempt[];
 };
 
 type CollectionRow = { collection_id: string; linked_at: string };
@@ -34,72 +25,52 @@ type Collection = { id: string; title: string; created_at: string };
 type CollectionItem = { collection_id: string; poem_id: string; sequence: number };
 type Poem = { id: string; poem_key: string; title: string; author: string; dynasty: string | null; content: string };
 
-function errorMessage(error: { message?: string } | null, fallback: string) {
-  return error?.message || fallback;
-}
-
 /** Loads every poem linked to one child. Filtering and pagination happen in the page, so imported collections remain visible together. */
 export async function loadPoemProgress(supabase: SupabaseClient, learnerId: string): Promise<{ collections: Collection[]; poems: PoemProgress[] }> {
-  const { data: links, error: linksError } = await supabase
+  const links = await loadResourceRows<CollectionRow>((from, to) => supabase
     .from("learner_poem_collections")
     .select("collection_id,linked_at")
     .eq("learner_id", learnerId)
     .eq("assignment_status", "active")
-    .order("linked_at") as { data: CollectionRow[] | null; error: { message?: string } | null };
-  if (linksError) throw new Error(errorMessage(linksError, "无法读取孩子的诗词册"));
-  const collectionIds = (links ?? []).map((row) => row.collection_id);
+    .order("linked_at").order("collection_id").range(from, to));
+  const collectionIds = links.map((row) => row.collection_id);
   if (collectionIds.length === 0) return { collections: [], poems: [] };
 
-  const [{ data: collectionRows, error: collectionsError }, { data: itemRows, error: itemsError }] = await Promise.all([
-    supabase.from("poem_collections").select("id,title,created_at").in("id", collectionIds).order("created_at"),
-    supabase.from("poem_collection_items").select("collection_id,poem_id,sequence").in("collection_id", collectionIds),
-  ]) as Array<{ data: Collection[] | CollectionItem[] | null; error: { message?: string } | null }>;
-  if (collectionsError) throw new Error(errorMessage(collectionsError, "无法读取诗词册"));
-  if (itemsError) throw new Error(errorMessage(itemsError, "无法读取诗词目录"));
-  const collections = (collectionRows ?? []) as Collection[];
-  const items = (itemRows ?? []) as CollectionItem[];
+  const [collections, items] = await Promise.all([
+    loadResourceBatches<Collection>(collectionIds, (ids, from, to) => supabase.from("poem_collections").select("id,title,created_at").in("id", ids).order("created_at").order("id").range(from, to)),
+    loadResourceBatches<CollectionItem>(collectionIds, (ids, from, to) => supabase.from("poem_collection_items").select("collection_id,poem_id,sequence").in("collection_id", ids).order("collection_id").order("sequence").order("poem_id").range(from, to)),
+  ]);
+  collections.sort((a,b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
   const poemIds = [...new Set(items.map((row) => row.poem_id))];
   if (poemIds.length === 0) return { collections, poems: [] };
 
-  const [{ data: poemRows, error: poemsError }, { data: attemptRows, error: attemptsError }] = await Promise.all([
-    supabase.from("poems").select("id,poem_key,title,author,dynasty,content").in("id", poemIds),
-    supabase.from("poem_recitation_attempts").select("id,poem_id,recited_at,recited_local_date,score,note").eq("learner_id", learnerId).in("poem_id", poemIds).order("recited_at", { ascending: false }),
-  ]) as Array<{ data: Poem[] | RawAttempt[] | null; error: { message?: string } | null }>;
-  if (poemsError) throw new Error(errorMessage(poemsError, "无法读取诗词内容"));
-  if (attemptsError) throw new Error(errorMessage(attemptsError, "无法读取背诵记录"));
+  const [poemRows, summaries] = await Promise.all([
+    loadResourceBatches<Poem>(poemIds, (ids, from, to) => supabase.from("poems").select("id,poem_key,title,author,dynasty,content").in("id", ids).order("id").range(from, to)),
+    loadPracticeSummaries<Pick<PoemProgress, "id" | "attemptCount" | "practiceDays" | "lastRecitedAt" | "lastRecitedDate" | "lastScore" | "averageScore" | "scoreCount">>(supabase, "poem", learnerId),
+  ]);
 
   const titleByCollection = new Map(collections.map((collection) => [collection.id, collection.title]));
-  const sourcesByPoem = new Map<string, Array<{ sequence: number; title: string }>>();
+  const sourcesByPoem = new Map<string, Array<{ collectionId: string; sequence: number; title: string }>>();
   for (const item of items) {
     const source = sourcesByPoem.get(item.poem_id) ?? [];
-    source.push({ sequence: item.sequence, title: titleByCollection.get(item.collection_id) ?? "未命名诗词册" });
+    source.push({ collectionId: item.collection_id, sequence: item.sequence, title: titleByCollection.get(item.collection_id) ?? "未命名诗词册" });
     sourcesByPoem.set(item.poem_id, source);
   }
-  const attemptsByPoem = new Map<string, RawAttempt[]>();
-  for (const attempt of ((attemptRows ?? []) as RawAttempt[])) {
-    const history = attemptsByPoem.get(attempt.poem_id) ?? [];
-    history.push(attempt);
-    attemptsByPoem.set(attempt.poem_id, history);
-  }
-
-  const poems = ((poemRows ?? []) as Poem[]).map((poem) => {
-    const attempts = attemptsByPoem.get(poem.id) ?? [];
-    const scored = attempts.filter((attempt) => attempt.score !== null);
+  const poems = poemRows.map((poem) => {
+    const summary = summaries.get(poem.id);
     const sourceRows = sourcesByPoem.get(poem.id) ?? [];
-    const lastScore = scored[0]?.score ?? null;
     return {
       ...poem,
       sequence: Math.min(...sourceRows.map((row) => row.sequence)),
-      sourceCollectionIds: [...new Set(items.filter((item) => item.poem_id === poem.id).map((item) => item.collection_id))],
+      sourceCollectionIds: [...new Set(sourceRows.map((item) => item.collectionId))],
       sourceTitles: [...new Set(sourceRows.sort((a, b) => a.sequence - b.sequence).map((row) => row.title))],
-      attemptCount: attempts.length,
-      practiceDays: new Set(attempts.map((attempt) => attempt.recited_local_date)).size,
-      lastRecitedAt: attempts[0]?.recited_at ?? null,
-      lastRecitedDate: attempts[0]?.recited_local_date ?? null,
-      lastScore,
-      averageScore: scored.length ? Math.round((scored.reduce((sum, attempt) => sum + (attempt.score ?? 0), 0) / scored.length) * 10) / 10 : null,
-      scoreCount: scored.length,
-      attempts,
+      attemptCount: Number(summary?.attemptCount ?? 0),
+      practiceDays: Number(summary?.practiceDays ?? 0),
+      lastRecitedAt: summary?.lastRecitedAt ?? null,
+      lastRecitedDate: summary?.lastRecitedDate ?? null,
+      lastScore: summary?.lastScore ?? null,
+      averageScore: summary?.averageScore ?? null,
+      scoreCount: Number(summary?.scoreCount ?? 0),
     };
   }).sort((left, right) => left.sequence - right.sequence || left.title.localeCompare(right.title, "zh-CN"));
 

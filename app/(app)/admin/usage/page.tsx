@@ -5,6 +5,8 @@ import { loadAuthDirectory } from "@/lib/auth-directory";
 import { loadAccessContext } from "@/lib/access";
 import { ChildUsageSection } from "./child-usage";
 import { AdminCapacityPanel } from "@/components/admin-capacity-panel";
+import { DatabaseHealthPanel } from "@/components/database-health-panel";
+import { Suspense } from "react";
 
 export const dynamic = "force-dynamic";
 type Usage = {user_id:string;service:string;model:string;requests:number;succeeded:number;failed:number;uncertain:number;input_tokens:number|null;output_tokens:number|null;cached_input_tokens:number|null;token_unknown:number;characters:number;images:number;audio_seconds:number};
@@ -36,6 +38,7 @@ export default async function UsagePage({searchParams}:{searchParams:Promise<{da
     <header className="hero"><p className="eyebrow">Service usage</p><h1>使用情况与成本</h1><p className="lede">按孩子看使用时长、学习记录和估算成本；按账号看 AI 与语音调用。不展示私人会议、提示词或录音。</p></header>
     <section className="panel"><form className="field-grid" action="/admin/usage" method="get"><label>统计区间<select name="days" defaultValue={days}><option value="7">最近 7 天</option><option value="30">最近 30 天</option><option value="90">最近 90 天</option></select></label>{params.user && <input type="hidden" name="user" value={params.user} />}<button className="secondary" type="submit">查看 / 刷新</button></form></section>
     <AdminCapacityPanel db={db} workspaceId={access.workspaceId} />
+    {access.isOwner && <Suspense fallback={<section className="panel"><h2>数据库容量</h2><p className="helper-text">正在读取数据库采样…</p></section>}><DatabaseHealthPanel db={db} userId={user.id} /></Suspense>}
     <ChildUsageSection db={db} workspaceId={access.workspaceId} ownFamilyId={access.familyId} days={days} from={from} to={to} />
     <section className="panel">
       <h2>按账号：AI 与语音调用明细</h2>

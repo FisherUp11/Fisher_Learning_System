@@ -5,14 +5,12 @@ import { formatPoemDate, loadPoemProgress } from "@/lib/poems";
 import { createClient } from "@/lib/supabase/server";
 import { loadAccessContext } from "@/lib/access";
 import { requireChildModule } from "@/lib/module-access";
+import { PracticeHistory } from "@/components/practice-history";
+import { readPracticeHistory } from "@/lib/practice-history";
 
 export const dynamic = "force-dynamic";
 
 type PageProps = { params: Promise<{ poemId: string }>; searchParams: Promise<{ learner?: string }> };
-
-function formatRecordedAt(value: string) {
-  return new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(value));
-}
 
 export default async function PoemDetailPage({ params, searchParams }: PageProps) {
   const [{ poemId }, query] = await Promise.all([params, searchParams]);
@@ -37,6 +35,7 @@ export default async function PoemDetailPage({ params, searchParams }: PageProps
     && /^https:\/\/[a-z0-9-]+\.h5\.xiaoeknow\.com\/p\/course\/video\//i.test(videoRow.music_video_url)
     ? videoRow.music_video_url : null;
   const lines = poem.content.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const history = await readPracticeHistory(supabase,"poem",learner.id,poem.id);
   return <div className="poem-detail-page">
       <Link className="back-link" href={`/poems?learner=${learner.id}`}>← 返回 {learner.display_name} 的诗词册</Link>
       <section className="poem-paper">
@@ -55,7 +54,7 @@ export default async function PoemDetailPage({ params, searchParams }: PageProps
 
       <PoemRecitationForm learnerId={learner.id} poemId={poem.id} />
 
-      <section className="panel recitation-history"><h2>背诵记录</h2><p className="library-meta">记录的是孩子真实练习的日期和时间。暂不评分的打卡会清楚标出，之后不影响继续记录。</p>{poem.attempts.length === 0 ? <p className="notice">还没有记录。背过或读过一次后，点上面的“今天背过一次”。</p> : <div className="history-list">{poem.attempts.map((attempt) => <div className="history-row" key={attempt.id}><div><strong>{formatPoemDate(attempt.recited_local_date)}</strong><span>{formatRecordedAt(attempt.recited_at)}</span></div><span className={`history-score ${attempt.score === null ? "unscored" : ""}`}>{attempt.score === null ? "暂未评分" : `${attempt.score} / 10 分`}</span>{attempt.note && <p>{attempt.note}</p>}</div>)}</div>}</section>
+      <PracticeHistory key={`${poem.id}:${history.total}`} kind="poem" learnerId={learner.id} itemId={poem.id} initialPage={history} />
       {access?.isAdmin && (videoSetupMissing
         ? <p className="notice">要给诗词添加音乐视频，请先在 Supabase 运行 <code>supabase/033_poem_music_video_links.sql</code>。</p>
         : <PoemVideoEditor poemId={poem.id} initialUrl={musicVideoUrl} />)}

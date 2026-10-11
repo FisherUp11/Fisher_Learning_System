@@ -2,6 +2,16 @@
 
 本文件是后续人类开发者或 AI Agent 的工作约束。目标不是抽象得“万能”，而是在不破坏孩子学习记录的前提下持续迭代。
 
+## 2026-10-11 数据库容量与资源历史优化（036）
+
+- `/admin/usage` 在 owner 条件下以 Suspense 加载 `DatabaseHealthPanel`。`lib/database-health.ts` 重新校验当前请求 owner 关系，之后才使用服务端 Secret key 调 `owner_database_health`。此 RPC 仅 service role 可执行；私有 definer 检查已授权空间 + 当前 owner。不能把全项目元数据接口开放给普通 authenticated 或未来任意空间 owner。
+- 私有 `database_health_workspaces` 存授权空间；`database_health_samples` 每个北京时间日一条 sanitized 元数据 JSON，5 分钟缓存、约 120 天保留。无 cron/轮询。只读事务仍返回元数据并标记未保存；错误不当零用量。没有新增业务历史的重复副本。
+- 总数据库大小、业务/索引、记录估算及预算各自明确口径；真实磁盘/WAL/组织账单未接入。Pro 的 8 GB 磁盘不能当数据库预算。套餐标签和可选预算仅服务端配置。
+- `resource_practice_summary`、`resource_practice_history` 均是 invoker + RLS，并先检查孩子级可访问权限。只读，不改写学习状态。诗词/音乐次数、问答天数/今天练过在库内准确聚合；问答每日复习的扣减仍按“非今日首次开始且今日练过”的不同问题数，不能改成答题次数。
+- `lib/resource-queries.ts` 目录元数据分 500 行读取、UUID 条件分 100 个，必须稳定排序包含唯一键；不再把全部 attempt 数组序列化到列表/学习卡。`PracticeHistory` 首屏详情由服务端加载 20 条，后续分页经已登录/模块检查的 Server Action；问答展开按需获取。保存后的页面刷新用资源 ID + total key 重挂历史，避免陈旧客户端分页。
+- 036 用结构等价守卫清理 7 个白名单普通索引，保留 UNIQUE/PK/关联约束。既有双确认、降级、拼音、奖励与 50 位孩子上限都不改。单项 COUNT 与历史排序使用已有孩子/资源/时间索引；目录仍会读取完整已分配元数据以保留搜索/推荐，未来特别大的目录可另做服务端筛选分页。
+- 当前连接项目已应用 036，真实 owner/RLS 汇总核对通过，前端未代发布。隔离数据库 1,005 次历史/分页、权限、索引与缓存测试在 `scripts/test-database-health.cjs`；不是 200 并发证明。既有 Advisor 提示另行审计，见 [31 号教程](./31_数据库容量看板与查询优化.md)。
+
 ## 1. 产品与技术边界
 
 ```mermaid

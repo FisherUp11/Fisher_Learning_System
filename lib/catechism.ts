@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { loadPracticeSummaries, loadResourceBatches, loadResourceRows } from "@/lib/resource-queries";
 
 export type CatechismAttemptResult = "recited" | "again";
 
@@ -46,7 +47,8 @@ export type CatechismProgress = {
   lastPracticedAt: string | null;
   lastPracticedLocalDate: string | null;
   masteredAt: string | null;
-  attempts: CatechismAttempt[];
+  practiceDays: number;
+  practicedToday: boolean;
 };
 
 export type CatechismQueueItem = CatechismProgress & { queueKind: "review" | "new" };
@@ -79,22 +81,6 @@ type StateRow = {
   last_practiced_local_date: string | null;
   mastered_at: string | null;
 };
-type AttemptRow = {
-  id: string;
-  item_id: string;
-  result: CatechismAttemptResult;
-  practiced_at: string;
-  practiced_local_date: string;
-  stage_before: number;
-  stage_after: number;
-  next_review_date: string;
-  note: string | null;
-};
-
-function message(error: { message?: string } | null, fallback: string) {
-  return error?.message || fallback;
-}
-
 /**
  * 兼容早期已经导入数据库的旧标题，只调整展示文字，不修改主键或历史记录。
  */
@@ -114,26 +100,21 @@ export function localDateInTimezone(timezone = "Asia/Shanghai", date = new Date(
 }
 
 export async function loadCatechismProgress(supabase: SupabaseClient, learnerId: string) {
-  const { data: linkRows, error: linkError } = await supabase
+  const links = await loadResourceRows<LinkRow>((from,to) => supabase
     .from("learner_catechism_collections")
     .select("collection_id,linked_at")
     .eq("learner_id", learnerId)
     .eq("assignment_status", "active")
-    .order("linked_at") as { data: LinkRow[] | null; error: { message?: string } | null };
-  if (linkError) throw new Error(message(linkError, "无法读取孩子的问答册"));
-  const links = linkRows ?? [];
+    .order("linked_at").order("collection_id").range(from,to));
   const collectionIds = links.map((row) => row.collection_id);
   if (!collectionIds.length) return { collections: [] as CatechismCollection[], items: [] as CatechismProgress[] };
 
-  const [{ data: collectionRows, error: collectionError }, { data: itemRows, error: itemError }] = await Promise.all([
-    supabase.from("catechism_collections").select("id,title,english_title,status").in("id", collectionIds).eq("status", "published"),
-    supabase.from("catechism_items").select("id,collection_id,item_key,sort_order,section_title,question_zh,question_en,answer_zh,answer_en,scripture_reference,parent_note").in("collection_id", collectionIds).eq("status", "active"),
-  ]) as Array<{ data: CollectionRow[] | ItemRow[] | null; error: { message?: string } | null }>;
-  if (collectionError) throw new Error(message(collectionError, "无法读取问答册"));
-  if (itemError) throw new Error(message(itemError, "无法读取问答内容"));
-  const publishedCollections = (collectionRows ?? []) as CollectionRow[];
+  const [publishedCollections, itemRows] = await Promise.all([
+    loadResourceBatches<CollectionRow>(collectionIds,(ids,from,to)=>supabase.from("catechism_collections").select("id,title,english_title,status").in("id",ids).eq("status","published").order("id").range(from,to)),
+    loadResourceBatches<ItemRow>(collectionIds,(ids,from,to)=>supabase.from("catechism_items").select("id,collection_id,item_key,sort_order,section_title,question_zh,question_en,answer_zh,answer_en,scripture_reference,parent_note").in("collection_id",ids).eq("status","active").order("collection_id").order("sort_order").order("id").range(from,to)),
+  ]);
   const publishedIds = new Set(publishedCollections.map((row) => row.id));
-  const rawItems = ((itemRows ?? []) as ItemRow[]).filter((row) => publishedIds.has(row.collection_id));
+  const rawItems = itemRows.filter((row) => publishedIds.has(row.collection_id));
   if (!rawItems.length) {
     return {
       collections: publishedCollections.map((row) => ({ ...row, title: displayCatechismTitle(row.title), englishTitle: row.english_title, linkedAt: links.find((link) => link.collection_id === row.id)?.linked_at ?? "" })),
@@ -142,12 +123,10 @@ export async function loadCatechismProgress(supabase: SupabaseClient, learnerId:
   }
 
   const itemIds = rawItems.map((row) => row.id);
-  const [{ data: stateRows, error: stateError }, { data: attemptRows, error: attemptError }] = await Promise.all([
-    supabase.from("catechism_learning_states").select("item_id,stage,next_review_date,last_result,total_attempts,success_count,again_count,first_practiced_local_date,last_practiced_at,last_practiced_local_date,mastered_at").eq("learner_id", learnerId).in("item_id", itemIds),
-    supabase.from("catechism_attempts").select("id,item_id,result,practiced_at,practiced_local_date,stage_before,stage_after,next_review_date,note").eq("learner_id", learnerId).in("item_id", itemIds).order("practiced_at", { ascending: false }),
-  ]) as Array<{ data: StateRow[] | AttemptRow[] | null; error: { message?: string } | null }>;
-  if (stateError) throw new Error(message(stateError, "无法读取问答学习状态"));
-  if (attemptError) throw new Error(message(attemptError, "无法读取问答练习历史"));
+  const [stateRows, summaries] = await Promise.all([
+    loadResourceBatches<StateRow>(itemIds,(ids,from,to)=>supabase.from("catechism_learning_states").select("item_id,stage,next_review_date,last_result,total_attempts,success_count,again_count,first_practiced_local_date,last_practiced_at,last_practiced_local_date,mastered_at").eq("learner_id",learnerId).in("item_id",ids).order("item_id").range(from,to)),
+    loadPracticeSummaries<{id:string;practiceDays:number;practicedToday:boolean}>(supabase,"catechism",learnerId),
+  ]);
 
   const collections: CatechismCollection[] = publishedCollections.map((row) => ({
     id: row.id,
@@ -157,23 +136,8 @@ export async function loadCatechismProgress(supabase: SupabaseClient, learnerId:
     linkedAt: links.find((link) => link.collection_id === row.id)?.linked_at ?? "",
   })).sort((left, right) => left.linkedAt.localeCompare(right.linkedAt));
   const collectionById = new Map(collections.map((row) => [row.id, row]));
-  const stateByItem = new Map(((stateRows ?? []) as StateRow[]).map((row) => [row.item_id, row]));
-  const attemptsByItem = new Map<string, CatechismAttempt[]>();
-  for (const row of ((attemptRows ?? []) as AttemptRow[])) {
-    const rows = attemptsByItem.get(row.item_id) ?? [];
-    rows.push({
-      id: row.id,
-      itemId: row.item_id,
-      result: row.result,
-      practicedAt: row.practiced_at,
-      practicedLocalDate: row.practiced_local_date,
-      stageBefore: row.stage_before,
-      stageAfter: row.stage_after,
-      nextReviewDate: row.next_review_date,
-      note: row.note,
-    });
-    attemptsByItem.set(row.item_id, rows);
-  }
+  const stateByItem = new Map(stateRows.map((row) => [row.item_id, row]));
+  const collectionOrder = new Map(collections.map((row,index)=>[row.id,index]));
 
   const items = rawItems.map((row): CatechismProgress => {
     const state = stateByItem.get(row.id);
@@ -202,11 +166,12 @@ export async function loadCatechismProgress(supabase: SupabaseClient, learnerId:
       lastPracticedAt: state?.last_practiced_at ?? null,
       lastPracticedLocalDate: state?.last_practiced_local_date ?? null,
       masteredAt: state?.mastered_at ?? null,
-      attempts: attemptsByItem.get(row.id) ?? [],
+      practiceDays: Number(summaries.get(row.id)?.practiceDays ?? 0),
+      practicedToday: summaries.get(row.id)?.practicedToday ?? false,
     };
   }).sort((left, right) => {
-    const collectionOrder = collections.findIndex((row) => row.id === left.collectionId) - collections.findIndex((row) => row.id === right.collectionId);
-    return collectionOrder || left.sequence - right.sequence;
+    const order = (collectionOrder.get(left.collectionId)??0) - (collectionOrder.get(right.collectionId)??0);
+    return order || left.sequence - right.sequence || left.id.localeCompare(right.id);
   });
   return { collections, items };
 }
@@ -238,7 +203,7 @@ export function buildCatechismQueue(items: CatechismProgress[], today: string, d
   const newPracticedToday = items.filter((item) => item.firstPracticedLocalDate === today).length;
   const reviewedToday = new Set(items.flatMap((item) => {
     if (!item.firstPracticedLocalDate || item.firstPracticedLocalDate >= today) return [];
-    return item.attempts.some((attempt) => attempt.practicedLocalDate === today) ? [item.id] : [];
+    return item.practicedToday ? [item.id] : [];
   })).size;
   const remainingNew = Math.max(0, dailyNewLimit - newPracticedToday);
   const remainingReviews = Math.max(0, reviewLimit - reviewedToday);
