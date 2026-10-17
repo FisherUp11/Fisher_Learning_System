@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { redeemReward } from "@/lib/reward-actions";
 
 type RewardRedeemButtonProps = {
@@ -12,25 +13,34 @@ type RewardRedeemButtonProps = {
 };
 
 export function RewardRedeemButton({ learnerId, itemId, title, cost, balance }: RewardRedeemButtonProps) {
+  const router = useRouter();
+  const busy = useRef(false);
+  const request = useRef<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [message, setMessage] = useState("");
   const affordable = balance >= cost;
 
   function redeem() {
-    if (!affordable || pending) return;
+    if (!affordable || pending || busy.current) return;
     if (!window.confirm(`请爸爸妈妈确认：使用 ${cost} 枚贴纸兑换“${title}”？兑换后还剩 ${balance - cost} 枚。`)) return;
     setMessage("");
+    busy.current = true;
+    request.current ??= crypto.randomUUID();
+    const requestId = request.current;
     startTransition(async () => {
       try {
         const result = await redeemReward({
           learnerId,
           rewardItemId: itemId,
-          requestId: crypto.randomUUID(),
+          requestId,
+          expectedCost: cost,
         });
         setMessage(result.duplicate ? "这次兑换已经记录过。" : `兑换成功！还剩 ${result.balance ?? balance - cost} 枚贴纸。`);
+        request.current = null;
+        router.refresh();
       } catch (error) {
         setMessage(error instanceof Error ? error.message : "兑换没有保存成功");
-      }
+      } finally { busy.current = false; }
     });
   }
 

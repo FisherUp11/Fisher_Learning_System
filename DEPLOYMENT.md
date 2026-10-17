@@ -413,6 +413,8 @@ column reference "session_id" is ambiguous
 
 ## 9. 升级原则
 
+2026-10-17 愿望清单升级：当前项目已应用 [037 SQL](./supabase/037_child_reward_wishlist.sql)，不用重跑；其他现有环境先运行 037 再部署前端。无需新变量/外部服务。发布后到「小芽贴纸册 → 爸爸妈妈管理」切换孩子，检查新建/编辑、专属显示、已攒够、一次性兑换与撤销返还；不要为测速反复兑换真实礼物。旧版共用礼物及历史保留，详见 [32 号说明](./32_孩子愿望清单与礼物兑换.md)。
+
 2026-10 数据库容量升级：当前连接的 Fisher Learning 项目已应用 036，不必重跑；其他现有环境先备份、完整执行 [036 SQL](./supabase/036_database_health_and_resource_summaries.sql)，再部署代码。容量看板复用服务端 Supabase Secret key；可选设置套餐标签和 `DATABASE_HEALTH_BUDGET_MB`，不读取磁盘余额或自动升级订阅。诗词/音乐/问答新汇总依赖 036，部署顺序不可颠倒。详细配置和验收见 [31 号教程](./31_数据库容量看板与查询优化.md)。
 
 开始新增模块、录音或 AI 审核前，先阅读 [ARCHITECTURE.md](./ARCHITECTURE.md)。不要直接在生产库临时修改复习函数：复习规则、编号 SQL 迁移、前端文案与测试案例必须同时改。问答模块尤其不能直接写 `catechism_learning_states` 或改删 `catechism_attempts`。

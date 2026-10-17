@@ -29,6 +29,7 @@ export type RewardLedgerRow = {
 
 export type RewardCatalogItem = {
   id: string;
+  learner_id: string | null;
   title: string;
   sticker_cost: number;
   icon: string;
@@ -37,6 +38,15 @@ export type RewardCatalogItem = {
   created_at: string;
   updated_at: string;
 };
+
+export type RewardWishState = "fulfilled" | "archived" | "ready" | "saving";
+
+export function rewardWishProgress(item: RewardCatalogItem, balance: number, redemptions: RewardRedemption[]) {
+  const completed = item.learner_id ? redemptions.find(row => row.learner_id === item.learner_id && row.reward_item_id === item.id && row.status === "completed") : undefined;
+  const remaining = Math.max(0, item.sticker_cost - balance);
+  const state: RewardWishState = completed ? "fulfilled" : item.status === "archived" ? "archived" : remaining === 0 ? "ready" : "saving";
+  return { state, completed, remaining, percent: Math.min(100, Math.max(0, balance / item.sticker_cost * 100)) };
+}
 
 export type RewardRedemption = {
   id: string;

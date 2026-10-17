@@ -2,6 +2,12 @@
 
 本文件是后续人类开发者或 AI Agent 的工作约束。目标不是抽象得“万能”，而是在不破坏孩子学习记录的前提下持续迭代。
 
+## 2026-10-17 孩子专属愿望（037）
+
+复用奖励模块，`reward_catalog_items.learner_id` 非空为孩子一次性愿望，空值保留旧账号共用礼物。创建请求唯一索引防重；不能通过客户端修改归属或永久删除。家长保存/兑换走 invoker 包装 + private 家庭校验事务，先锁账户再锁礼物；成本变化、余额不足、跨孩子/家庭、已完成愿望均拒绝扣减。实现状态由 completed 兑换记录推导，撤销保留原事实并只返还一次。旧公开兑换函数签名保留，旧手工/学习奖励算法不变。
+
+奖励页面仅展示本家庭孩子，活跃家庭家长可共同维护；管理员身份本身不授予替其他家庭花贴纸的权限。`loadRewardDashboard` 以 `reward_wallet_summary` 汇总全部流水，最近故事只取 20 条，目录稳定分批，不以 REST 默认 1,000 行计算余额。不要在前端计算新余额后直接写库，也不要为了兑换新建另一套币。当前项目 037 已应用、真实数据计数/合计未变；配置、测试和 UI 验收见 [32 号说明](./32_孩子愿望清单与礼物兑换.md)。
+
 ## 2026-10-17 诗词详情优先显示正文（无新增 SQL）
 
 - 单首详情改用 `lib/poem-detail.ts::loadPoemDetail`：在用户模块检查后，以 poem_id + 嵌套 active learner assignment 查询 `poem_collection_items → poems / poem_collections → learner_poem_collections`，只读取当前诗和当前孩子的来源。不得为了详情重新调用整个 `loadPoemProgress`；不使用服务端 Secret key 绕过 RLS。

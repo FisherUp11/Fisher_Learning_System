@@ -661,6 +661,39 @@ a.music-admin-title { color:inherit; text-decoration:none; }
 .reward-gift-card h3 { margin:0; font-size:18px; }
 .reward-gift-card p { margin:4px 0; color:var(--muted); font-size:13px; }
 .reward-gift-card strong { color:#85591e; font:800 12px/1.3 ui-sans-serif,system-ui,sans-serif; }
+.reward-wishlist > .library-meta { margin-top:10px; line-height:1.6; }
+.reward-wish-card { align-content:start; padding:20px; background:linear-gradient(150deg,#fffdf8,#fbf6ea); }
+.reward-wish-card.is-ready { border-color:#b0c9ad; background:linear-gradient(150deg,#f4faef,#fffdf8); }
+.reward-wish-state { display:block; margin-bottom:6px; color:var(--muted); font:600 11px/1.4 ui-sans-serif,system-ui,sans-serif; }
+.is-ready .reward-wish-state { color:var(--leaf); }
+.reward-wish-card .reward-redeem-area, .reward-wish-progress { grid-column:1/-1; }
+.reward-wish-progress { margin:4px 0 0; }
+.reward-wish-progress > div { display:flex; justify-content:space-between; gap:10px; margin-bottom:9px; color:var(--muted); font:600 12px/1.5 ui-sans-serif,system-ui,sans-serif; }
+.reward-wish-progress progress { display:block; appearance:none; width:100%; height:8px; overflow:hidden; border:0; border-radius:99px; background:#e9e4d8; color:var(--leaf); accent-color:var(--leaf); }
+.reward-wish-progress progress::-webkit-progress-bar { background:#e9e4d8; border-radius:99px; }
+.reward-wish-progress progress::-webkit-progress-value { background:#759a6c; border-radius:99px; }
+.reward-wish-progress progress::-moz-progress-bar { background:#759a6c; border-radius:99px; }
+.reward-wish-empty { display:grid; justify-items:center; padding:28px 16px; margin-top:18px; border:1px dashed #d7c9ac; border-radius:20px; background:#fcf8ee; text-align:center; }
+.reward-wish-empty > span { font-size:36px; }
+.reward-wish-empty h3 { margin:12px 0 5px; font-size:19px; }
+.reward-wish-empty p { margin:0; color:var(--muted); font-size:14px; line-height:1.6; }
+.reward-fulfilled { margin-top:22px; padding-top:18px; border-top:1px solid var(--line); }
+.reward-fulfilled summary { color:var(--leaf); cursor:pointer; font-weight:700; }
+.reward-fulfilled summary > span { display:inline-block; margin-left:6px; padding:3px 8px; border-radius:99px; background:var(--leaf-soft); font:700 12px/1.4 ui-sans-serif,system-ui,sans-serif; }
+.reward-fulfilled > div:not(.reward-gift-grid) { display:grid; gap:10px; margin-top:16px; }
+.reward-fulfilled > div:not(.reward-gift-grid) > article { display:flex; align-items:center; gap:12px; padding:13px; border-radius:15px; background:#f3f7ef; }
+.reward-fulfilled article > span:first-child { font-size:26px; }
+.reward-fulfilled article > div:not(.reward-redeem-area) { display:grid; gap:4px; flex:1; }
+.reward-fulfilled small { color:var(--muted); font:12px/1.5 ui-sans-serif,system-ui,sans-serif; }
+.reward-wish-done { color:var(--leaf); white-space:nowrap; font:700 12px/1.4 ui-sans-serif,system-ui,sans-serif; }
+.reward-admin-gifts > .reward-wish-admin-row { grid-template-columns:auto minmax(0,1fr) auto; }
+.reward-wish-admin-actions { grid-column:1/-1; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; }
+.reward-admin-gifts .reward-wish-admin-actions .reward-redeem-area { grid-column:auto; flex:1; max-width:280px; }
+.reward-wish-edit { grid-column:1/-1; border-top:1px solid var(--line); padding-top:10px; }
+.reward-wish-edit > summary { cursor:pointer; color:var(--leaf); font:600 13px/1.5 ui-sans-serif,system-ui,sans-serif; }
+.reward-wish-edit .reward-gift-form { margin-top:13px; }
+.reward-wish-owner { color:var(--leaf); font:600 13px/1.5 ui-sans-serif,system-ui,sans-serif; }
+@media (max-width:600px) { .reward-wishlist .section-heading { align-items:flex-start; flex-direction:column; gap:9px; } .reward-fulfilled > div:not(.reward-gift-grid) > article { flex-wrap:wrap; } .reward-wish-done { margin-left:38px; } .reward-admin-gifts .reward-wish-admin-actions .reward-redeem-area { max-width:none; } }
 .reward-redeem-area { grid-column:1 / -1; }
 .reward-redeem-area button { width:100%; min-height:44px; padding:9px 13px; font-size:13px; }
 .reward-redeem-area p { margin:8px 0 0; }

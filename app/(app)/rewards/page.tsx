@@ -3,7 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { loadAccessContext } from "@/lib/access";
 import { LearnerOptions, orderLearners } from "@/components/learner-options";
 import { RewardSticker } from "@/components/reward-sticker";
-import { RewardRedeemButton } from "@/components/reward-redeem-button";
+import { RewardWishlist } from "@/components/reward-wishlist";
+import { rewardWishProgress } from "@/lib/reward-types";
 import { formatRewardDate, loadRewardDashboard } from "@/lib/rewards";
 
 export const dynamic = "force-dynamic";
@@ -20,9 +21,10 @@ export default async function RewardsPage({ searchParams }: { searchParams: Prom
   const access = user ? await loadAccessContext(supabase, user.id) : null;
   const { data: rawLearners, error: learnerError } = await supabase
     .from("learner_profiles")
-    .select("id,display_name,timezone,family_id,families(name)")
+    .select("id,display_name,timezone,family_id,parent_user_id,families(name)")
     .order("created_at");
-  const learners = orderLearners(rawLearners, access?.familyId);
+  const ownLearners = (rawLearners ?? []).filter(row => row.parent_user_id === user?.id || (access?.familyId && row.family_id === access.familyId));
+  const learners = orderLearners(ownLearners, access?.familyId);
 
   if (learnerError) return <section className="panel"><h1>贴纸册还没准备好</h1><p className="error">{learnerError.message}</p></section>;
   const learner = learners?.find((item) => item.id === query.learner) ?? learners?.[0];
@@ -34,13 +36,16 @@ export default async function RewardsPage({ searchParams }: { searchParams: Prom
   try {
     dashboard = await loadRewardDashboard(supabase, learner.id);
   } catch (error) {
-    return <section className="panel reward-setup-needed"><p className="eyebrow">REWARD SETUP</p><h1>贴纸乐园还差一步</h1><p className="lede">请先在 Supabase SQL Editor 整段运行奖励模块脚本。</p><code>supabase/012_reward_sticker_module.sql</code><p className="error">{error instanceof Error ? error.message : "无法读取奖励数据"}</p></section>;
+    return <section className="panel reward-setup-needed"><p className="eyebrow">REWARD SETUP</p><h1>贴纸与愿望暂时没有读到</h1><p className="lede">现有奖励项目请先运行本次升级脚本；如果已运行，请稍后刷新，不能将读取失败当作零枚贴纸。</p><code>supabase/037_child_reward_wishlist.sql</code><p className="error">{error instanceof Error ? error.message : "无法读取奖励数据"}</p></section>;
   }
 
   const filledSlots = Math.min(dashboard.stickerGoal, dashboard.balance);
-  const redeemableCount = Math.floor(dashboard.balance / dashboard.stickerGoal);
-  const activeGifts = dashboard.catalogItems.filter((item) => item.status === "active");
-  const remaining = Math.max(0, dashboard.stickerGoal - dashboard.balance);
+  const activeGifts = dashboard.catalogItems.filter(item => ["ready","saving"].includes(rewardWishProgress(item,dashboard.balance,dashboard.redemptions).state));
+  const personalGoals = activeGifts.filter(item => item.learner_id === learner.id);
+  const featuredGoals = personalGoals.length ? personalGoals : activeGifts;
+  const readyCount = featuredGoals.filter(item => dashboard.balance >= item.sticker_cost).length;
+  const closest = [...featuredGoals].sort((a,b) => a.sticker_cost-b.sticker_cost)[0];
+  const remaining = closest ? Math.max(0,closest.sticker_cost-dashboard.balance) : 0;
 
   return (
     <div className="reward-page">
@@ -65,17 +70,17 @@ export default async function RewardsPage({ searchParams }: { searchParams: Prom
         <div className="reward-wallet-copy">
           <p className="eyebrow">我的贴纸</p>
           <strong>{dashboard.balance}<small>枚</small></strong>
-          <p>{redeemableCount > 0 ? `礼物盒已经亮起来啦，可以兑换 ${redeemableCount} 份十枚礼物。` : `再得到 ${remaining} 枚，就能打开礼物盒。`}</p>
+          <p>{readyCount > 0 ? `有 ${readyCount} 份小期待已经攒够贴纸，和爸爸妈妈选一份实现吧。` : closest ? `再攒 ${remaining} 枚，就能实现“${closest.title}”的小愿望啦。` : "把心里的小期待加入愿望清单，和爸爸妈妈一起慢慢实现。"}</p>
         </div>
-        <div className={`reward-gift-box ${redeemableCount > 0 ? "ready" : ""}`} aria-hidden="true">
-          <span>{redeemableCount > 0 ? "🎁" : "🎀"}</span>
-          <small>{redeemableCount > 0 ? "可以兑换" : "继续加油"}</small>
+        <div className={`reward-gift-box ${readyCount > 0 ? "ready" : ""}`} aria-hidden="true">
+          <span>{readyCount > 0 ? "🎁" : "🎀"}</span>
+          <small>{readyCount > 0 ? "可以兑换" : "继续加油"}</small>
         </div>
       </section>
 
       <section className="reward-board panel">
         <div className="reward-board-heading">
-          <div><p className="eyebrow">STICKER GARDEN</p><h2>十枚贴纸，开一份礼物</h2></div>
+          <div><p className="eyebrow">STICKER GARDEN</p><h2>每一枚，都是小小的进步</h2><p className="small muted">这是贴纸花园；每份愿望需要几枚，看下面的小约定。</p></div>
           <span>{filledSlots} / {dashboard.stickerGoal}</span>
         </div>
         <div className="reward-vine" aria-hidden="true" />
@@ -100,19 +105,7 @@ export default async function RewardsPage({ searchParams }: { searchParams: Prom
         </div>
       </section>
 
-      <section className="panel reward-gifts">
-        <div className="section-heading">
-          <div><p className="eyebrow">礼物愿望</p><h2>{activeGifts.length ? "想兑换哪一份？" : "还没有加入礼物"}</h2></div>
-          <Link className="text-button" href={`/rewards/manage?learner=${learner.id}`}>爸爸妈妈管理</Link>
-        </div>
-        {activeGifts.length === 0
-          ? <p className="notice">请爸爸妈妈先到奖励管理页加入第一份小礼物。</p>
-          : <div className="reward-gift-grid">{activeGifts.map((item) => <article className="reward-gift-card" key={item.id}>
-            <span className="reward-gift-icon" aria-hidden="true">{item.icon}</span>
-            <div><h3>{item.title}</h3>{item.note && <p>{item.note}</p>}<strong>{item.sticker_cost} 枚贴纸</strong></div>
-            <RewardRedeemButton learnerId={learner.id} itemId={item.id} title={item.title} cost={item.sticker_cost} balance={dashboard.balance} />
-          </article>)}</div>}
-      </section>
+      <RewardWishlist dashboard={dashboard} learnerId={learner.id} learnerName={learner.display_name} />
 
       <section className="panel reward-history">
         <div className="section-heading"><div><p className="eyebrow">成长足迹</p><h2>最近的贴纸故事</h2></div><span>累计得到 {dashboard.lifetimeEarned} 枚</span></div>

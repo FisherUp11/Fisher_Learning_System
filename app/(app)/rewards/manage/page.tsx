@@ -3,9 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { loadAccessContext } from "@/lib/access";
 import { LearnerOptions, orderLearners } from "@/components/learner-options";
 import { RewardManualForm } from "@/components/reward-manual-form";
-import { RewardGiftForm } from "@/components/reward-gift-form";
-import { RewardCatalogStatusButton } from "@/components/reward-catalog-status-button";
-import { RewardRedeemButton } from "@/components/reward-redeem-button";
+import { RewardWishManager } from "@/components/reward-wish-manager";
 import { RewardReversalButton } from "@/components/reward-reversal-button";
 import { formatRewardDate, loadRewardDashboard } from "@/lib/rewards";
 
@@ -29,9 +27,10 @@ export default async function RewardManagePage({ searchParams }: { searchParams:
   const access = user ? await loadAccessContext(supabase, user.id) : null;
   const { data: rawLearners, error: learnerError } = await supabase
     .from("learner_profiles")
-    .select("id,display_name,timezone,family_id,families(name)")
+    .select("id,display_name,timezone,family_id,parent_user_id,families(name)")
     .order("created_at");
-  const learners = orderLearners(rawLearners, access?.familyId);
+  const ownLearners = (rawLearners ?? []).filter(row => row.parent_user_id === user?.id || (access?.familyId && row.family_id === access.familyId));
+  const learners = orderLearners(ownLearners, access?.familyId);
 
   if (learnerError) return <section className="panel"><h1>奖励管理还没准备好</h1><p className="error">{learnerError.message}</p></section>;
   const learner = learners?.find((item) => item.id === query.learner) ?? learners?.[0];
@@ -41,7 +40,7 @@ export default async function RewardManagePage({ searchParams }: { searchParams:
   try {
     dashboard = await loadRewardDashboard(supabase, learner.id);
   } catch (error) {
-    return <section className="panel reward-setup-needed"><h1>请先运行奖励模块 SQL</h1><code>supabase/012_reward_sticker_module.sql</code><p className="error">{error instanceof Error ? error.message : "无法读取奖励数据"}</p></section>;
+    return <section className="panel reward-setup-needed"><h1>愿望清单还没准备好</h1><p>现有奖励项目请先运行本次升级脚本；若已运行，请稍后刷新重试。</p><code>supabase/037_child_reward_wishlist.sql</code><p className="error">{error instanceof Error ? error.message : "无法读取奖励数据"}</p></section>;
   }
 
   return (
@@ -73,21 +72,7 @@ export default async function RewardManagePage({ searchParams }: { searchParams:
         <RewardManualForm learnerId={learner.id} learnerName={learner.display_name} today={todayInTimezone(learner.timezone)} />
       </section>
 
-      <section className="panel reward-catalog-admin">
-        <div><p className="eyebrow">礼物清单</p><h2>加入一份值得期待的小礼物</h2><p className="library-meta">默认10枚贴纸兑换，也可以为不同礼物设置不同数量。</p></div>
-        <RewardGiftForm />
-        <div className="reward-admin-gifts">
-          {dashboard.catalogItems.length === 0
-            ? <p className="notice">还没有礼物。可以先加入“一本新绘本”或“周末小活动”。</p>
-            : dashboard.catalogItems.map((item) => <article className={item.status === "archived" ? "archived" : ""} key={item.id}>
-              <span aria-hidden="true">{item.icon}</span>
-              <div><strong>{item.title}</strong><small>{item.sticker_cost} 枚{item.note ? ` · ${item.note}` : ""}</small></div>
-              <em>{item.status === "active" ? "可兑换" : "已下架"}</em>
-              <RewardCatalogStatusButton itemId={item.id} status={item.status} />
-              {item.status === "active" && <RewardRedeemButton learnerId={learner.id} itemId={item.id} title={item.title} cost={item.sticker_cost} balance={dashboard.balance} />}
-            </article>)}
-        </div>
-      </section>
+      <RewardWishManager dashboard={dashboard} learnerId={learner.id} learnerName={learner.display_name} />
 
       <section className="panel reward-redemption-history">
         <div><p className="eyebrow">兑换记录</p><h2>每一次礼物都有来处</h2></div>
