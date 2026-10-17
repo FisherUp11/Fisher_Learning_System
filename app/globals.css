@@ -311,6 +311,17 @@ textarea { min-height:112px; resize:vertical; line-height:1.65; }
 .poem-video-editor input { overflow:hidden; text-overflow:ellipsis; }
 .poem-video-editor .form-grid { margin-top:14px; }
 .poem-detail-summary { margin:0; }
+.poem-card, .poem-suggestion { position:relative; }
+.poem-opening-hint { position:absolute; z-index:3; top:12px; right:12px; display:inline-flex; align-items:center; gap:7px; padding:8px 11px; border:1px solid #c6dac8; border-radius:99px; color:var(--leaf); background:#f5faf2; box-shadow:0 3px 12px #355d4514; font:700 12px/1.2 ui-sans-serif,system-ui,sans-serif; }
+.poem-opening-hint::before { content:""; width:7px; height:7px; border-radius:50%; background:currentColor; }
+.poem-detail-loading { display:grid; justify-items:center; padding-block:36px; }
+.poem-detail-loading h1 { font-size:clamp(28px,6vw,40px); }
+.poem-skeleton-lines { display:grid; justify-items:center; gap:20px; width:min(75%,360px); margin:32px 0 8px; }
+.poem-skeleton-lines span { width:100%; height:19px; border-radius:6px; background:#e9dfce; }
+.poem-skeleton-lines span:nth-child(even) { width:84%; }
+.poem-section-loading { min-height:118px; }
+.poem-video-content { position:relative; z-index:2; margin:12px auto 0; }
+.poem-detail-page .notice p { margin:0 0 7px; }
 .recitation-form { display:grid; gap:15px; padding:22px; border:1px solid #cfe0ce; border-radius:24px; background:linear-gradient(130deg, rgba(226,237,223,.86), rgba(255,253,248,.92)); }
 .recitation-form h2 { margin:0; font-size:23px; }
 .recitation-form p { margin:6px 0 0; color:var(--muted); font-size:13px; line-height:1.45; }

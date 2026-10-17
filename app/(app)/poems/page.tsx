@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { loadAccessContext } from "@/lib/access";
 import { orderLearners } from "@/components/learner-options";
 import { requireChildModule } from "@/lib/module-access";
+import { PoemLinkStatus } from "@/components/poem-link-status";
 
 export const dynamic = "force-dynamic";
 
@@ -86,7 +87,7 @@ export default async function PoemsPage({ searchParams }: { searchParams: Search
       <p className="small muted">同一天背两遍会记录两次；“暂不评分”也很有价值，它说明孩子今天已经练过这首诗。</p>
     </section>
 
-    <section className="panel poem-recommendations"><div className="section-heading"><div><h2>建议今天多看一看</h2><p className="library-meta">优先显示还没打卡、背得较少或等待家长评分的诗词。</p></div></div><div className="poem-suggestion-grid">{recommended.map((poem) => <Link key={poem.id} className="poem-suggestion" href={poemHref(poem.id, learner.id)}><span className="poem-suggestion-title">{poem.title}</span><span>{poem.author}{poem.dynasty ? ` · ${poem.dynasty}` : ""}</span><strong>{recommendationForPoem(poem)}</strong></Link>)}</div></section>
+    <section className="panel poem-recommendations"><div className="section-heading"><div><h2>建议今天多看一看</h2><p className="library-meta">优先显示还没打卡、背得较少或等待家长评分的诗词。</p></div></div><div className="poem-suggestion-grid">{recommended.map((poem) => <Link key={poem.id} className="poem-suggestion" href={poemHref(poem.id, learner.id)}><span className="poem-suggestion-title">{poem.title}</span><span>{poem.author}{poem.dynasty ? ` · ${poem.dynasty}` : ""}</span><strong>{recommendationForPoem(poem)}</strong><PoemLinkStatus /></Link>)}</div></section>
 
     <section className="panel">
       <div className="library-header"><div><h2>{learner.display_name} 的诗词册</h2><p className="library-meta">共 {poems.length} 首 · 筛选到 {filtered.length} 首 · 每页 {PAGE_SIZE} 首{selectedCollection ? ` · 来源：${selectedCollection.title}` : ""}</p></div></div>
@@ -95,6 +96,7 @@ export default async function PoemsPage({ searchParams }: { searchParams: Search
         <h3>{poem.title}</h3><p className="poem-byline">{poem.author}{poem.dynasty ? ` · ${poem.dynasty}` : ""}</p>
         <div className="poem-card-stats"><span>背诵 {poem.attemptCount} 次</span><span>{poem.lastRecitedDate ? `最近 ${formatPoemDate(poem.lastRecitedDate)}` : "尚未打卡"}</span></div>
         <div className="poem-card-foot"><span className={`poem-status ${poem.attemptCount === 0 ? "unstarted" : poem.scoreCount === 0 ? "unscored" : poem.lastScore !== null && poem.lastScore <= 6 ? "needs-work" : "tracked"}`}>{recommendationForPoem(poem)}</span><span className="poem-score">{poem.lastScore !== null ? `最近 ${poem.lastScore} 分` : poem.attemptCount ? "未评分" : ""}</span></div>
+        <PoemLinkStatus />
       </Link>)}</div>}
       <PoemPagination learnerId={learner.id} query={query} filter={filter} collectionId={selectedCollection?.id} page={page} pageCount={pageCount} />
     </section>

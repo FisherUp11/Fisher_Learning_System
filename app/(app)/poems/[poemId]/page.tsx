@@ -1,62 +1,53 @@
 import Link from "next/link";
+import { Suspense } from "react";
+import { redirect } from "next/navigation";
 import { PoemRecitationForm } from "@/components/poem-recitation-form";
-import { PoemVideoEditor } from "@/components/poem-video-editor";
-import { formatPoemDate, loadPoemProgress } from "@/lib/poems";
-import { createClient } from "@/lib/supabase/server";
+import { PoemDetailHistory, PoemDetailSummary, PoemHistoryLoading, PoemSummaryLoading, PoemVideoLink, PoemVideoManagement } from "@/components/poem-detail-sections";
+import { loadPoemDetail } from "@/lib/poem-detail";
+import { createPageClient, getPageUser } from "@/lib/supabase/page-client";
 import { loadAccessContext } from "@/lib/access";
 import { requireChildModule } from "@/lib/module-access";
-import { PracticeHistory } from "@/components/practice-history";
-import { readPracticeHistory } from "@/lib/practice-history";
 
 export const dynamic = "force-dynamic";
 
 type PageProps = { params: Promise<{ poemId: string }>; searchParams: Promise<{ learner?: string }> };
+const isId = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 
 export default async function PoemDetailPage({ params, searchParams }: PageProps) {
   const [{ poemId }, query] = await Promise.all([params, searchParams]);
-  const supabase = await createClient();
-  const { data: learners, error: learnersError } = await supabase.from("learner_profiles").select("id,display_name").order("created_at");
-  if (learnersError) return <section className="panel"><h1>诗词暂时打不开</h1><p className="error">{learnersError.message}</p></section>;
-  const learner = learners?.find((item) => item.id === query.learner) ?? learners?.[0];
-  if (!learner) return <section className="empty panel"><h1>先创建孩子档案</h1><Link className="primary" href="/parent">去家长页</Link></section>;
-  const { data: { user } } = await supabase.auth.getUser();
-  const access = user ? await loadAccessContext(supabase, user.id) : null;
-  try { if (user) await requireChildModule(supabase, access, user.id, learner.id, "poem"); }
+  if (!isId(poemId) || (query.learner && !isId(query.learner))) return <section className="panel"><h1>诗词链接不完整</h1><Link className="secondary" href="/poems">返回诗词册</Link></section>;
+  const supabase = await createPageClient();
+  // 列表链接总是带 learner：不再读取所有家庭/所有孩子再在应用内查找。
+  let learnerQuery = supabase.from("learner_profiles").select("id,display_name");
+  if (query.learner) learnerQuery = learnerQuery.eq("id", query.learner);
+  const [{ data: learner, error: learnerError }, user] = await Promise.all([
+    learnerQuery.order("created_at").limit(1).maybeSingle(),
+    getPageUser(),
+  ]);
+  if (!user) redirect("/login");
+  if (learnerError) throw new Error("孩子档案暂时读取失败");
+  if (!learner) return <section className="empty panel"><h1>{query.learner ? "无法查看这个孩子档案" : "先创建孩子档案"}</h1><Link className="secondary" href={query.learner ? "/poems" : "/parent"}>{query.learner ? "返回诗词册" : "去家长页"}</Link></section>;
+  const access = await loadAccessContext(supabase, user.id);
+  try { await requireChildModule(supabase, access, user.id, learner.id, "poem"); }
   catch (error) { return <section className="panel"><h1>这位孩子暂未开通诗词背诵</h1><p>{error instanceof Error ? error.message : "请联系 owner 开通"}</p></section>; }
-  const { poems } = await loadPoemProgress(supabase, learner.id);
-  const poem = poems.find((item) => item.id === poemId);
+  const poem = await loadPoemDetail(supabase, learner.id, poemId);
   if (!poem) return <section className="empty panel"><span className="empty-mark">卷</span><h1>没有找到这首诗</h1><p className="lede">它可能不属于 {learner.display_name} 的诗词册，或已经被移除。</p><Link className="secondary" href={`/poems?learner=${learner.id}`}>返回诗词册</Link></section>;
-  // 独立读取可使尚未运行 033 SQL 的旧环境继续正常显示诗词与背诵记录。
-  const { data: videoRow, error: videoError } = await supabase.from("poems")
-    .select("music_video_url").eq("id", poem.id).maybeSingle();
-  const videoSetupMissing = Boolean(videoError?.message.includes("music_video_url"));
-  if (videoError && !videoSetupMissing) throw new Error(`无法读取诗词视频链接：${videoError.message}`);
-  const musicVideoUrl = typeof videoRow?.music_video_url === "string"
-    && /^https:\/\/[a-z0-9-]+\.h5\.xiaoeknow\.com\/p\/course\/video\//i.test(videoRow.music_video_url)
-    ? videoRow.music_video_url : null;
   const lines = poem.content.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  const history = await readPracticeHistory(supabase,"poem",learner.id,poem.id);
+
   return <div className="poem-detail-page">
-      <Link className="back-link" href={`/poems?learner=${learner.id}`}>← 返回 {learner.display_name} 的诗词册</Link>
-      <section className="poem-paper">
-        <p className="eyebrow">{poem.sourceTitles.join(" · ")}</p>
-        <h1>{poem.title}</h1>
-        <p className="poem-detail-byline">{poem.author}{poem.dynasty ? ` · ${poem.dynasty}` : ""}</p>
-        <div className="poem-lines" aria-label={`${poem.title} 正文`}>{lines.map((line, index) => <p key={`${line}-${index}`}>{line}</p>)}</div>
-        <div className="poem-learning-actions">
-          {musicVideoUrl && <a className="secondary poem-video-link" href={musicVideoUrl} target="_blank" rel="noopener noreferrer" aria-label={`打开《${poem.title}》音乐视频，小鹅通新页面`}>♫ 听唱这首诗 <span aria-hidden="true">↗</span></a>}
-          <Link className="primary poem-game-entry" href={`/poems/game?learner=${learner.id}&poem=${poem.id}`}>驾驶小坦克复习这首诗</Link>
-        </div>
-        {musicVideoUrl && <p className="poem-video-note">视频由小鹅通播放，可能需要微信登录；观看不会自动计入背诵次数。</p>}
-      </section>
+    <Link className="back-link" href={`/poems?learner=${learner.id}`}>← 返回 {learner.display_name} 的诗词册</Link>
+    <section className="poem-paper">
+      <p className="eyebrow">{poem.sourceTitles.join(" · ")}</p>
+      <h1>{poem.title}</h1>
+      <p className="poem-detail-byline">{poem.author}{poem.dynasty ? ` · ${poem.dynasty}` : ""}</p>
+      <div className="poem-lines" aria-label={`${poem.title} 正文`}>{lines.map((line, index) => <p key={`${line}-${index}`}>{line}</p>)}</div>
+      <div className="poem-learning-actions"><Link className="primary poem-game-entry" href={`/poems/game?learner=${learner.id}&poem=${poem.id}`}>驾驶小坦克复习这首诗</Link></div>
+      <Suspense key={`video:${poem.id}`} fallback={<p className="poem-video-note" role="status">正在查看音乐视频入口…</p>}><PoemVideoLink db={supabase} poemId={poem.id} title={poem.title} /></Suspense>
+    </section>
 
-      <section className="today-card poem-detail-summary"><p className="eyebrow">背诵情况</p><div className="today-grid"><div className="metric"><span className="metric-label">累计背诵</span><span className="metric-value">{poem.attemptCount}</span><small>次</small></div><div className="metric"><span className="metric-label">练习日期</span><span className="metric-value">{poem.practiceDays}</span><small>天</small></div><div className="metric"><span className="metric-label">最近评分</span><span className="metric-value">{poem.lastScore ?? "—"}</span><small>{poem.lastScore ? "/ 10 分" : poem.attemptCount ? "尚未评分" : "先背一次"}</small></div></div><p className="small muted">{poem.lastRecitedDate ? `最近一次：${formatPoemDate(poem.lastRecitedDate)}。` : "还没有背诵记录。"}{poem.averageScore !== null ? ` 已评分 ${poem.scoreCount} 次，平均 ${poem.averageScore} 分。` : ""}</p></section>
-
-      <PoemRecitationForm learnerId={learner.id} poemId={poem.id} />
-
-      <PracticeHistory key={`${poem.id}:${history.total}`} kind="poem" learnerId={learner.id} itemId={poem.id} initialPage={history} />
-      {access?.isAdmin && (videoSetupMissing
-        ? <p className="notice">要给诗词添加音乐视频，请先在 Supabase 运行 <code>supabase/033_poem_music_video_links.sql</code>。</p>
-        : <PoemVideoEditor poemId={poem.id} initialUrl={musicVideoUrl} />)}
+    <Suspense key={`summary:${learner.id}:${poem.id}`} fallback={<PoemSummaryLoading />}><PoemDetailSummary db={supabase} learnerId={learner.id} poemId={poem.id} /></Suspense>
+    <PoemRecitationForm key={`${learner.id}:${poem.id}`} learnerId={learner.id} poemId={poem.id} />
+    <Suspense key={`history:${learner.id}:${poem.id}`} fallback={<PoemHistoryLoading />}><PoemDetailHistory db={supabase} learnerId={learner.id} poemId={poem.id} /></Suspense>
+    {access?.isAdmin && <Suspense key={`manage:${poem.id}`} fallback={null}><PoemVideoManagement db={supabase} poemId={poem.id} /></Suspense>}
   </div>;
 }

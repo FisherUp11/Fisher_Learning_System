@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { createPageClient, getPageUser } from "@/lib/supabase/page-client";
 import { AppShell } from "@/components/app-shell";
 import { loadAccessContext } from "@/lib/access";
 import { loadAccountModules } from "@/lib/module-access";
@@ -7,8 +7,8 @@ import { loadAccountModules } from "@/lib/module-access";
 export const dynamic = "force-dynamic";
 
 export default async function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const supabase = await createPageClient();
+  const user = await getPageUser();
   if (!user) redirect("/login");
   const access = await loadAccessContext(supabase, user.id);
   if (!access) redirect("/join");

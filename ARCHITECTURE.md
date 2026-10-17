@@ -2,6 +2,15 @@
 
 本文件是后续人类开发者或 AI Agent 的工作约束。目标不是抽象得“万能”，而是在不破坏孩子学习记录的前提下持续迭代。
 
+## 2026-10-17 诗词详情优先显示正文（无新增 SQL）
+
+- 单首详情改用 `lib/poem-detail.ts::loadPoemDetail`：在用户模块检查后，以 poem_id + 嵌套 active learner assignment 查询 `poem_collection_items → poems / poem_collections → learner_poem_collections`，只读取当前诗和当前孩子的来源。不得为了详情重新调用整个 `loadPoemProgress`；不使用服务端 Secret key 绕过 RLS。
+- `poems/[poemId]/loading.tsx` 是可预取的轻量 fallback；卡片中的 `PoemLinkStatus` 用 Next `useLinkStatus` 显示当前导航反馈，不强制预取 24 首详情/全部历史。`error.tsx` 可在正文主查询失败时重试，不暴露数据库错误细节。
+- 正文及原打卡表单不等待统计、历史、视频。`components/poem-detail-sections.tsx` 中相应 Server Components 在独立 Suspense 下并发读取，失败只降级各自区块且可重试；保留历史每页 20 条、评分和重复打卡规则。统计仍用 036 的全孩子库内聚合，不拿分页历史计算平均分/总次数。
+- `lib/supabase/page-client.ts` 仅供 RSC：React `cache` 在**一次渲染**中复用 createClient/getUser，使认证布局与详情拿到同一 client，既有 `loadAccessContext/loadAccountModules` 缓存才能去重。禁止变成跨请求单例/全局 Map/unstable_cache；Action、Route Handler、proxy 仍用原 createClient，避免 Cookie 快照串号。
+- 视频读取用同一请求内 cache 去重（展示和管理共用），033 字段不存在仍兼容。没有改变数据库表/函数/索引/权限，也没有缓存或修改打卡写入。
+- 验证脚本 `scripts/test-poem-detail.cjs` 含真实 React 流式测试（慢统计/历史/视频不阻挡正文），以及显式 `FISHER_LIVE_READONLY=1` 的真实 REST 只读检查。默认跳过真实 REST 不等于全链路通过；本次 SQL/RLS 检查通过，但本机直连 REST 遇到网络重置，登录后的浏览器体验仍需上线验收。
+
 ## 2026-10-11 数据库容量与资源历史优化（036）
 
 - `/admin/usage` 在 owner 条件下以 Suspense 加载 `DatabaseHealthPanel`。`lib/database-health.ts` 重新校验当前请求 owner 关系，之后才使用服务端 Secret key 调 `owner_database_health`。此 RPC 仅 service role 可执行；私有 definer 检查已授权空间 + 当前 owner。不能把全项目元数据接口开放给普通 authenticated 或未来任意空间 owner。
