@@ -14,7 +14,7 @@ export default async function LearnPage({ searchParams }: { searchParams: Promis
   const access = user ? await loadAccessContext(supabase, user.id) : null;
   const { data: rawLearners, error } = await supabase
     .from("learner_profiles")
-    .select("id,display_name,daily_new_limit,active_package_id,family_id,families(name)")
+    .select("id,display_name,daily_new_limit,active_package_id,family_id,families(name)").eq("family_id", access?.familyId ?? "00000000-0000-0000-0000-000000000000")
     .order("created_at", { ascending: true });
   const learners = orderLearners(rawLearners, access?.familyId);
 
@@ -24,7 +24,7 @@ export default async function LearnPage({ searchParams }: { searchParams: Promis
     return <section className="empty panel"><span className="empty-mark">🌱</span><h1>先为孩子建一个小档案</h1><p className="lede">到“家长”页填写昵称，然后导入第一份汉字 CSV。</p><a className="primary" href="/parent">去家长页</a></section>;
   }
   try { if (user) await requireChildModule(supabase,access,user.id,learner.id,"hanzi"); }
-  catch (error) { return <section className="panel"><h1>这位孩子暂未开通汉字学习</h1><p>{error instanceof Error ? error.message : "请联系 owner 开通"}</p></section>; }
+  catch (error) { return <section className="panel"><h1>汉字学习暂不可用</h1><p>{error instanceof Error ? error.message : "请联系 owner 开通"}</p><Link className="secondary" href={`/library?learner=${learner.id}`}>查看保留的学习记录</Link><Link className="text-button" href="/parent">返回我的家庭</Link></section>; }
   if (!learner.active_package_id) {
     return <section className="empty panel"><span className="empty-mark">📚</span><h1>{learner.display_name} 的字册还是空的</h1><p className="lede">到“家长”页上传 CSV 后，就能开始今天的学习。</p><a className="primary" href="/parent">导入汉字</a></section>;
   }

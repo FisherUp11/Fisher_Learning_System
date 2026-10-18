@@ -20,7 +20,7 @@ export default async function KidsEnglishManagePage({ searchParams }: { searchPa
   if (!user || !access) return null;
   const [{ data: books, error: bookError }, { data: rawLearners }, { data: videos }] = await Promise.all([
     supabase.from("kids_english_books").select("id,title,status,review_status,submitted_for_learner_id,created_at").eq("workspace_id",access.workspaceId).order("created_at",{ ascending: false }),
-    supabase.from("learner_profiles").select("id,display_name,timezone,family_id,families(name)").order("created_at"),
+    supabase.from("learner_profiles").select("id,display_name,timezone,family_id,families(name)").eq("family_id", access?.familyId ?? "00000000-0000-0000-0000-000000000000").order("created_at"),
     supabase.from("kids_english_videos").select("id,title,original_name,created_at").eq("workspace_id",access.workspaceId).order("created_at",{ ascending: false }),
   ]);
   if (bookError) return <section className="panel"><h1>请先运行儿童英语 SQL</h1><p className="error">{bookError.message}</p></section>;

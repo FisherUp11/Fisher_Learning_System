@@ -4,7 +4,7 @@ import { toggleWorkspaceAssignment } from "@/lib/admin-actions";
 import { loadAccessContext } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
 import { displayCatechismTitle } from "@/lib/catechism";
-import { LearnerOptions, orderLearners } from "@/components/learner-options";
+
 
 export const dynamic = "force-dynamic";
 
@@ -24,9 +24,7 @@ export default async function AdminAssignmentsPage({ searchParams }: { searchPar
   if (!user) redirect("/login");
   const access = await loadAccessContext(supabase, user.id);
   if (!access?.isAdmin) redirect("/parent");
-  const { data: rawLearners } = await supabase.from("learner_profiles").select("id,display_name,family_id,families(name)").order("created_at");
-  const learners = orderLearners(rawLearners, access.familyId);
-  const learner = learners?.find((row) => row.id === params.learner) ?? learners?.[0];
+  const { data: learner } = params.learner ? await supabase.from("learner_profiles").select("id,display_name,family_id,families!inner(name,workspace_id)").eq("id",params.learner).eq("families.workspace_id",access.workspaceId).maybeSingle() : {data:null};
   const moduleKey = (params.module && params.module in modules ? params.module : "hanzi") as keyof typeof modules;
   const moduleMeta = modules[moduleKey];
   const resourceQuery = moduleKey === "music_folder"
@@ -39,8 +37,8 @@ export default async function AdminAssignmentsPage({ searchParams }: { searchPar
   const activeIds = new Set((assignmentRows ?? []).filter((row) => row.assignment_status === "active").map((row) => String(row[moduleMeta.resourceKey as keyof typeof row])));
 
   return <div><header className="hero"><p className="eyebrow">Curriculum assignment</p><h1>给每个孩子安排合适的内容</h1><p className="lede">只显示已审核、已发布的资源。取消分配后不再进入学习队列，但历史不会被删除。</p></header>
-    {!learner ? <section className="panel"><p className="notice">还没有孩子档案。</p></section> : <>
-      <section className="assignment-picker panel"><form action="/admin/assignments"><label>选择孩子<select name="learner" defaultValue={learner.id}><LearnerOptions learners={learners} /></select></label><input type="hidden" name="module" value={moduleKey} /><button className="secondary">切换</button></form>
+    {!learner ? <section className="panel"><p className="notice">请先从家庭与孩子中搜索并选择一位孩子。</p><Link className="primary" href="/admin/families">选择家庭与孩子</Link></section> : <>
+      <section className="assignment-picker panel"><div><strong>正在管理：{learner.display_name}</strong> · <Link className="text-button" href={`/admin/learners/${learner.id}`}>孩子详情</Link> · <Link className="text-button" href="/admin/families">换一位孩子</Link></div>
         <nav>{Object.entries(modules).map(([key, item]) => <Link className={key === moduleKey ? "active" : ""} href={`/admin/assignments?learner=${learner.id}&module=${key}`} key={key}>{item.label}</Link>)}</nav>
       </section>
       <section className="panel"><div className="library-header"><div><h2>{learner.display_name} · {moduleMeta.label}</h2><p className="library-meta">已分配 {activeIds.size} / {resources?.length ?? 0} 份</p></div></div>

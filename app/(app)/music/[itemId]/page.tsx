@@ -16,11 +16,12 @@ type PageProps = { params: Promise<{ itemId: string }>; searchParams: Promise<{ 
 export default async function MusicDetailPage({ params, searchParams }: PageProps) {
   const [{ itemId }, query] = await Promise.all([params, searchParams]);
   const supabase = await createClient();
-  const { data: learners } = await supabase.from("learner_profiles").select("id,display_name").order("created_at");
+  const { data: { user } } = await supabase.auth.getUser();
+  const access = user ? await loadAccessContext(supabase,user.id) : null;
+  const { data: learners } = await supabase.from("learner_profiles").select("id,display_name").eq("family_id",access?.familyId ?? "00000000-0000-0000-0000-000000000000").order("created_at");
   const learner = learners?.find((item) => item.id === query.learner) ?? learners?.[0];
   if (!learner) return <section className="empty panel"><h1>先创建孩子档案</h1><Link className="primary" href="/parent">去家长页</Link></section>;
-  const { data: { user } } = await supabase.auth.getUser();
-  try { if (user) await requireChildModule(supabase,await loadAccessContext(supabase,user.id),user.id,learner.id,"music"); }
+  try { if (user) await requireChildModule(supabase,access,user.id,learner.id,"music"); }
   catch (error) { return <section className="panel"><h1>这位孩子暂未开通音乐天地</h1><p>{error instanceof Error ? error.message : "请联系 owner 开通"}</p></section>; }
   const items = await loadMusicProgress(supabase, learner.id);
   const item = items.find((row) => row.id === itemId);

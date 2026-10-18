@@ -13,7 +13,7 @@ export default async function KidsEnglishPage({ searchParams }: { searchParams: 
   const { data: { user } } = await supabase.auth.getUser();
   const access = user ? await loadAccessContext(supabase,user.id) : null;
   if (!user || !access) return null;
-  const { data: rawLearners } = await supabase.from("learner_profiles").select("id,display_name,family_id,families(name)").order("created_at");
+  const { data: rawLearners } = await supabase.from("learner_profiles").select("id,display_name,family_id,families(name)").eq("family_id", access?.familyId ?? "00000000-0000-0000-0000-000000000000").order("created_at");
   const { data: grants } = await supabase.from("learner_module_access").select("learner_id").eq("module_key","kids_english").eq("enabled",true);
   const allowed = new Set((grants ?? []).map((row) => row.learner_id));
   const learners = orderLearners((rawLearners ?? []).filter((row) => allowed.has(row.id)),access.familyId);

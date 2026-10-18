@@ -40,7 +40,7 @@ export default async function PoemsPage({ searchParams }: { searchParams: Search
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   const access = user ? await loadAccessContext(supabase, user.id) : null;
-  const { data: rawLearners, error: learnersError } = await supabase.from("learner_profiles").select("id,display_name,family_id,families(name)").order("created_at");
+  const { data: rawLearners, error: learnersError } = await supabase.from("learner_profiles").select("id,display_name,family_id,families(name)").eq("family_id", access?.familyId ?? "00000000-0000-0000-0000-000000000000").order("created_at");
   const learners = orderLearners(rawLearners, access?.familyId);
   if (learnersError) return <section className="panel"><h1>诗词背诵暂时打不开</h1><p className="error">{learnersError.message}</p></section>;
   const learner = learners?.find((item) => item.id === params.learner) ?? learners?.[0];

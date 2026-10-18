@@ -20,6 +20,15 @@ export async function requireAccountModule(supabase: SupabaseClient, access: Acc
 }
 
 export async function requireChildModule(supabase: SupabaseClient, access: AccessContext | null, userId: string, learnerId: string, key: ChildModuleKey) {
+  // One authoritative round trip includes account, family, child switch and expiry.
+  // Do not cache a successful grant across requests or skip it for an owner.
+  if (key === "hanzi") {
+    if (!access) throw new Error("尚未加入学习空间");
+    const result = await supabase.rpc("can_study_child_module", { p_learner_id: learnerId, p_module_key: key });
+    if (result.error) throw new Error("汉字授权校验暂不可用，请联系 owner 确认已运行 038 SQL。");
+    if (result.data !== true) throw new Error("汉字学习未开通、已到期、已暂停或家庭已停用。请联系 owner；已有字库和学习记录不会丢失，可在“册”和“家”查看。");
+    return;
+  }
   await requireAccountModule(supabase, access, userId, key);
   const { data, error } = await supabase.from("learner_module_access")
     .select("enabled").eq("learner_id", learnerId).eq("module_key", key).maybeSingle();

@@ -11,12 +11,13 @@ type SearchParams = Promise<{ learner?: string; item?: string }>;
 export default async function CatechismStudyPage({ searchParams }: { searchParams: SearchParams }) {
   const params = await searchParams;
   const supabase = await createClient();
-  const { data: learners, error: learnerError } = await supabase.from("learner_profiles").select("id,display_name,timezone,catechism_daily_new_limit,catechism_review_limit").order("created_at");
+  const { data: { user } } = await supabase.auth.getUser();
+  const access = user ? await loadAccessContext(supabase,user.id) : null;
+  const { data: learners, error: learnerError } = await supabase.from("learner_profiles").select("id,display_name,timezone,catechism_daily_new_limit,catechism_review_limit").eq("family_id",access?.familyId ?? "00000000-0000-0000-0000-000000000000").order("created_at");
   if (learnerError) return <section className="panel"><h1>请先运行要理问答 SQL</h1><p className="notice"><code>supabase/010_catechism_learning_mvp.sql</code></p><p className="error">{learnerError.message}</p></section>;
   const learner = learners?.find((row) => row.id === params.learner) ?? learners?.[0];
   if (!learner) return <section className="empty panel"><h1>还没有孩子档案</h1><Link className="primary" href="/parent">去创建</Link></section>;
-  const { data: { user } } = await supabase.auth.getUser();
-  try { if (user) await requireChildModule(supabase,await loadAccessContext(supabase,user.id),user.id,learner.id,"catechism"); }
+  try { if (user) await requireChildModule(supabase,access,user.id,learner.id,"catechism"); }
   catch (error) { return <section className="panel"><h1>这位孩子暂未开通要理问答</h1><p>{error instanceof Error ? error.message : "请联系 owner 开通"}</p></section>; }
   const today = localDateInTimezone(learner.timezone);
   let queue: ReturnType<typeof buildCatechismQueue>["queue"];

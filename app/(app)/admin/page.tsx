@@ -60,7 +60,7 @@ export default async function AdminPage() {
         return <article className="learner-admin-card" key={learner.id}>
           <div><span className="child-sprout">🌱</span><h3>{learner.display_name}</h3><p>{familyName ?? "未命名家庭"}</p></div>
           <dl><div><dt>稳定认识</dt><dd>{dashboard.stable}</dd></div><div><dt>当前到期</dt><dd>{dashboard.due}</dd></div><div><dt>7 天首答</dt><dd>{dashboard.firstAttemptRate === null ? "—" : `${dashboard.firstAttemptRate}%`}</dd></div><div><dt>今日待完成</dt><dd>{dashboard.todayRemaining ?? "—"}</dd></div></dl>
-          <Link className="secondary" href={`/parent?learner=${learner.id}`}>查看详情</Link>
+          <Link className="secondary" href={`/admin/learners/${learner.id}`}>查看详情</Link>
         </article>;
       })}</div>}
     </section>

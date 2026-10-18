@@ -132,6 +132,8 @@ function harness(role = "owner") {
       if (id === "@/lib/module-access") return { requireAccountModule: async () => {}, requireChildModule: async () => {} };
       if (id === "next/cache") return { revalidatePath: () => {} };
       if (id === "@/lib/reward-service" || id === "@/lib/catechism") return {};
+      // This fixture tests imports only; queue synchronization has its own tests.
+      if (id === "@/lib/study-queue-server") return {};
       return require(id);
     };
     vm.runInNewContext(compiled, { module: fixtureModule, exports: fixtureModule.exports, require: customRequire, console: { error: () => {} }, File, FormData, TextDecoder, crypto, Date, Map, Set, setTimeout }, { filename });

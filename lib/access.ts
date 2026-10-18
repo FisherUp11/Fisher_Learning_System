@@ -32,7 +32,7 @@ export const loadAccessContext = cache(async function loadAccessContext(
 
   const [{ data: workspace, error: workspaceError }, { data: familyMemberships, error: familyError }] = await Promise.all([
     supabase.from("learning_workspaces").select("name").eq("id", membership.workspace_id).single(),
-    supabase.from("family_members").select("family_id").eq("user_id", userId).eq("status", "active").limit(1),
+    supabase.from("family_members").select("family_id,families!inner(workspace_id)").eq("user_id", userId).eq("status", "active").eq("families.workspace_id", membership.workspace_id).limit(1),
   ]);
   if (workspaceError || !workspace) throw new Error("无法读取学习空间名称");
   if (familyError) throw new Error(`无法读取家庭关系：${familyError.message}`);

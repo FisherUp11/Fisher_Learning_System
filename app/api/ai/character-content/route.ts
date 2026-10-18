@@ -2,10 +2,13 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { meteredFetch } from "@/lib/metered-fetch";
 
+import { loadAccessContext } from "@/lib/access";
+import { requireChildModule } from "@/lib/module-access";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Input = { character?: string; pinyin?: string; meaning?: string };
+type Input = { learnerId?: string; character?: string; pinyin?: string; meaning?: string };
 
 export async function POST(request: Request) {
   try { return await generate(request); }
@@ -18,6 +21,9 @@ async function generate(request: Request) {
   if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
 
   const body = (await request.json()) as Input;
+  if (!body.learnerId) return NextResponse.json({error:"缺少孩子信息"},{status:400});
+  try { await requireChildModule(supabase,await loadAccessContext(supabase,user.id),user.id,body.learnerId,"hanzi"); }
+  catch (error) { return NextResponse.json({error:error instanceof Error ? error.message : "无权使用汉字学习"},{status:403}); }
   const character = body.character?.trim() ?? "";
   const pinyin = body.pinyin?.trim() ?? "";
   const meaning = body.meaning?.trim() ?? "";
@@ -45,7 +51,7 @@ async function generate(request: Request) {
     method: "POST",
     headers: { "Content-Type": "application/json", "api-key": apiKey },
     body: JSON.stringify({ messages: [{ role: "user", content: prompt }], temperature: 0.35, max_tokens: 180, response_format: { type: "json_object" } }),
-  }, { service: "text", feature: "hanzi.content", model: deployment });
+  }, { service: "text", feature: "hanzi.content", model: deployment, learnerId: body.learnerId });
   if (!response.ok) return NextResponse.json({ error: "AI 内容服务暂不可用" }, { status: 502 });
   const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
   const content = payload.choices?.[0]?.message?.content;

@@ -17,17 +17,15 @@ export default async function PoemDetailPage({ params, searchParams }: PageProps
   const [{ poemId }, query] = await Promise.all([params, searchParams]);
   if (!isId(poemId) || (query.learner && !isId(query.learner))) return <section className="panel"><h1>诗词链接不完整</h1><Link className="secondary" href="/poems">返回诗词册</Link></section>;
   const supabase = await createPageClient();
-  // 列表链接总是带 learner：不再读取所有家庭/所有孩子再在应用内查找。
-  let learnerQuery = supabase.from("learner_profiles").select("id,display_name");
-  if (query.learner) learnerQuery = learnerQuery.eq("id", query.learner);
-  const [{ data: learner, error: learnerError }, user] = await Promise.all([
-    learnerQuery.order("created_at").limit(1).maybeSingle(),
-    getPageUser(),
-  ]);
+  const user = await getPageUser();
   if (!user) redirect("/login");
+  const access = await loadAccessContext(supabase,user.id);
+  // 列表链接总是带 learner：不再读取所有家庭/所有孩子再在应用内查找。
+  let learnerQuery = supabase.from("learner_profiles").select("id,display_name").eq("family_id",access?.familyId ?? "00000000-0000-0000-0000-000000000000");
+  if (query.learner) learnerQuery = learnerQuery.eq("id", query.learner);
+  const {data:learner,error:learnerError} = await learnerQuery.order("created_at").limit(1).maybeSingle();
   if (learnerError) throw new Error("孩子档案暂时读取失败");
   if (!learner) return <section className="empty panel"><h1>{query.learner ? "无法查看这个孩子档案" : "先创建孩子档案"}</h1><Link className="secondary" href={query.learner ? "/poems" : "/parent"}>{query.learner ? "返回诗词册" : "去家长页"}</Link></section>;
-  const access = await loadAccessContext(supabase, user.id);
   try { await requireChildModule(supabase, access, user.id, learner.id, "poem"); }
   catch (error) { return <section className="panel"><h1>这位孩子暂未开通诗词背诵</h1><p>{error instanceof Error ? error.message : "请联系 owner 开通"}</p></section>; }
   const poem = await loadPoemDetail(supabase, learner.id, poemId);

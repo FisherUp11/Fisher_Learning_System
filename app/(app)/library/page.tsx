@@ -4,7 +4,7 @@ import { LibraryPriorityManager, type LibraryRowView } from "@/components/librar
 import { loadAccessContext } from "@/lib/access";
 import { orderLearners } from "@/components/learner-options";
 import { createClient } from "@/lib/supabase/server";
-import { requireChildModule } from "@/lib/module-access";
+import { HanziTermStatus } from "@/components/hanzi-term-status";
 
 export const dynamic = "force-dynamic";
 
@@ -49,15 +49,14 @@ export default async function LibraryPage({ searchParams }: { searchParams: Sear
   const page = safePage(params.page);
   const { data: rawLearners, error: learnersError } = await supabase
     .from("learner_profiles")
-    .select("id,display_name,daily_new_limit,active_package_id,family_id,families(name)")
+    .select("id,display_name,daily_new_limit,active_package_id,family_id,families(name)").eq("family_id", access?.familyId ?? "00000000-0000-0000-0000-000000000000")
     .order("created_at", { ascending: true });
   const learners = orderLearners(rawLearners, access?.familyId);
 
   if (learnersError) return <section className="panel"><h1>字库暂时打不开</h1><p className="error">{learnersError.message}</p></section>;
   const learner = learners?.find((item) => item.id === params.learner) ?? learners?.[0];
   if (!learner) return <section className="empty panel"><span className="empty-mark">🌱</span><h1>先创建孩子档案</h1><p className="lede">创建档案并导入字册后，就能在这里维护内容。</p><Link className="primary" href="/parent">去家长页</Link></section>;
-  try { if (user) await requireChildModule(supabase,access,user.id,learner.id,"hanzi"); }
-  catch (error) { return <section className="panel"><h1>这位孩子暂未开通汉字学习</h1><p>{error instanceof Error ? error.message : "请联系 owner 开通"}</p></section>; }
+  // 字库是历史/内容查看，不作为收费学习入口；仍由家庭范围与数据库 RLS 隔离。
 
   const { data: packageLinks, error: linksError } = await supabase
     .from("learner_content_packages")
@@ -114,6 +113,7 @@ export default async function LibraryPage({ searchParams }: { searchParams: Sear
   return (
     <div key={`${learner.id}-${packageId ?? "all"}-${currentPage}-${status}-${attempts}-${priority}-${query}`}>
       <header className="hero"><p className="eyebrow">Character library</p><h1>字库 · 掌握情况</h1><p className="lede">这里汇总 {learner.display_name} 的全部导入字册；可以按某次导入筛选，也能看到每个字来自哪一份字册。</p></header>
+      <HanziTermStatus db={supabase} learnerId={learner.id} />
       <LibraryControls learners={learners ?? []} learnerId={learner.id} packages={packages} packageId={packageId} query={query} status={status} attempts={attempts} priority={priority} />
 
       <section className="today-card library-summary">

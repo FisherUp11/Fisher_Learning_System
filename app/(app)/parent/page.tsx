@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Suspense } from "react";
-import { createLearner, importCharacters, importPoems, signOut, updateLearnerSettings } from "@/lib/actions";
+import { createLearner, importCharacters, importPoems, signOut } from "@/lib/actions";
 import { DeleteLearnerForm } from "@/components/delete-learner-form";
 import { createClient } from "@/lib/supabase/server";
 import { loadAccessContext } from "@/lib/access";
@@ -10,7 +10,10 @@ import { FeedbackForm } from "@/components/feedback-form";
 import { LearnerOptions, orderLearners } from "@/components/learner-options";
 import { loadAccountModules } from "@/lib/module-access";
 import { CHILD_MODULES } from "@/lib/module-keys";
+import { LearnerSettingsEditor } from "@/components/learner-settings-editor";
 import { PinyinParentPanel } from "@/components/pinyin-parent-panel";
+import { HanziTermStatus } from "@/components/hanzi-term-status";
+import { loadHanziTermSnapshot } from "@/lib/hanzi-term-data";
 
 export const dynamic = "force-dynamic";
 
@@ -24,28 +27,26 @@ export default async function ParentPage({ searchParams }: { searchParams: Promi
   const enabled = new Set(await loadAccountModules(supabase, access, user.id));
   const hasChildModule = CHILD_MODULES.some((key) => enabled.has(key));
   const { data: rawLearners } = await supabase.from("learner_profiles")
-    .select("id,parent_user_id,display_name,daily_new_limit,catechism_daily_new_limit,catechism_review_limit,hanzi_review_mode,hanzi_base_review_limit,hanzi_max_review_limit,active_package_id,timezone,family_id,families(name)")
+    .select("id,parent_user_id,display_name,daily_new_limit,catechism_daily_new_limit,catechism_review_limit,hanzi_review_mode,hanzi_base_review_limit,hanzi_max_review_limit,active_package_id,timezone,family_id,families(name)").eq("family_id", access?.familyId ?? "00000000-0000-0000-0000-000000000000")
     .order("created_at");
   const learners = orderLearners(rawLearners, access.familyId);
   const hasLearners = Boolean(learners?.length);
   const selectedLearner = learners?.find((learner) => learner.id === params.learner) ?? learners?.[0];
-  // Admins can see every family; keep this desk focused on their own family plus the child being viewed.
-  const settingsLearners = access.isAdmin ? learners.filter((learner) => learner.family_id === access.familyId || learner.id === selectedLearner?.id) : learners;
-  const hiddenLearnerCount = learners.length - settingsLearners.length;
-  const [dashboard, childHanziResult] = await Promise.all([
-    selectedLearner && enabled.has("hanzi") ? loadLearnerDashboard(supabase, selectedLearner.id) : Promise.resolve(null),
-    selectedLearner && enabled.has("hanzi")
-      ? supabase.from("learner_module_access").select("enabled").eq("learner_id", selectedLearner.id).eq("module_key", "hanzi").maybeSingle()
-      : Promise.resolve({ data: null }),
+  const settingsLearners = learners;
+  const [dashboard, termSnapshot] = await Promise.all([
+    selectedLearner ? loadLearnerDashboard(supabase, selectedLearner.id) : Promise.resolve(null),
+    selectedLearner ? loadHanziTermSnapshot(supabase,selectedLearner.id) : Promise.resolve(null),
   ]);
-  const childHanziAccess = childHanziResult.data;
+  const canStudyHanzi = Boolean(termSnapshot && !termSnapshot.error && termSnapshot.canStudy);
 
   return (
     <div>
       <header className="hero"><p className="eyebrow">Parent desk</p><h1>把节奏交给系统。</h1><p className="lede">孩子只要学习；导入、查看进度和调整每日量由家长在这里完成。</p></header>
+      {access.isAdmin && <p className="notice">这里专注你自己的家庭。其他家庭的概况、资源和有效期，请到 <Link href="/admin/families">管理中心 · 家庭与孩子 →</Link></p>}
       {(learners?.length ?? 0) > 1 && <form action="/parent" className="learner-switch"><label>查看哪位孩子？<select name="learner" defaultValue={selectedLearner?.id}><LearnerOptions learners={learners} /></select></label><button className="secondary">切换</button></form>}
       {!hasChildModule && <section className="panel"><h2>暂未开通孩子学习模块</h2><p>请联系 owner 开通所需模块；父母英语或运动打卡可以从上方模块菜单进入。</p></section>}
-      {enabled.has("hanzi") && <section className="today-card">
+      {selectedLearner && <HanziTermStatus db={supabase} learnerId={selectedLearner.id} />}
+      {selectedLearner && <section className="today-card">
         <p className="eyebrow">{selectedLearner ? `${selectedLearner.display_name} 的学习概览` : "学习概览"}</p>
         {dashboard ? <><div className="today-grid parent-dashboard-grid">
           <div className="metric"><span className="metric-label">今天已完成</span><span className="metric-value">{dashboard.todayAnswered}</span><small>还有 {dashboard.todayRemaining} 个字</small></div>
@@ -56,28 +57,16 @@ export default async function ParentPage({ searchParams }: { searchParams: Promi
         <p className="small muted">首答率只统计最近 7 天每个字的第一次独立回答，不把同日反复确认当成成绩，更能反映真实记忆。</p>
       </section>}
 
-      {enabled.has("hanzi") && selectedLearner && childHanziAccess?.enabled && <Suspense fallback={<section className="panel"><p className="muted">正在读取拼音学习概况…</p></section>}><PinyinParentPanel supabase={supabase} learnerId={selectedLearner.id} learnerName={selectedLearner.display_name} timezone={selectedLearner.timezone ?? "Asia/Shanghai"} /></Suspense>}
+      {selectedLearner && <Suspense fallback={<section className="panel"><p className="muted">正在读取拼音学习概况…</p></section>}><PinyinParentPanel supabase={supabase} learnerId={selectedLearner.id} learnerName={selectedLearner.display_name} timezone={selectedLearner.timezone ?? "Asia/Shanghai"} readOnly={!canStudyHanzi} /></Suspense>}
 
       {hasChildModule && <section className="panel">
         <h2>已有孩子 · 学习设置</h2>
-        {hiddenLearnerCount > 0 && <p className="notice">这里只显示你家孩子和当前查看的孩子；其他 {hiddenLearnerCount} 位孩子请在 <Link href="/admin/families">家庭与孩子总览</Link> 中查看，或用上方切换。</p>}
         {hasLearners ? <div className="child-settings-list">{settingsLearners.map((learner) => (
-          <FeedbackForm action={updateLearnerSettings} className="child-settings" key={learner.id} pendingLabel="正在保存孩子的设置…" successMessage={`${learner.display_name} 的设置已保存。汉字每日量将在明天生成任务时采用新设置。`}>
-            <input type="hidden" name="learner_id" value={learner.id} />
-            <div className="child-settings-head"><span className="child-sprout" aria-hidden="true">🌱</span><span><strong>{learner.display_name}</strong><small>{learner.active_package_id ? "已有学习包" : "尚未导入字册"}</small></span></div>
-            <div className="settings-fields">
-              <label>孩子昵称<input name="display_name" defaultValue={learner.display_name} required maxLength={24} /></label>
-              <label>每天新字数量<select name="daily_new_limit" defaultValue={String(learner.daily_new_limit)}><option value="1">1 个（轻松）</option><option value="3">3 个（慢一点）</option><option value="5">5 个（推荐）</option><option value="8">8 个（快一些）</option><option value="10">10 个（稳定学习）</option><option value="20">20 个（冲刺筛查）</option><option value="30">30 个（冲刺筛查）</option><option value="40">40 个（快速摸底）</option><option value="50">50 个（快速摸底）</option></select><span className="field-note">保存后，今天已经生成的学习卡不变；明天会自动按新数量排入新字。</span></label>
-              <label>要理问答 · 每天新问题<input name="catechism_daily_new_limit" type="number" min="1" max="20" step="1" defaultValue={learner.catechism_daily_new_limit} /><span className="field-note">可填 1–20，默认 3。新的数量立即用于下一次打开“问一问”；已经练过的问题不会重新算作新问题。</span></label>
-              <label>要理问答 · 每天到期复习上限<input name="catechism_review_limit" type="number" min="1" max="50" step="1" defaultValue={learner.catechism_review_limit} /><span className="field-note">可填 1–50，默认 10；优先安排上次还不会、已经到期或阶段较低的问题。</span></label>
-              <label>汉字复习节奏<select name="hanzi_review_mode" defaultValue={learner.hanzi_review_mode ?? "adaptive"}><option value="adaptive">智能调整（推荐）</option><option value="fixed">固定上限</option></select><span className="field-note">智能模式会根据到期积压和 7 天首答率调整第二天的复习量与新字量。</span></label>
-              <label>基础复习量<input name="hanzi_base_review_limit" type="number" min="5" max="40" defaultValue={learner.hanzi_base_review_limit ?? 15} /></label>
-              <label>每日复习安全上限<input name="hanzi_max_review_limit" type="number" min="5" max="50" defaultValue={learner.hanzi_max_review_limit ?? 25} /><span className="field-note">不建议超过 30。超过上限的到期字会按逾期程度和记忆阶段逐日消化。</span></label>
-            </div>
-            <button className="secondary" type="submit">保存 {learner.display_name} 的设置</button>
-            {learner.active_package_id && <a className="text-button" href={`/library?learner=${learner.id}`}>{access.isAdmin ? "查看 / 修正" : "查看 / 标重点"} {learner.display_name} 的字库</a>}
+          <article key={learner.id}>
+            <LearnerSettingsEditor key={JSON.stringify(learner)} learner={learner} />
+            {learner.active_package_id && <Link className="text-button" href={`/library?learner=${learner.id}`}>查看 / 标重点 {learner.display_name} 的字库</Link>}
             {learner.parent_user_id === user.id && <DeleteLearnerForm learnerId={learner.id} learnerName={learner.display_name} hasActivePackage={Boolean(learner.active_package_id)} />}
-          </FeedbackForm>
+          </article>
         ))}</div> : <p className="notice">还没有孩子档案；请先在下方创建，再导入汉字。</p>}
       </section>}
 

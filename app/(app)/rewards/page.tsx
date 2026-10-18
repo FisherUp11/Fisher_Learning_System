@@ -21,7 +21,7 @@ export default async function RewardsPage({ searchParams }: { searchParams: Prom
   const access = user ? await loadAccessContext(supabase, user.id) : null;
   const { data: rawLearners, error: learnerError } = await supabase
     .from("learner_profiles")
-    .select("id,display_name,timezone,family_id,parent_user_id,families(name)")
+    .select("id,display_name,timezone,family_id,parent_user_id,families(name)").eq("family_id",access?.familyId ?? "00000000-0000-0000-0000-000000000000")
     .order("created_at");
   const ownLearners = (rawLearners ?? []).filter(row => row.parent_user_id === user?.id || (access?.familyId && row.family_id === access.familyId));
   const learners = orderLearners(ownLearners, access?.familyId);

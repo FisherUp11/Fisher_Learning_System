@@ -15,7 +15,7 @@ export default async function FrogMusicPage({ searchParams }: { searchParams: Pr
   const { data: { user } } = await supabase.auth.getUser();
   const access = user ? await loadAccessContext(supabase, user.id) : null;
   const { data: rawLearners } = await supabase.from("learner_profiles")
-    .select("id,display_name,family_id,families(name)").order("created_at");
+    .select("id,display_name,family_id,families(name)").eq("family_id", access?.familyId ?? "00000000-0000-0000-0000-000000000000").order("created_at");
   const learner = orderLearners(rawLearners, access?.familyId).find((item) => item.id === learnerId);
   if (!learner || !user) return <section className="panel"><h1>先选一位孩子</h1><Link href="/learn">回到学字</Link></section>;
   try { await requireChildModule(supabase, access, user.id, learner.id, "hanzi"); }

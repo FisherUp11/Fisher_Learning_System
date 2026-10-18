@@ -229,6 +229,8 @@ export async function updateLearnerSettings(formData: FormData) {
   revalidatePath("/catechism");
   revalidatePath("/catechism/study");
   revalidatePath("/parent");
+  revalidatePath("/admin/families");
+  revalidatePath(`/admin/learners/${learnerId}`);
 }
 
 export async function deleteLearnerAndCurrentLibrary(formData: FormData) {
@@ -250,7 +252,12 @@ export async function deleteLearnerAndCurrentLibrary(formData: FormData) {
     .delete()
     .eq("id", learnerId)
     .eq("parent_user_id", user.id);
-  if (deleteLearnerError) throw new Error(deleteLearnerError.message);
+  if (deleteLearnerError) {
+    if (deleteLearnerError.code === "23503" && /hanzi_term_events|family_hanzi_billing/.test(deleteLearnerError.message)) {
+      throw new Error("这位孩子已有授权收款记录，或被指定为家庭原价孩子，不能直接永久删除。请联系 owner 暂停学习并保留记录。");
+    }
+    throw new Error(deleteLearnerError.message);
+  }
 
   revalidatePath("/learn");
   revalidatePath("/library");

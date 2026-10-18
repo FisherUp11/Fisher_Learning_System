@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { meteredFetch } from "@/lib/metered-fetch";
 
+import { loadAccessContext } from "@/lib/access";
+import { requireChildModule } from "@/lib/module-access";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -40,6 +43,9 @@ async function generate(request: Request) {
   const learnerId = body.learnerId?.trim() ?? "";
   const characterId = body.characterId?.trim() ?? "";
   if (!learnerId || !characterId) return NextResponse.json({ error: "缺少孩子或汉字信息" }, { status: 400 });
+
+  try { await requireChildModule(supabase,await loadAccessContext(supabase,user.id),user.id,learnerId,"hanzi"); }
+  catch (error) { return NextResponse.json({error:error instanceof Error ? error.message : "无权使用汉字学习"},{status:403}); }
 
   // RLS 只会返回当前家庭或管理员可访问的孩子。
   const { data: learner, error: learnerError } = await supabase

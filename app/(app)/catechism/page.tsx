@@ -40,7 +40,7 @@ export default async function CatechismPage({ searchParams }: { searchParams: Se
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   const access = user ? await loadAccessContext(supabase, user.id) : null;
-  const { data: rawLearners, error: learnerError } = await supabase.from("learner_profiles").select("id,display_name,timezone,catechism_daily_new_limit,catechism_review_limit,family_id,families(name)").order("created_at");
+  const { data: rawLearners, error: learnerError } = await supabase.from("learner_profiles").select("id,display_name,timezone,catechism_daily_new_limit,catechism_review_limit,family_id,families(name)").eq("family_id", access?.familyId ?? "00000000-0000-0000-0000-000000000000").order("created_at");
   const learners = orderLearners(rawLearners, access?.familyId);
   if (learnerError) return <section className="panel"><h1>要理问答还差最后一步</h1><p className="lede">请先在 Supabase SQL Editor 运行数据库脚本，再刷新页面。</p><p className="notice"><code>supabase/010_catechism_learning_mvp.sql</code></p><p className="error">{learnerError.message}</p></section>;
   const learner = learners?.find((row) => row.id === params.learner) ?? learners?.[0];

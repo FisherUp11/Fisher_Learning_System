@@ -49,10 +49,12 @@ export default async function HanziPrintPage({
   if (!access) redirect("/join");
   const learnerId = params.learner ?? "";
   const { data: learner, error: learnerError } = await supabase
-    .from("learner_profiles").select("id,display_name").eq("id", learnerId).maybeSingle();
+    .from("learner_profiles").select("id,display_name").eq("id", learnerId).eq("family_id",access.familyId ?? "00000000-0000-0000-0000-000000000000").maybeSingle();
   if (learnerError || !learner) notFound();
   try {
-    await requireChildModule(supabase, access, user.id, learner.id, "hanzi");
+    if (params.mode === "upcoming7" || params.mode === "upcoming14") {
+      await requireChildModule(supabase, access, user.id, learner.id, "hanzi");
+    }
   } catch {
     notFound();
   }
