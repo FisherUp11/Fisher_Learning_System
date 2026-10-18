@@ -5,7 +5,9 @@
 本项目采用下面的职责分工：
 
 ```text
-字芽前端调用 resetPasswordForEmail
+浏览器只向本站 /api/auth/password-recovery 提交邮箱
+        ↓
+Vercel 服务端使用公钥调用 resetPasswordForEmail
         ↓
 Supabase Auth 生成一次性恢复凭证
         ↓
@@ -13,10 +15,52 @@ Supabase 通过 Resend Custom SMTP 发邮件
         ↓
 /auth/recovery 验证凭证并建立短期恢复会话
         ↓
-/reset-password 设置新密码并退出全部旧会话
+/reset-password → 本站 /api/auth/password-reset → Auth 设置新密码并退出旧会话
 ```
 
 这套流程不需要 Supabase Edge Function，也不需要在 Vercel 中增加 `RESEND_API_KEY`。Resend API Key 只填在 Supabase 的 SMTP 设置里。
+
+## 2026-10-18：不开 VPN 时无法发送的修复
+
+同一邮箱在**开启 VPN 时能发信、关闭 VPN 时出现 `network_error`**，说明 SMTP 基本正常，更可能是设备到 `*.supabase.co` 的网络路径不稳定；不代表整台设备断网。不要因此反复更换 Resend Key、邮件模板或 SMTP 端口。
+
+新版改为“浏览器 → `le.fisherai6.top` → Vercel → Supabase Auth → Resend”。浏览器发邮件和保存新密码都只请求本站；Vercel 服务器负责与 Supabase 通信。邮件中的 `/auth/recovery` 原本就由服务器验证，继续保留。
+
+### 你要做什么
+
+1. 将本次代码提交并推送到项目 Git 仓库，等待 Vercel 的新 **Production** 部署成功。**仅在本机运行新版，不会修改正式域名的旧版。**
+2. Vercel → 项目 → Settings → Environment Variables，确认 **Production** 有原来的 `NEXT_PUBLIC_SUPABASE_URL`，以及 `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` 或 `NEXT_PUBLIC_SUPABASE_ANON_KEY` 之一。不要填其他项目的 URL/Key，也不要用 secret/service role key 代替公钥。
+3. 修改过 Vercel 环境变量需再次 Redeploy。原有变量正确就不必新增变量；无需运行 SQL、增加 Resend/R2 Key 或 Edge Function。SMTP 和邮件模板仍按下文原配置保留。
+4. 关闭 VPN，重新打开正式站点 `/forgot-password`，输入自己的邮箱，只点一次。浏览器 Network 应看到本站 `POST /api/auth/password-recovery`，而不是浏览器直连 `*.supabase.co/auth/v1/recover`。若仍是后者，刷新并核对 Vercel Production 是否指向新部署。
+5. 打开最新邮件的链接，保存新密码；此时浏览器只请求本站 `POST /api/auth/password-reset`。最后由你本人使用新密码登录。
+
+这会减少密码恢复对设备直连 Supabase 的依赖，**不能保证所有网络永不失败**。本次没有把普通登录、上传或学习数据请求改成通用代理；如果普通登录也必须开 VPN，需要另外排查登录请求路径。不要把 Supabase 项目域名随意 CNAME 到 Cloudflare，那不等于完成安全的 API 代理。
+
+### 新诊断码
+
+| 诊断码 | 故障位置与操作 |
+| --- | --- |
+| `website_network_error` / `website_request_timeout` | 浏览器没拿到本站确定结果。检查本站可达性；先看邮箱，保存密码时先尝试用新密码登录，不要连续提交 |
+| `server_supabase_network_error` | Vercel/本机 Node 到 Supabase 连接失败。用页面 `ref` 在 Vercel Logs 搜索 `[password-flow]`；本机开发看终端。设备开 VPN 不代表本机 Node 一定使用该代理 |
+| `server_supabase_timeout` | 服务器等 Auth 超时。邮件可能已处理，先查邮箱，至少等一分钟 |
+| `supabase_auth_server_error / HTTP 500` | 已连接 Auth，但 Auth 处理失败。按第 10 节查 Supabase Auth 与 Resend 日志 |
+| `auth_rate_limit` / `recovery_cooldown` | 发送限流，等倒计时；不要关闭配额限制 |
+| `website_response_error / HTTP 404` | 正式域名没有新版 API，检查 Vercel 部署，不要改 SMTP |
+| `recovery_session_expired` | 会话/链接过期、已用过或 Cookie 丢失，重新申请并使用最新邮件 |
+
+服务器日志只写诊断码、上游状态和随机 `ref`，不写邮箱、密码、Token、请求正文或密钥。密码已保存但退出其他设备未确认时，登录页会单独提醒，不误报为“密码没保存”。全局 sign-out 撤销刷新会话，已发出的 access JWT 仍可能持续到过期，不是瞬间撤销所有 JWT。
+
+### 安全与限流边界
+
+- 只接受同源 JSON POST、正文最多 4KB；保存密码先通过 Auth `getUser()` 验证请求会话。没有“任意邮箱改密码”的公开管理员接口。
+- 发邮件只用公钥，不调用 `admin.generateLink`，不使用 secret/service role key，不绕过 Supabase 验证码或配额。
+- 前端防连点；本站同一实例内同邮箱至少间隔 60 秒、同 IP 每 10 分钟最多 6 次，表有容量上限且只短期保存加盐摘要。这是**实例级辅助限流**，冷启动/扩容后不构成全局限制；Supabase 用户/项目配额继续生效。
+- 面向更多用户时，可在 Vercel Firewall 为 `/api/auth/password-recovery` 配置跨实例 IP 限流。当前公钥调用可能共享服务器出口 IP，集中恢复请求仍会受到 Supabase Auth IP 限流；不把不可信 IP 头伪装成可信转发。
+- 上游总等待预算 25 秒；网络超时不等于邮件未发出，因此不自动重发、不在失败后切回浏览器再发一遍。
+
+### 本次验证边界
+
+`node --test scripts/test-password-recovery.cjs` 使用真实 Supabase SSR/Auth SDK + **模拟 HTTP** 验证公钥、PKCE Cookie、一次发送、同源/大小/限流、会话改密和全局退出，不是向真实邮箱发信。真实项目 Management API 状态为 `ACTIVE_HEALTHY`，不代表设备到 Auth 数据端点必然可达。正式站点部署后，仍需你关闭 VPN 完成“收邮件 → 点最新链接 → 本人改密 → 登录”的验收。
 
 ## 0. 配置前先知道的地址
 
@@ -148,7 +192,7 @@ Body 使用项目中的完整模板文件：
 Supabase → **Authentication → Rate Limits**：
 
 - Custom SMTP 初始的项目邮件上限通常是每小时 30 封，可按当前家庭规模保留或小幅调整。
-- Password Reset 同一用户默认至少间隔 60 秒；字芽前端也显示 60 秒倒计时。
+- Password Reset 同一用户默认至少间隔 60 秒；字芽前端显示倒计时，本站另有辅助限流（见上方 2026-10-18 更新）。
 - 不建议为了测试关闭限流。连续测试时等待 60 秒即可。
 - Resend 自身还有套餐发送配额，以 Resend Dashboard 当前显示为准，不在文档中写死每日数量。
 
@@ -187,7 +231,7 @@ Supabase → **Authentication → Rate Limits**：
 | `email_address_not_authorized` | Supabase 仍在使用内置邮件服务 | 回到 SMTP Settings，重新打开 Custom SMTP、保存，并重新进入页面确认开关仍然开启 |
 | `over_email_send_rate_limit` / `over_request_rate_limit` / `HTTP 429` | 触发限流 | 至少等待 60 秒；不要连续点击 |
 | `validation_failed` | 请求参数或恢复回调不被允许 | 把当前页面提示的完整 `/auth/recovery` 地址加入 Redirect URLs |
-| `network_error` | 浏览器没有收到任何 Supabase Auth HTTP 响应，状态通常为 0 | 换网络、关闭异常代理或稍后重试 |
+| `network_error`（旧版） | 旧浏览器直连 Supabase 未收到 HTTP 响应 | 优先部署本站转发版本；不要仅因此改 SMTP |
 | `supabase_auth_server_error / HTTP 500` | Supabase Auth 已接到请求但服务器处理失败，不是设备断网 | 继续做 10.2 和 10.3，优先看 SMTP、模板和数据库依赖 |
 | `client_exception` | 请求在浏览器端异常中断 | 刷新页面；本机开发时同时检查浏览器 Console |
 
@@ -271,7 +315,7 @@ Supabase Auth SDK 会把 HTTP 500 包装成 `AuthRetryableFetchError`，这里�
 | Supabase 项目 | `rujmzndxqeikksadppsa` | `hodhbakqdmyahymyhjss` | 是两个独立项目，SMTP 设置不会自动共享 |
 | Email provider | 已启用 | 已启用 | 不是 Email provider 开关问题 |
 | `mailer_autoconfirm` | `false` | `false` | 与本次 500 无关 |
-| 前端调用 | `resetPasswordForEmail` | `resetPasswordForEmail` | 调用 API 相同 |
+| 密码恢复 API | 客户端调用 `resetPasswordForEmail` | 本站服务端调用 `resetPasswordForEmail` | Auth API 相同，网络发起位置不同 |
 | 模板变量 | `.SiteURL` + `.TokenHash` | `.SiteURL` + `.TokenHash` | 变量用法一致且合法 |
 | Resend 本地环境变量 | 没有 `RESEND_API_KEY` | 没有 `RESEND_API_KEY` | 当前架构不需要在 `.env.local`/Vercel 配 Resend Key |
 | 发件域 | `noreply@fisherai6.top` | 必须也使用已验证的 `fisherai6.top` | 不要改成 `noreply@le.fisherai6.top` |
@@ -329,7 +373,7 @@ Supabase Auth SDK 会把 HTTP 500 包装成 `AuthRetryableFetchError`，这里�
 
 ### 本机测试邮件跳到正式域名
 
-这是当前模板的预期行为：模板使用 `{{ .SiteURL }}`，因此无论从本机还是正式站点发起，邮件都进入 `https://le.fisherai6.top/auth/recovery`，便于在手机或另一台设备打开。前端也不再传入动态 `redirectTo`，避免本机域名与正式邮件链接混在同一次请求中。
+这是当前模板的预期行为：模板使用 `{{ .SiteURL }}`，因此无论从本机还是正式站点发起，邮件都进入 `https://le.fisherai6.top/auth/recovery`，便于在手机或另一台设备打开。本站接口不传入动态 `redirectTo`，避免本机域名与正式邮件链接混在同一次请求中。
 
 ### 是否需要在 `.env.local` 或 Vercel 添加 Resend Key
 

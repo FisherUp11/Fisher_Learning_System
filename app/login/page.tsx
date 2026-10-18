@@ -1,7 +1,7 @@
 import { LoginForm } from "@/components/login-form";
 import { safeNextPath } from "@/lib/invitation";
 
-export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string; reset?: string; error?: string }> }) {
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string; reset?: string; error?: string; sessions?: string }> }) {
   const params = await searchParams;
   const nextPath = params.next ? safeNextPath(params.next) : "/";
   return (
@@ -11,6 +11,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
         <h1>每天认识一点字。</h1>
         <p className="lede">家长登录后，为孩子建立一个能慢慢记住的识字节奏。</p>
         {params.reset === "success" && <p className="success-box auth-page-feedback">密码已经修改成功，请使用新密码登录。</p>}
+        {params.reset === "success" && params.sessions === "check" && <p className="form-error auth-page-feedback">密码已保存，但暂未确认其他设备的会话全部退出。请联系管理员检查 Auth 日志；不要再次提交改密。</p>}
         {params.error && <p className="form-error auth-page-feedback">登录链接无效或已经过期，请重新操作。</p>}
         <LoginForm nextPath={nextPath} />
       </section>
