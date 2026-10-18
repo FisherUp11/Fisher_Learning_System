@@ -77,6 +77,7 @@ flowchart TB
 | `app/(app)/admin/*` | 空间看板、资源审核、按孩子分配；`users/members` 为 owner 专属 | 页面、Action、RLS/RPC 都要验证角色，不只隐藏入口。 |
 | `app/account/change-password/page.tsx` | 临时密码首次登录后的强制改密 | 成功修改 Auth 密码后才清除 `must_change_password`。 |
 | `app/forgot-password/page.tsx` / `components/forgot-password-form.tsx` | 公开的密码恢复申请与 60 秒防重复提交 | 仅调用本站 API，不再从浏览器直连 Supabase Auth；不查询邮箱是否已注册。 |
+| `app/api/auth/session/route.ts` / `lib/session-flow.ts` / `lib/session-flow-server.ts` | 同源登录、邀请注册和邀请页切换账号 | 公钥 SSR 调用 Auth；先回写 Cookie 再完整导航；无管理员键、无角色赋权、无 JSON Token。 |
 | `app/api/auth/password-recovery/route.ts` / `app/api/auth/password-reset/route.ts` / `lib/password-flow-server.ts` | 公钥调用 Auth 发邮件、校验会话后保存新密码 | 同源 JSON、4KB 正文上限、25 秒上游预算、不自动重试；实例级辅助限流，Supabase 配额保留。 |
 | `app/auth/recovery/route.ts` / `app/reset-password/page.tsx` | 验证一次性 recovery token、建立恢复会话和设置新密码 | 只接受 `recovery` token 或 PKCE code；成功后退出全部旧会话。 |
 | `app/join/page.tsx` | 受邀家长接受一次性链接 | 明文 token 不入库；当前一个账号只加入一个空间。 |
@@ -355,9 +356,11 @@ sequenceDiagram
 
 - Server Component 默认读取数据；页面在 `(app)` 路由组内，layout 用 `auth.getUser()` 拦截未登录访问。
 - 服务端 `createClient` 每次调用都从当前请求重新读取 Cookie，不缓存带会话的 Supabase 客户端；`loadAccessContext` 只在当前渲染内复用同一客户端的权限读取。不能改为跨请求的全局 Map、持久缓存或 `use cache`，避免账号 Cookie 和权限串用。
-- 邮箱密码登录成功后使用完整页面跳转进入受保护路由，确保浏览器写完 Supabase 会话 Cookie 后服务端才开始渲染；不要连续调用 `router.replace()` 与 `router.refresh()` 制造登录前后请求竞争。
+- 登录前端通过本站 `/api/auth/session`（`signin/signup/signout` 明确枚举）访问 Auth，不初始化浏览器 Supabase 客户端。公钥 SSR 会话随响应写回 Cookie，之后完整导航，避免 `router.replace()` 与 `router.refresh()` 竞争。SSR `skipAutoInitialize` 避免登录前刷新旧会话，但仍读取旧 Cookie 名称以删除旧分片，不能盲目将存储 `getAll` 清空。
+- 会话 API 复用密码恢复的同源 JSON、4KB 正文、25 秒上游预算、禁止自动重试和脱敏日志。登录辅助限流同邮箱 8/5分钟、IP 30/5分钟，注册同邮箱 3/小时、IP 6/小时；只在实例内有效，Supabase 原生限制保留。新密码策略不强加到旧账号登录；邀请注册仍需 12～256 位字母+数字和完整邀请路径，加入空间的真实授权仍由原有接受邀请 RPC 核验，不通过注册接口授予家庭/角色。
+- `sessionNextPath` 只允许本站相对路径，拒绝外站、双斜杠、反斜杠与控制字符；邀请回调从已通过来源校验的本站 Origin 构造。登录成功只在 JSON 返回安全跳转，不暴露用户凭据或 Token。业务身份/首次改密/权限仍由原有 layout 和 RLS 校验。
 - `AppShell` 通过 `onNavigate + useTransition` 显示目标页打开状态，同一目标等待中避免重复导航；保留正常链接地址和新标签打开方式。预取只在悬停、聚焦或触摸时触发，并在短时间内去重；`loading.tsx` 提供服务端读取期间的页面占位。
-- `proxy.ts` 刷新 Supabase SSR cookie，会话响应强制 `Cache-Control: private, no-store`；公开 `/forgot-password` 和 `/api/auth/password-*` 不先做无关旧会话刷新。保存密码接口自行验证会话，不能因为跳过 proxy 就省略认证。
+- `proxy.ts` 刷新 Supabase SSR cookie，会话响应强制 `Cache-Control: private, no-store`；公开 `/login`、`/forgot-password`、`/api/auth/session` 和 `/api/auth/password-*` 不先做无关旧会话刷新。各接口自行执行所需认证，不能因为跳过 proxy 就省略认证。
 - `/auth/callback` 服务于注册/邀请，并兼容旧版 recovery 模板；`/auth/recovery` 专门验证密码恢复。新版 Recovery 邮件模板使用 `SiteURL + /auth/recovery + TokenHash`，不把 token 写日志或数据库。
 - 忘记密码前端只调用本站 `/api/auth/password-recovery`，Vercel 用公钥调用 `resetPasswordForEmail`，不接受客户端 `redirectTo`；邮件仍由正式 `SiteURL + TokenHash` 构造，PKCE Cookie 保留以兼容旧 code 链接。Supabase Auth 通过 Resend Custom SMTP 发信；App/Vercel 不持有 Resend Key，不用管理员密钥绕过公开 Auth 接口。
 - 不查询邮箱存在性，正常结果统一；同邮箱 60 秒、同 IP 6 次/10 分钟是有容量上限的实例级辅助限流，不宣称跨实例有效。Supabase 用户/项目配额保留。Vercel 只信平台覆盖的 IP 头，非 Vercel 使用保守共用桶。网络诊断区分浏览器→本站、服务端→Auth、Auth HTTP500 和 429，日志不含邮箱、密码或 Token。

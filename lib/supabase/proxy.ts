@@ -14,9 +14,9 @@ export async function updateSession(request: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   if (!url) return response;
 
-  // Public recovery requests must not wait for an unrelated stale login cookie
-  // refresh. The reset mutation itself verifies the user's session server-side.
-  if (request.nextUrl.pathname === "/forgot-password" || request.nextUrl.pathname.startsWith("/api/auth/password-")) {
+  // Public auth entry points must not wait for an unrelated stale cookie
+  // refresh. Each mutation performs its own authentication where required.
+  if (request.nextUrl.pathname === "/login" || request.nextUrl.pathname === "/forgot-password" || request.nextUrl.pathname === "/api/auth/session" || request.nextUrl.pathname.startsWith("/api/auth/password-")) {
     response.headers.set("Cache-Control", "private, no-store");
     response.headers.set("Referrer-Policy", "no-referrer");
     return response;

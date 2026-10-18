@@ -8,7 +8,7 @@ import type { PasswordFlowResult } from "@/lib/password-flow";
 type CookieToSet = { name: string; value: string; options: CookieOptions };
 type AuthFailure = { code?: string; name?: string; status?: number };
 
-export function passwordFlowResponse(result: PasswordFlowResult, status = 200, cookies: CookieToSet[] = []) {
+export function passwordFlowResponse<T extends PasswordFlowResult>(result: T, status = 200, cookies: CookieToSet[] = []) {
   const response = NextResponse.json(result, { status, headers: {
     "Cache-Control": "private, no-store",
     "Referrer-Policy": "no-referrer",
@@ -34,7 +34,7 @@ export function passwordFlowRequestGuard(request: Request) {
     } catch { expectedOrigin = ""; }
   }
   if (origin !== expectedOrigin || request.headers.get("sec-fetch-site") === "cross-site") {
-    return passwordFlowResponse({ ok: false, message: "请求来源无效，请从本站找回密码页面重新操作。", diagnostic: "invalid_origin" }, 403);
+    return passwordFlowResponse({ ok: false, message: "请求来源无效，请从本站页面重新操作。", diagnostic: "invalid_origin" }, 403);
   }
   if (request.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() !== "application/json") {
     return passwordFlowResponse({ ok: false, message: "请求格式无效，请刷新页面后重试。", diagnostic: "invalid_content_type" }, 415);
@@ -75,14 +75,14 @@ export function validRecoveryPassword(value: unknown): value is string {
 // Best-effort, bounded per-instance throttle, NOT a distributed security boundary.
 // Supabase's user/project quotas remain enabled. Vercel Firewall can enforce a
 // shared IP limit across instances. No raw emails/IPs are retained or logged.
-export function createRecoveryLimiter() {
+export function createRecoveryLimiter({ emailLimit = 1, emailWindowMs = 60_000, ipLimit = 6, ipWindowMs = 600_000 } = {}) {
   const buckets = new Map<string, { count: number; expires: number }>();
   const salt = randomBytes(32);
   return (email: string, ip: string, now = Date.now()) => {
     for (const [key, bucket] of buckets) if (bucket.expires <= now) buckets.delete(key);
     const rules = [
-      { value: `email:${email}`, limit: 1, window: 60_000 },
-      { value: `ip:${ip}`, limit: 6, window: 600_000 },
+      { value: `email:${email}`, limit: emailLimit, window: emailWindowMs },
+      { value: `ip:${ip}`, limit: ipLimit, window: ipWindowMs },
     ].map(rule => ({ ...rule, key: createHmac("sha256", salt).update(rule.value).digest("hex") }));
     for (const rule of rules) {
       const bucket = buckets.get(rule.key);

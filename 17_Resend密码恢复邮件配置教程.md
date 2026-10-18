@@ -34,7 +34,33 @@ Supabase 通过 Resend Custom SMTP 发邮件
 4. 关闭 VPN，重新打开正式站点 `/forgot-password`，输入自己的邮箱，只点一次。浏览器 Network 应看到本站 `POST /api/auth/password-recovery`，而不是浏览器直连 `*.supabase.co/auth/v1/recover`。若仍是后者，刷新并核对 Vercel Production 是否指向新部署。
 5. 打开最新邮件的链接，保存新密码；此时浏览器只请求本站 `POST /api/auth/password-reset`。最后由你本人使用新密码登录。
 
-这会减少密码恢复对设备直连 Supabase 的依赖，**不能保证所有网络永不失败**。本次没有把普通登录、上传或学习数据请求改成通用代理；如果普通登录也必须开 VPN，需要另外排查登录请求路径。不要把 Supabase 项目域名随意 CNAME 到 Cloudflare，那不等于完成安全的 API 代理。
+这会减少密码恢复对设备直连 Supabase 的依赖，**不能保证所有网络永不失败**。后续补充的普通登录修复见下一节；上传和其他服务不改成通用代理。不要把 Supabase 项目域名随意 CNAME 到 Cloudflare，那不等于完成安全的 API 代理。
+
+### 同日补充：重置成功，但登录仍需要 VPN
+
+上一版只迁移了恢复流程，`login-form.tsx` 仍由浏览器直接调用 `signInWithPassword`。因此“不开 VPN 能重置、不能登录”并不矛盾。以前能访问，不能保证今天该设备/运营商/代理/DNS 到 Supabase 的路径仍相同；仅凭页面的 `Fail` 也不能断言密码错了。
+
+现已补齐 `POST /api/auth/session`，普通登录、完整邀请链接中的注册，以及邀请页切换账号都经由本站服务器。登录成功后响应先写入 Supabase SSR Cookie，再完整导航；不把 access/refresh token 返回 JSON，不从浏览器直连 Auth。旧 Cookie 分片由 SSR 适配器清理，避免新旧账号会话混用。家庭、角色和模块权限仍由原有 layout、RLS 和 RPC 检查；注册不会自动加入家庭。
+
+**部署/验收：**
+
+1. 提交并推送这次登录修复，等 Vercel Production 成功；无需新 SQL、新密钥、修改 SMTP 或 Cloudflare DNS。原有 Production Supabase URL/公钥保持不变。
+2. 关闭 VPN，刷新 `/login`（必要时用无痕窗口排除旧页面），由你本人输入新密码登录。Network 应显示本站 `/api/auth/session`，而非浏览器请求 `*.supabase.co/auth/v1/token?grant_type=password`。若仍看到后者，正在使用旧部署/旧页面。
+3. 登录后刷新受保护页面，确认仍是正确账号和家庭。owner/admin/普通家长权限、临时密码首次改密保持原样；邀请注册仍需真实有效的邀请才能加入空间。
+4. 无需为了验证登录而再次改密或发送恢复邮件。
+
+| 登录诊断码 | 说明 |
+| --- | --- |
+| `login_failed / HTTP 400` 等 | 账号凭据未通过 Auth；不会区分邮箱不存在、未确认或停用，避免枚举账号 |
+| `website_session_network_error` / `website_session_timeout` | 浏览器没拿到本站结果，检查网站连接 |
+| `server_auth_network_error` / `server_auth_timeout` | 网站服务器到 Supabase 失败/超时，按 `ref` 搜索 Vercel Logs 中的 `[session-flow]` |
+| `supabase_auth_server_error` | Auth 处理异常，管理员查看 Auth 日志；不是 Resend 邮件问题 |
+| `session_cooldown` / `auth_rate_limit` | 等待倒计时，不要反复提交或关闭安全配额 |
+| `website_session_response_error / HTTP 404` | 尚未部署新的登录接口 |
+
+本站实例级辅助限流：登录同邮箱 8 次/5 分钟、同 IP 30 次/5 分钟；邀请注册同邮箱 3 次/小时、同 IP 6 次/小时，和恢复邮件的限流独立。实例重启/扩容不共享计数，Supabase 的原生配额继续生效；如需跨实例抗滥用，在 Vercel Firewall 配置该路径的限流。服务端调用可能共享出口 IP，大规模集中登录时需管理员评估 Supabase Auth Rate Limits，而不是填入不可信的转发 IP 或暴露管理员 Key。
+
+本轮测试：`node --test scripts/test-session-flow.cjs scripts/test-password-recovery.cjs scripts/test-invitation-usage.cjs`，真实 SDK + 模拟 HTTP 验证登录/下一请求身份、旧 Cookie 清理、邀请 PKCE、退出、同源/输入/跳转/限流和错误分类。未代替你登录真实账号、创建真实用户或发邮件；关闭 VPN 的生产验收需要部署后由你本人完成。
 
 ### 新诊断码
 
