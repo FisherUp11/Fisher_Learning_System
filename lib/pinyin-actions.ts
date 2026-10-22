@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { loadAccessContext } from "@/lib/access";
 import { requireChildModule } from "@/lib/module-access";
 import { pinyinSettingsPayload, type PinyinCategory } from "@/lib/pinyin-catalog";
-import { committedHanziQueue } from "@/lib/study-queue-server";
+import { committedHanziQueue, recoverCompletedHanziDay } from "@/lib/study-queue-server";
 
 async function authorized(learnerId: string) {
   const supabase = await createClient();
@@ -85,7 +85,11 @@ export async function recordHanziHintRetry(input: { learnerId: string; sessionIt
   const { data, error } = await supabase.rpc("record_hanzi_hint_retry", {
     p_learner_id: input.learnerId, p_session_item_id: input.sessionItemId, p_request_id: input.requestId,
   });
-  if (error) throw new Error(error.code === "PGRST202" ? "请先运行 supabase/029_pinyin_learning.sql" : error.message);
+  if (error) {
+    const completed = await recoverCompletedHanziDay(supabase, input.learnerId, error);
+    if (completed) return completed;
+    throw new Error(error.code === "PGRST202" ? "请先运行 supabase/029_pinyin_learning.sql" : error.message);
+  }
   return { ...(data as { today_total?: number; today_passed?: number; today_remaining?: number; daily_passed?: boolean; idempotent?: boolean }),
     ...await committedHanziQueue(supabase, input.learnerId) };
 }

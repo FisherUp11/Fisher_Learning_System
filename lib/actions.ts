@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createHash } from "node:crypto";
 import { createClient } from "@/lib/supabase/server";
 import { claimHanziCompletionReward, registerActivityReward } from "@/lib/reward-service";
-import { committedHanziQueue } from "@/lib/study-queue-server";
+import { committedHanziQueue, recoverCompletedHanziDay } from "@/lib/study-queue-server";
 import { loadAccessContext } from "@/lib/access";
 import { requireAccountModule, requireChildModule } from "@/lib/module-access";
 import { checkImportWrite, existingImportMessage, finishImportCollection, importFailure, ImportProblem, prepareImportCollection, retryImportDatabaseCall, type ImportResult } from "@/lib/import-safety";
@@ -142,6 +142,8 @@ export async function answerQueueItem(input: {
     p_assisted: input.assisted,
   });
   if (error) {
+    const completed = await recoverCompletedHanziDay(supabase, input.learnerId, error);
+    if (completed) return completed;
     if (
       error.message.includes("answer_queue_item")
       && (error.message.includes("schema cache") || error.message.includes("Could not find"))

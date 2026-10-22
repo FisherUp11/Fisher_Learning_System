@@ -232,7 +232,7 @@ export function LearningExperience({ learner }: { learner: Learner }) {
   if (study.status === "loading" && !current) return <p className="muted">正在准备今天的汉字…</p>;
   if (!current && study.status !== "ready") return <section className="empty panel"><span className="empty-mark">🌱</span><h1>正在确认这次练习</h1><p className="lede">完成状态以保存后的实际记录为准。</p>{syncFeedback}</section>;
   if (!current) {
-    return <><section className="empty panel"><span className="empty-mark">🌱</span><h1>今天完成啦！</h1><p className="lede">今天的汉字都独立认出来了，慢慢记住最厉害。</p>{earnedReward && <p className="reward-complete-note">一枚“识字小达人”贴纸已经放进贴纸册。</p>}<button className="secondary" onClick={() => void study.reload()}>看看有没有新任务</button><ParentGrowthInvitation />{earnedReward && <RewardCelebration learnerId={learner.id} reward={earnedReward} message="今天的汉字都独立认出来啦！一枚“识字小达人”贴纸住进贴纸册啦！" />}</section><PinyinPractice learnerId={learner.id} /></>;
+    return <><section className="empty panel"><span className="empty-mark">🌱</span><h1>今天完成啦！</h1><p className="lede">今天的汉字任务已完成，慢慢记住最厉害。新到期的字明天再安排。</p>{earnedReward && <p className="reward-complete-note">一枚“识字小达人”贴纸已经放进贴纸册。</p>}<button className="secondary" onClick={() => void study.reload()}>刷新今日完成状态</button><ParentGrowthInvitation />{earnedReward && <RewardCelebration learnerId={learner.id} reward={earnedReward} message="今天的汉字都独立认出来啦！一枚“识字小达人”贴纸住进贴纸册啦！" />}</section><PinyinPractice learnerId={learner.id} /></>;
   }
 
   const percentage = todayProgress.total > 0
