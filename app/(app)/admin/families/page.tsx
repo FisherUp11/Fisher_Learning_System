@@ -147,9 +147,9 @@ export default async function FamiliesPage({ searchParams }: { searchParams: Pro
                 <span>音乐：{row.music_items_assigned} 条{folderTitles.length ? `（文件夹：${folderTitles.join("、")}）` : ""}</span>
                 <span>问答：{catechismMap.get(row.learner_id)?.join("、") || <em>无</em>}</span>
               </div>
-              <div className="org-kid-links"><Link className="secondary compact" href={`/admin/learners/${row.learner_id}`}>学习详情</Link><Link className="secondary compact" href={`/admin/assignments?learner=${row.learner_id}`}>分配内容</Link></div>
+              <div className="org-kid-links">{access.isOwner && <Link className="primary compact" href={`/admin/learners/${row.learner_id}/access`}>免费试用 / 开通续期</Link>}<Link className="secondary compact" href={`/admin/learners/${row.learner_id}`}>学习详情</Link><Link className="secondary compact" href={`/admin/assignments?learner=${row.learner_id}`}>分配内容</Link></div>
             </article>;
-          })}</div>
+          })}{access.isOwner && family.status === "active" && <div className="child-access-links"><Link className="secondary compact" href={`/admin/children/new?family=${family.id}`}>＋ 为这个家庭添加孩子</Link></div>}</div>
         </details>;
       })}</div>}
     </section>

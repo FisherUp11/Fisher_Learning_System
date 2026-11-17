@@ -12,6 +12,8 @@ export type UserManagementState = {
   message: string;
   email?: string;
   temporaryPassword?: string;
+  createdUserId?: string;
+  familyId?: string;
 };
 
 async function ownerSession() {
@@ -87,7 +89,8 @@ export async function createWorkspaceUser(
     }
     createdUserId = data.user.id;
 
-    const { error: provisionError } = await supabase.rpc("owner_provision_workspace_user", {
+    const provisionedUserId = createdUserId;
+    const { data: provisionedFamilyId, error: provisionError } = await supabase.rpc("owner_provision_workspace_user", {
       p_workspace_id: access.workspaceId,
       p_user_id: createdUserId,
       p_display_name: displayName,
@@ -105,6 +108,8 @@ export async function createWorkspaceUser(
       message: "账号已创建。请现在把登录邮箱和临时密码交给家长；临时密码离开本页后不会再次显示。",
       email,
       temporaryPassword,
+      createdUserId: provisionedUserId,
+      familyId: typeof provisionedFamilyId === "string" ? provisionedFamilyId : undefined,
     };
   } catch (error) {
     if (createdUserId) {

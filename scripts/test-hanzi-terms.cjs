@@ -26,7 +26,7 @@ test('北京时间、自然月月底、闰年和到期右开边界一致',()=>{
   assert.equal(describeHanziTerm({mode:'permanent'},true).active,true);
 });
 
-test('汉字学习和付费接口使用同一数据库校验；其他模块不改为收费',async()=>{
+test('儿童学习使用同一数据库有效期校验；附加模块不另收费',async()=>{
   let gate=true,calls=0;
   const {requireChildModule}=load('lib/module-access.ts',{'react':{cache:f=>f}});
   const db={from:table=>{
@@ -36,7 +36,7 @@ test('汉字学习和付费接口使用同一数据库校验；其他模块不�
   },rpc:async(name)=>{assert.equal(name,'can_study_child_module');calls++;return {data:gate,error:null};}};
   await requireChildModule(db,{},'parent','child','hanzi');
   gate=false;await assert.rejects(requireChildModule(db,{},'parent','child','hanzi'),/到期/);
-  await requireChildModule(db,{},'parent','child','poem');assert.equal(calls,2);
+  gate=true;await requireChildModule(db,{},'parent','child','poem');assert.equal(calls,3);
   for(const file of ['app/api/speech/route.ts','app/api/hanzi-frog/speech/route.ts','app/api/ai/character-memory-image/route.ts','app/api/ai/character-content/route.ts']) {
     const source=fs.readFileSync(path.join(root,file),'utf8');
     assert.ok(source.indexOf('await requireChildModule')<Math.max(source.indexOf('await meteredFetch'),source.indexOf('await prepareFrogAudio')),file);
@@ -96,7 +96,7 @@ test('管理详情只在当前空间查孩子；普通 admin 不读取收费流�
     if(role==='parent') {await assert.rejects(render(),/redirect:\/parent/);assert.equal(reads.length,0);continue;}
     const html=renderToStaticMarkup(await render());assert.match(html,/测试家庭/);assert.match(html,/只读拼音统计/);assert.match(html,/管理学习设置/);
     assert.ok(filters.some(row=>row[0]==='learner_profiles'&&row[1]==='eq'&&row[2]==='families.workspace_id'&&row[3]==='workspace'));
-    if(role==='owner')assert.match(html,/owner续期/);else {assert.doesNotMatch(html,/owner续期/);assert.ok(!reads.includes('hanzi_term_events'));assert.ok(!reads.includes('family_hanzi_billing'));}
+    if(role==='owner')assert.match(html,/免费试用 \/ 开通 \/ 续期/);else {assert.doesNotMatch(html,/免费试用 \/ 开通 \/ 续期/);assert.ok(!reads.includes('hanzi_term_events'));assert.ok(!reads.includes('family_hanzi_billing'));}
   }
 });
 

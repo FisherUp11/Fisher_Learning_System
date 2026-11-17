@@ -4,6 +4,8 @@ import { loadAccessContext } from "@/lib/access";
 import { loadAuthDirectory } from "@/lib/auth-directory";
 import { loadWorkspaceOverview } from "@/lib/workspace-overview";
 import { createClient } from "@/lib/supabase/server";
+import { beijingDate, lastUsableDate } from "@/lib/hanzi-terms";
+import { describeChildTerm, type ChildTerm } from "@/lib/child-access";
 
 export const dynamic = "force-dynamic";
 
@@ -19,13 +21,14 @@ export default async function OwnerUsersPage() {
   const access = await loadAccessContext(supabase, user.id);
   if (!access?.isOwner) redirect(access?.isAdmin ? "/admin" : "/parent");
 
-  const [membersResult, profilesResult, familiesResult, familyMembersResult, accountModulesResult, childModulesResult] = await Promise.all([
+  const [membersResult, profilesResult, familiesResult, familyMembersResult, accountModulesResult, childModulesResult, termsResult] = await Promise.all([
     supabase.from("workspace_members").select("user_id,role,status,joined_at").eq("workspace_id", access.workspaceId).order("joined_at"),
     supabase.from("workspace_user_profiles").select("user_id,display_name,must_change_password").eq("workspace_id", access.workspaceId),
     supabase.from("families").select("id,name,status").eq("workspace_id", access.workspaceId).eq("status", "active").order("created_at"),
     supabase.from("family_members").select("family_id,user_id,status,families!inner(workspace_id)").eq("families.workspace_id", access.workspaceId),
     supabase.from("account_module_access").select("user_id,module_key,enabled").eq("workspace_id", access.workspaceId),
     supabase.from("learner_module_access").select("learner_id,module_key,enabled"),
+    supabase.from("learner_hanzi_terms").select("learner_id,mode,starts_on,valid_until,version,grant_kind"),
   ]);
   const firstError = [membersResult.error, profilesResult.error, familiesResult.error, familyMembersResult.error, accountModulesResult.error, childModulesResult.error].find(Boolean);
   if (firstError) throw new Error(`读取用户目录失败：${firstError.message}`);
@@ -42,10 +45,14 @@ export default async function OwnerUsersPage() {
     supabase.rpc("workspace_today_remaining", { p_workspace_id: access.workspaceId }),
   ]);
   const todayByLearner = new Map(((todayResult.data ?? []) as Array<{ learner_id: string; remaining: number }>).map((row) => [row.learner_id, Number(row.remaining)]));
-  const pulsesByFamily = new Map<string, Array<{ id: string; name: string; stable: number; due: number; todayRemaining: number | null }>>();
+  const termsByChild = new Map((termsResult.data ?? []).map(row => [row.learner_id, row as ChildTerm]));
+  const today = beijingDate();
+  const pulsesByFamily = new Map<string, Array<{ id: string; name: string; stable: number; due: number; todayRemaining: number | null; accessLabel: string }>>();
   for (const row of overview ?? []) {
     const list = pulsesByFamily.get(row.family_id) ?? [];
-    list.push({ id: row.learner_id, name: row.display_name, stable: Number(row.hanzi_stable), due: Number(row.hanzi_due), todayRemaining: todayByLearner.get(row.learner_id) ?? null });
+    const term = termsByChild.get(row.learner_id) ?? null;
+    const status = describeChildTerm(term, (childModules.get(row.learner_id) ?? []).includes("hanzi"), today);
+    list.push({ id: row.learner_id, name: row.display_name, stable: Number(row.hanzi_stable), due: Number(row.hanzi_due), todayRemaining: todayByLearner.get(row.learner_id) ?? null, accessLabel: termsResult.error ? "汉字授权状态暂未读取" : `汉字：${status.label}${term?.valid_until ? ` · 至 ${lastUsableDate(term.valid_until)}` : ""}` });
     pulsesByFamily.set(row.family_id, list);
   }
 

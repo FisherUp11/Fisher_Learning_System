@@ -45,6 +45,7 @@ export default async function AdminPage() {
     <AdminCapacityPanel db={supabase} workspaceId={access.workspaceId} />
     {(!overview || todayResult.error) && <section className="panel warning-panel"><p>孩子概况暂未完整加载。请确认已运行 <code>supabase/022</code> 与 <code>supabase/023</code>，然后刷新；系统不会为了补数据对每位孩子重复发起大量查询。</p></section>}
     <section className="admin-shortcuts">
+      {access.isOwner && <Link href="/admin/families"><span>期</span><strong>孩子开通 / 续期<small>免费试用、季度 / 半年 / 一年，多模块一起延</small></strong></Link>}
       <Link href="/admin/families"><span>家</span><strong>家庭与孩子总览<small>组织图、提醒与已分配资源</small></strong></Link>
       <Link href="/admin/resources"><span>库</span><strong>审核资源<small>去重、发布与归档</small></strong></Link>
       <Link href="/admin/assignments"><span>配</span><strong>分配内容<small>按孩子管理学习册</small></strong></Link>
@@ -54,7 +55,7 @@ export default async function AdminPage() {
       {access.isOwner && <Link href="/admin/members"><span>邀</span><strong>邀请已有账号<small>一次性安全邀请</small></strong></Link>}
     </section>
     <section className="panel"><div className="section-heading"><div><p className="eyebrow">Learner pulse</p><h2>孩子学习概况</h2></div><Link className="text-button" href="/admin/families">{dashboards.length > 12 ? `查看全部 ${dashboards.length} 位孩子 →` : "按家庭查看 →"}</Link></div>
-      {!dashboards.length ? <p className="notice">尚无孩子档案。邀请家长加入后，由家长创建孩子。</p> : <div className="learner-admin-grid">{dashboards.slice(0, 12).map(({ learner, dashboard }) => {
+      {!dashboards.length ? <p className="notice">尚无孩子档案。家长可自行创建，owner 也可在用户与家庭中代建。</p> : <div className="learner-admin-grid">{dashboards.slice(0, 12).map(({ learner, dashboard }) => {
         const family = learner.families as { name?: string } | Array<{ name?: string }> | null;
         const familyName = Array.isArray(family) ? family[0]?.name : family?.name;
         return <article className="learner-admin-card" key={learner.id}>

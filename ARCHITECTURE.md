@@ -2,6 +2,17 @@
 
 本文件是后续人类开发者或 AI Agent 的工作约束。目标不是抽象得“万能”，而是在不破坏孩子学习记录的前提下持续迭代。
 
+## 2026-11-17 owner 代建与多模块期限（040）
+
+- `owner_create_learner` 在当前 owner 会话下核验空间、家庭、正常家长，写正确 `parent_user_id` 并复用审计表请求 ID 防重；保留父母原本的本家庭建档路径和 023 空间 50 孩子上限。
+- 汉字仍只用 `learner_hanzi_terms`；新增 `learner_module_terms` 管其他 5 个儿童模块、`learner_trial_windows` 固定一次性一个自然月试用。开关仍只在 `learner_module_access`，不复制关系或 enabled。
+- `owner_manage_child_access` 一个事务写选中模块及一条原有 `hanzi_term_events` 流水：每模块独立期限 / 版本、统一请求幂等、服务端价格与长期改限期确认。只选附加模块 ¥0；只有汉字正式授权建立家庭原价孩子。旧 RPC 签名与历史请求结果兼容。
+- 全部儿童模块走实时数据库许可检查，旧触发器继续使用新版校验，补儿童英语 / 箴言写入防线；父母英语和运动不变。学习、贴纸、039 完成与固定计划均不改动。
+- 新路由 `/admin/children/new` 与 `/admin/learners/[learnerId]/access` 为 owner-only，后者不加载字库 / 全量概况，多个显眼入口复用同一表单。客户端锁定续期意图，未知结果按原请求重试，不能自动换 ID 延第二次。
+- 040 新表只读 RLS、明确权限，private definer 空 search_path；不需要 service_role 或 Edge Function。到期数据保留，不等于所有过期模块页面都可继续浏览；详见 [35 号交接与使用说明](./35_管理员代建孩子与试用续期.md)。
+
+上线状态：本地验证完成；插件升级确认超时，正式库两张新表尚不存在。**先运行 040，再部署**。勿重跑旧迁移覆盖新的许可函数。
+
 ## 2026-10-22 汉字实际字单冻结与同日完成（039）
 
 `daily_sessions.plan_frozen_at` 固定具体字单，不再仅固定名额；`get_today_queue` 在会话行锁内首次取候选，之后只返回原字的待答／强化卡。`finished_at` 由最后一次真实通过的 `learning_attempts` AFTER 触发器同事务写入；BEFORE 触发器拒绝已完成日遗留卡并回滚前置成绩更新。不能把完成判断只放在前端或“领取贴纸”之后。
