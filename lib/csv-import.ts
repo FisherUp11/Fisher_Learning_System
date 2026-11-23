@@ -1,13 +1,20 @@
 import { createHash } from "node:crypto";
 import { ImportProblem } from "@/lib/import-safety";
 
-export type ImportKind = "characters" | "poems" | "catechism" | "kids_english" | "family_maxims";
+export type ImportKind = "characters" | "poems" | "catechism" | "kids_english" | "family_maxims" | "adult_video";
 
 type Column = { key: string; label: string; required: boolean; aliases: string[]; hint: string };
 
 const col = (key: string, label: string, required: boolean, hint: string, aliases: string[] = []): Column => ({ key, label, required, hint, aliases: [label, ...aliases] });
 
 export const IMPORT_COLUMNS: Record<ImportKind, Column[]> = {
+  adult_video: [
+    col("word", "单词或短语", true, "必填，单词的英文拼写或完整短语", ["单词","词句","phrase","spelling","english"]),
+    col("meaning", "中文释义", true, "必填，用这条视频中的意思", ["释义","意思","meaning_zh","translation"]),
+    col("example", "英文例句", false, "可选，视频原句或自备例句", ["例句","example_en","example_sentence"]),
+    col("pronunciation", "音标", false, "可选，不填也可以朗读单词", ["读音","ipa"]),
+    col("timestamp", "时间点", false, "可选，如 02:14、1:02:14 或 134（秒），只填已确认的时间点", ["时间码","video_time","start_second"]),
+  ],
   characters: [
     col("character", "汉字", true, "必填，每行只填 1 个汉字", ["字"]),
     col("pinyin_marked", "拼音", true, "必填，带声调，如 rén；多音字只填本册要学的读音"),
@@ -59,6 +66,10 @@ export const IMPORT_COLUMNS: Record<ImportKind, Column[]> = {
 };
 
 const TEMPLATE_EXAMPLES: Record<ImportKind, string[][]> = {
+  adult_video: [
+    ["in the long run","从长远来看","This decision will save us time in the long run.","","02:14"],
+    ["put it simply","简单来说","To put it simply, we need more time.","",""],
+  ],
   characters: [
     ["人", "rén", "人；我们都是人", "大人", "人家", "爸爸是大人。", "1"],
     ["口", "kǒu", "嘴；用嘴说话", "开口", "门口", "我开口说你好。", "2"],
@@ -80,7 +91,7 @@ const TEMPLATE_EXAMPLES: Record<ImportKind, string[][]> = {
   ],
 };
 
-const TEMPLATE_NAMES: Record<ImportKind, string> = { characters: "汉字导入模板", poems: "古诗词导入模板", catechism: "要理问答导入模板", kids_english: "儿童英语单词导入模板", family_maxims: "家中箴言导入模板" };
+const TEMPLATE_NAMES: Record<ImportKind, string> = { characters: "汉字导入模板", poems: "古诗词导入模板", catechism: "要理问答导入模板", kids_english: "儿童英语单词导入模板", family_maxims: "家中箴言导入模板", adult_video: "视频跟读词表导入模板" };
 
 const csvCell = (value: string) => /[",\n\r]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
 
@@ -92,6 +103,7 @@ export function buildImportTemplate(kind: ImportKind) {
     "# 表头行（带中文括号的那一行）不要改动；列的先后顺序可以调整，也可以删掉不用的可选列。",
     ...columns.map((column) => `# ${column.key}（${column.label}）：${column.hint}`),
     "# 下面两行是示例，确认后可以直接改成自己的内容。上传后若有问题，系统会列出具体行号和原因，并且不会导入任何内容。",
+    ...(kind === "adult_video" ? ["# 每次导入一条视频的词表，视频链接只在页面上填一次，不用逐行重复。"] : []),
   ];
   const header = columns.map((column) => `${column.key}（${column.label}）`);
   const lines = [...notes.map((note) => [note]), header, ...TEMPLATE_EXAMPLES[kind]].map((row) => row.map(csvCell).join(","));
@@ -145,6 +157,7 @@ function parseCsvRecords(text: string): CsvRecord[] {
       recordStart = line;
       continue;
     }
+    if (quoted && (char === "\n" || (char === "\r" && next !== "\n"))) line += 1;
     cell += char;
   }
   if (quoted) throw new ImportProblem(`从第 ${recordStart} 行开始有未闭合的英文双引号 "，请检查该行内容`);

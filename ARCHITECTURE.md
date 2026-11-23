@@ -2,6 +2,13 @@
 
 本文件是后续人类开发者或 AI Agent 的工作约束。目标不是抽象得“万能”，而是在不破坏孩子学习记录的前提下持续迭代。
 
+## 2026-11-24 父母英语视频跟读（041）
+
+- UI 路径 `/english/video`，走原 `adult_english` ModuleGate。外链仅用解析后的 YouTube ID 与可选秒数重建；无抓字幕、媒体代理或自动播放计数。
+- `adult_video_sources` 与 `adult_video_terms` 管来源及多对多关联，内容按账号私有；`adult_video_settings`、`adult_video_review_terms`、`adult_video_checkins` 与独立日队列/作答按成人档案隔离。词条与记忆状态复用原 `adult_english_concepts` / `adult_english_word_states`，导入不重算。只在规范化英文与释义均相同才去重。新词条键与新版会议英语兼容。
+- 041 的快照只读并分页；命令由 invoker 调私有 definer，在数据库检查 active 空间、开启父母英语及档案归属，配合 RLS、复合外键与显式 grants。按档案串行变更；导入另用账号锁；词卡锁共享状态行；请求 UUID 防止重复作答或重复记一次视频练习。所有直接写入限定在命令。旧模块未改写。
+- 现有成人 Speech 路由增加 `video_example`；只允许本账号已关联的视频/词条例句，验证结束才去合成，继续走已有缓存和用量保护。上线边界与核对见 [36 号说明](./36_视频跟读配置与使用.md)。
+
 ## 2026-11-17 owner 代建与多模块期限（040）
 
 - `owner_create_learner` 在当前 owner 会话下核验空间、家庭、正常家长，写正确 `parent_user_id` 并复用审计表请求 ID 防重；保留父母原本的本家庭建档路径和 023 空间 50 孩子上限。

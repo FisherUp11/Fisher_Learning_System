@@ -41,10 +41,14 @@ export async function POST(request: Request) {
     const b = await request.json(); let text = "";
     if (b.concept_id) {
       const concept = checked(await ctx.db.from("adult_english_concepts").select("phrase,example").eq("id",uuid(b.concept_id)).eq("owner_id",ctx.user.id).single());
-      if (b.field !== undefined && !["phrase","example","source_quote"].includes(b.field)) throw new Error("朗读类型无效");
+      if (b.field !== undefined && !["phrase","example","source_quote","video_example"].includes(b.field)) throw new Error("朗读类型无效");
       if (b.field === "source_quote") {
         const link = checked(await ctx.db.from("adult_academic_source_concepts").select("source_quote").eq("source_id",uuid(b.academic_source_id)).eq("concept_id",uuid(b.concept_id)).eq("owner_id",ctx.user.id).single());
         text = link.source_quote;
+      } else if (b.field === "video_example") {
+        const link = checked(await ctx.db.from("adult_video_terms").select("example").eq("video_id", uuid(b.video_id))
+          .eq("concept_id", uuid(b.concept_id)).eq("owner_id", ctx.user.id).single());
+        text = link.example;
       } else text = b.field === "example" ? concept.example : concept.phrase;
     } else if (b.session_id) {
       const session = checked(await ctx.db.from("adult_listening_sessions").select("*").eq("id",uuid(b.session_id)).eq("owner_id",ctx.user.id).single()) as ListeningSession;

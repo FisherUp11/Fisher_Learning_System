@@ -73,7 +73,7 @@ const moduleLinks = [
   { key: "kids_english", href: "/kids-english", label: "儿童英语", description: "单词、例句与课堂视频", mark: "ABC" },
   { key: "family_maxims", href: "/maxims/study", label: "家中箴言", description: "父母珍藏，孩子背诵，全家传承", mark: "言" },
   { key: "hanzi", href: "/rewards", label: "小芽贴纸册", description: "认真完成，积累贴纸兑换礼物", mark: "贴" },
-  { key: "adult_english", href: "/english", label: "会议英语", description: "爸爸妈妈的听说练习与积累", mark: "英" },
+  { key: "adult_english", href: "/english", label: "父母英语", description: "会议英语、专业英语与视频跟读", mark: "英" },
   { key: "exercise", href: "/together", label: "一起坚持", description: "运动打卡，看见全家的坚持", mark: "行" },
 ];
 
@@ -93,7 +93,7 @@ export function AppShell({ email, isAdmin, isOwner, enabledModules, children }: 
     : pathname.startsWith("/together")
     ? [{ href: "/together", label: "今天", icon: "行" }, { href: "/together/records", label: "坚持记录", icon: "历" }, { href: "/together/settings", label: "目标设置", icon: "设" }]
     : pathname.startsWith("/english")
-    ? [{ href: "/english", label: "今日练习", icon: "练" }, { href: "/english/materials", label: "会议资料", icon: "文" }, { href: "/english/progress", label: "我的积累", icon: "积" }]
+    ? [{ href: "/english", label: "今日练习", icon: "练" }, { href: "/english/materials", label: "会议资料", icon: "文" }, { href: "/english/progress", label: "我的积累", icon: "积" }, { href: "/english/video", label: "视频跟读", icon: "读" }]
     : pathname.startsWith("/admin")
     ? adminLinks.filter((link) => !link.ownerOnly || isOwner)
       : pathname.startsWith("/catechism")

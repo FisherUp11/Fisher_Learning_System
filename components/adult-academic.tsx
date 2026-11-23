@@ -106,7 +106,7 @@ export function AdultAcademic() {
 
   return <div className={s.root}>
     <header className={s.hero}><div><span className={s.kicker}>PARENT ENGLISH · ACADEMIC READING</span><h1>专业英语</h1><p>从正在读的生物学讲义里，每天带走几个真正用得上的词句。</p></div><div className={s.heroMark} aria-hidden="true">Aa<span>→</span>∑</div></header>
-    <nav className={s.topNav} aria-label="父母英语方向"><Link href="/english">会议英语</Link><span aria-current="page">专业英语</span></nav>
+    <nav className={s.topNav} aria-label="父母英语方向"><Link href="/english">会议英语</Link><span aria-current="page">专业英语</span><Link href="/english/video">视频跟读</Link></nav>
     {!!data?.profiles.length&&<div className={s.profileRow}><span>学习档案</span>{data.profiles.filter(p=>!p.archived).map(p=><button key={p.id} className={data.profile?.id===p.id?s.activeProfile:""} onClick={()=>changeProfile(p.id)}>{p.name}</button>)}</div>}
     {error&&<div className={s.error} role="alert">{error}<button onClick={()=>{setError("");setLoading(true);setRefresh(n=>n+1);}}>重新加载</button></div>}
     {notice&&<div className={s.notice} role="status">{notice}</div>}
