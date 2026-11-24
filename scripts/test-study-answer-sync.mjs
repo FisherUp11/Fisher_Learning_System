@@ -20,6 +20,18 @@ test("按孩子和记忆域隔离，汉字不能当拼音、其他孩子不能�
   assert.equal(readStudyAnswer(storage, "pinyin", "child-a"), null);
   assert.equal(readStudyAnswer(storage, "hanzi", "child-b"), null);
 });
+test("视频词卡重试必须携带原日期与原作答编号，不会串到汉字或其他档案", () => {
+  const storage = store();
+  const video = { ...answer, day: "2026-11-24" };
+  rememberStudyAnswer(storage, "adult-video", video);
+  assert.deepEqual(readStudyAnswer(storage, "adult-video", video.learnerId), video);
+  assert.equal(readStudyAnswer(storage, "hanzi", video.learnerId), null);
+  assert.equal(readStudyAnswer(storage, "adult-video", "another-profile"), null);
+  for (const bad of [answer, { ...video, result: "helped" }, { ...video, day: "today" }]) {
+    rememberStudyAnswer(storage, "adult-video", bad);
+    assert.equal(readStudyAnswer(storage, "adult-video", video.learnerId), null);
+  }
+});
 test("旧页面的迟到响应不能删除新页面的新作答", () => {
   const storage = store(); rememberStudyAnswer(storage, "hanzi", answer);
   const newer = { ...answer, itemId: "item-2", requestId: "request-2" };

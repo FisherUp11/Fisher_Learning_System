@@ -48,7 +48,55 @@ test('模板可直接解析；双引号、中文字段、跨行例句与报错�
   assert.throws(() => parseVideoImport('word,example\nfirst,text'), /表头/);
 });
 
-test('实际 React 界面显示本周四轮、独立打卡和词表时间链接；作答前不展开释义', () => {
+test('全选会标记 42 个词句并保留原内容，勾前五项不取消已有选项', () => {
+  const { selectVideoReviewRows } = load('adult-video');
+  const rows = Array.from({ length: 42 }, (_, i) => ({
+    word: `word ${i}`, meaning: '释义', example: 'Example.', pronunciation: '/wɝd/', timestamp: i, track: i === 8,
+  }));
+  const all = selectVideoReviewRows(rows);
+  assert.deepEqual(all, rows.map(row => ({ ...row, track: true })));
+  assert.equal(rows.filter(row => row.track).length, 1);
+  assert.deepEqual(selectVideoReviewRows(rows, 5).map((row, i) => row.track ? i : -1).filter(i => i >= 0), [0, 1, 2, 3, 4, 8]);
+});
+
+test('即时预览只换卡，不猜测进度；没有下一张时不把队列当作完成', () => {
+  const { previewNextVideoCard } = load('adult-video');
+  const first = { concept_id:'a', attempt_count:0 }, next = { concept_id:'b', attempt_count:2 };
+  const before = { today:'2026-11-24', total:5, remaining:2, cards:[first,next] };
+  assert.deepEqual(previewNextVideoCard(before, 'a'), { ...before, cards:[next] });
+  assert.equal(previewNextVideoCard(before, 'stale-card'), before);
+  const single = { ...before, remaining:1, cards:[first] };
+  assert.deepEqual(previewNextVideoCard(single, 'a'), { ...single, cards:[] });
+});
+
+test('轻量同步只读取本用户和本档案的两张待复习词卡，并保持原队列顺序', async () => {
+  const { createClient } = require('@supabase/supabase-js');
+  const { readVideoPracticeQueue } = load('adult-video-practice-server');
+  const source = ({ id, second, date }) => ({ video:{ id, title:id, youtube_id:'fr5-2nKnmgw', created_at:date }, start_second:second, pronunciation:'/a/', example:'Example.' });
+  const pendingRows = [{ concept_id:'a', queue_kind:'review', attempt_count:2, confirmations:1, had_failure:true,
+    concept:{ phrase:'example', meaning:'例子', links:[source({id:'new',second:null,date:'2026-11-24'}),source({id:'timed',second:0,date:'2026-11-23'})] } }];
+  let calls = 0;
+  const db = createClient('https://test.example', 'example-key', { auth:{ persistSession:false }, global:{ fetch: async (input, init) => {
+    calls++;
+    const url = new URL(input), f = url.searchParams;
+    assert.equal(url.pathname, '/rest/v1/adult_video_daily_items');
+    assert.equal(f.get('owner_id'), 'eq.user');
+    assert.equal(f.get('profile_id'), 'eq.profile');
+    assert.equal(f.get('local_date'), 'eq.2026-11-24');
+    if (init.method === 'HEAD') return new Response(null,{headers:{'content-range':'0-0/3'}});
+    assert.equal(f.get('order'), 'last_answered_at.asc.nullsfirst,ordinal.asc,concept_id.asc');
+    assert.equal(f.get('limit'), '2');
+    assert.equal(f.get('completed_at'), 'is.null');
+    return Response.json(pendingRows,{headers:{'content-range':'0-0/1'}});
+  } } });
+  const result = await readVideoPracticeQueue(db, 'user', 'profile', '2026-11-24');
+  assert.equal(calls,2);
+  assert.deepEqual([result.total,result.remaining], [3,1]);
+  assert.equal(result.cards[0].attempt_count,2);
+  assert.deepEqual(result.cards[0].origins.map(({id,start_second}) => [id,start_second]), [['timed',0],['new',null]]);
+});
+
+function renderDesk(studyOverride) {
   const React = require('react');
   const { renderToStaticMarkup } = require('react-dom/server');
   const code = ts.transpileModule(read('components/adult-video-desk.tsx'), {
@@ -63,20 +111,37 @@ test('实际 React 界面显示本周四轮、独立打卡和词表时间链接�
     './adult-video.module.css': { default: {} },
     './feedback-form': { FeedbackForm: ({ children }) => React.createElement('form', null, children) },
     './adult-english-study': { PrivateAudio: ({ label }) => React.createElement('button', null, label) },
+    './use-immediate-study': { useImmediateStudy: ({ initial }) => ({ data:initial, status:'ready', blocked:false, ...studyOverride }) },
   };
   new Function('module','exports','require',code)(m,m.exports,id=>mocks[id] ?? require(id));
   const video={id:'v1',title:'本周访谈',youtube_id:'fr5-2nKnmgw',practice_count:2,word_count:1,last_on:'2026-11-24'};
-  const html=renderToStaticMarkup(React.createElement(m.exports.AdultVideoDesk,{profileId:'profile',wordView:true,data:{
+  return renderToStaticMarkup(React.createElement(m.exports.AdultVideoDesk,{profileId:'profile',wordView:true,data:{
     today:'2026-11-24', focus:video, selected:video, videos:[video], due:1, remaining:1, tracked:1,
     daily_new:5,total_today:1,total_videos:1,total_words:1, video_page:1,word_page:1,history:[],
     current:{concept_id:'c',phrase:'in the long run',meaning:'练习未揭晓的释义',queue_kind:'review',attempt_count:0,origins:[]},
     words:[{concept_id:'c',phrase:'in the long run',meaning:'测试词表的释义',start_second:134,tracked:true}],
   }}));
+}
+
+test('实际 React 界面显示本周四轮、独立打卡和词表时间链接；作答前不展开释义', () => {
+  const html = renderDesk();
   assert.match(html,/已练 2 次，目标 4 次/);
   assert.match(html,/本次练完/);
   assert.match(html,/t=134s/);
   assert.match(html,/我先回忆，再看答案/);
   assert.doesNotMatch(html,/练习未揭晓的释义/);
+});
+
+test('保存中先展示下一张；最后一张未确认时不显示已完成，错误时提供原作答重试', () => {
+  const queue = { today:'2026-11-24', total:2, remaining:1, cards:[] };
+  const next = { concept_id:'next', phrase:'get better', meaning:'好转',queue_kind:'new', attempt_count:0, origins:[] };
+  const preview = renderDesk({ data:{ ...queue, cards:[next] }, status:'saving', blocked:true });
+  assert.match(preview,/get better/);
+  assert.match(preview,/上一笔正在保存/);
+  assert.doesNotMatch(preview,/今日词卡完成/);
+  assert.doesNotMatch(renderDesk({ data:queue, status:'saving', blocked:true }),/今日词卡完成/);
+  assert.match(renderDesk({ data:queue, error:'save failed', status:'save-error', blocked:true }),/重试保存这次作答/);
+  assert.match(renderDesk({ data:{...queue, remaining:0} }),/今日词卡完成/);
 });
 
 test('041 本地 PostgreSQL：导入、权限隔离、打卡、同义复用和记忆逻辑', { skip: !process.env.PGLITE_MODULE }, async () => {
@@ -104,6 +169,10 @@ test('041 本地 PostgreSQL：导入、权限隔离、打卡、同义复用和�
     const sql = read('supabase/041_adult_video_practice.sql');
     assert.equal(sql, read('supabase/migrations/20261123161038_adult_video_practice.sql'));
     await db.exec(sql); await db.exec(sql);
+    const { rows: foreignKeys } = await db.query("select conname from pg_constraint where contype='f' and conrelid in ('adult_video_daily_items'::regclass,'adult_video_terms'::regclass)");
+    for (const name of ['adult_video_daily_items_concept_id_owner_id_fkey','adult_video_terms_concept_id_owner_id_fkey','adult_video_terms_video_id_owner_id_fkey']) {
+      assert.ok(foreignKeys.some(row => row.conname === name), name);
+    }
     const as = (user, query, params = []) => db.transaction(async tx => {
       await tx.exec('set local role authenticated');
       await tx.query("select set_config('request.jwt.claim.sub',$1,true)", [user]);
@@ -155,6 +224,10 @@ test('041 本地 PostgreSQL：导入、权限隔离、打卡、同义复用和�
     assert.equal((await snap(q)).focus.practice_count,0);
     assert.equal((await snap()).current,null,'viewing and checkins do not enqueue practice');
     assert.equal((await cmd('start')).remaining,2);
+    const visibleQueue = (user=a, profile=p) => as(user, "select concept_id from adult_video_daily_items where owner_id=$1 and profile_id=$2 and local_date=$3 and completed_at is null order by last_answered_at nulls first,ordinal,concept_id limit 2", [a,profile,today]).then(rows=>rows.map(row=>row.concept_id));
+    assert.deepEqual(await visibleQueue(),[old,freshId]);
+    assert.deepEqual(await visibleQueue(b),[]);
+    assert.deepEqual(await visibleQueue(a,q),[]);
     const review = (await snap()).current;
     assert.equal(review.concept_id,old); assert.equal(review.origins.length,2);
     assert.equal(review.queue_kind,'review');
@@ -162,6 +235,9 @@ test('041 本地 PostgreSQL：导入、权限隔离、打卡、同义复用和�
     const x = randomUUID();
     assert.equal((await answer(old,'again',x)).stage,2);
     assert.equal((await answer(old,'again',x)).duplicate,true);
+    assert.equal((await answer(old,'again',x,'2000-01-01')).duplicate,true,'recovery can acknowledge a committed reply even after midnight');
+    assert.equal((await as(a,'select attempts from adult_english_word_states where profile_id=$1 and concept_id=$2',[p,old]))[0].attempts,8);
+    assert.deepEqual(await visibleQueue(),[freshId,old]);
     assert.equal((await snap()).current.concept_id,freshId);
     assert.equal((await answer(freshId,'known')).completed,false);
     assert.equal((await answer(old,'again')).stage,2,'does not drop again the same day');

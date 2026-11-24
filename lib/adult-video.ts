@@ -36,16 +36,34 @@ export function youtubeHref(id: string, second?: number | null) {
 }
 
 export type VideoImportRow = { word: string; meaning: string; example: string; pronunciation: string; timestamp: number | null; track: boolean };
+
+export function selectVideoReviewRows(rows: VideoImportRow[], first = rows.length) {
+  return rows.map((row, index) => index < first && !row.track ? { ...row, track: true } : row);
+}
+
 export type VideoSummary = { id: string; youtube_id: string; title: string; word_count: number; practice_count: number; last_on: string | null };
 export type VideoOrigin = { id: string; youtube_id: string; title: string; start_second: number | null; example: string; pronunciation: string };
 export type VideoWord = { concept_id: string; phrase: string; meaning: string; example: string; pronunciation: string; start_second: number | null;
   tracked: boolean; stage: number | null; attempts: number | null; due_date: string | null };
 export type VideoCard = { concept_id: string; phrase: string; meaning: string; queue_kind: "new" | "review"; attempt_count: number;
   confirmations: number; had_failure: boolean; origins: VideoOrigin[] };
+export type VideoPracticeQueue = { today: string; total: number; remaining: number; cards: VideoCard[] };
+export type VideoWordStats = Pick<VideoWord, "stage" | "attempts" | "due_date">;
+export type VideoAnswerReceipt = {
+  result: { completed: boolean; due_date: string };
+  conceptId: string;
+  queue: VideoPracticeQueue | null;
+  stats: VideoWordStats | null;
+};
+export function previewNextVideoCard<T extends VideoPracticeQueue>(queue: T, itemId: string) {
+  // Move the visible card, not the confirmed counter or memory stage.
+  return queue.cards[0]?.concept_id === itemId ? { ...queue, cards: queue.cards.slice(1) } : queue;
+}
 export type VideoSnapshot = {
   today: string; daily_new: number; tracked: number; focus: VideoSummary | null; selected: VideoSummary | null; videos: VideoSummary[];
   history: { id: string; local_date: string; created_at: string }[]; words: VideoWord[]; video_page: number; word_page: number;
   total_videos: number; total_words: number; current: VideoCard | null; total_today: number; remaining: number; due: number;
+  next_card?: VideoCard;
 };
 export type VideoAction =
   | { type: "start" }
@@ -53,5 +71,4 @@ export type VideoAction =
   | { type: "track"; conceptId: string; enabled: boolean }
   | { type: "edit_timestamp"; videoId: string; conceptId: string; timestamp: string }
   | { type: "settings"; dailyNew: number }
-  | { type: "answer"; conceptId: string; day: string; result: "known" | "again"; requestId: string }
   | { type: "import"; title: string; url: string; rows: VideoImportRow[] };

@@ -1,12 +1,44 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { adultCommand, numberValue, textValue, uuid } from "@/lib/adult-server";
+import { adultCommand, numberValue, ownedProfile, textValue, uuid } from "@/lib/adult-server";
 import { videoContext, videoDatabaseError } from "@/lib/adult-video-server";
 import { parseVideoImport } from "@/lib/adult-video-import";
 import { readCsvUpload } from "@/lib/csv-import";
 import { ImportProblem } from "@/lib/import-safety";
-import { parseVideoTimestamp, youtubeId, type VideoAction } from "@/lib/adult-video";
+import { parseVideoTimestamp, youtubeId, type VideoAction, type VideoAnswerReceipt } from "@/lib/adult-video";
+import { readVideoPracticeQueue } from "@/lib/adult-video-practice-server";
+import type { StudyAnswer } from "@/lib/study-answer-sync";
+
+export async function reloadAdultVideoPractice(profileId: string) {
+  const ctx = await videoContext();
+  const profile = await ownedProfile(ctx, profileId);
+  return readVideoPracticeQueue(ctx.db, ctx.user.id, profile.id);
+}
+
+export async function saveAdultVideoPracticeAnswer(answer: StudyAnswer): Promise<VideoAnswerReceipt | { error: string }> {
+  try {
+    if (!answer.day || !/^\d{4}-\d{2}-\d{2}$/.test(answer.day) || (answer.result !== "known" && answer.result !== "again"))
+      throw new Error("请刷新词卡");
+    const profileId = uuid(answer.learnerId), conceptId = uuid(answer.itemId), requestId = uuid(answer.requestId);
+    const { db, user } = await videoContext();
+    const result = await db.rpc("adult_video_command", { p_profile: profileId, p_action: "answer", p_data: {
+      concept_id: conceptId, day: answer.day, result: answer.result, request_id: requestId,
+    } });
+    if (result.error) return { error: videoDatabaseError(result.error) };
+    // The write has committed. A read failure must not turn it into an unconfirmed write.
+    const [queue, stats] = await Promise.allSettled([
+      readVideoPracticeQueue(db, user.id, profileId),
+      db.from("adult_english_word_states").select("stage,attempts,due_date").eq("owner_id", user.id)
+        .eq("profile_id", profileId).eq("concept_id", conceptId).maybeSingle(),
+    ]);
+    return { conceptId, result: result.data as VideoAnswerReceipt["result"],
+      queue: queue.status === "fulfilled" ? queue.value : null,
+      stats: stats.status === "fulfilled" && !stats.value.error ? stats.value.data : null };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "暂时无法确认，请按原操作重试。" };
+  }
+}
 
 export async function previewAdultVideo(form: FormData) {
   try {
@@ -53,10 +85,6 @@ export async function changeAdultVideo(profileId: string, action: VideoAction) {
       case "track": payload = { concept_id: uuid(action.conceptId), enabled: action.enabled === true }; break;
       case "settings": payload = { daily_new: numberValue(action.dailyNew, 0, 20, true) }; break;
       case "start": break;
-      case "answer":
-        if (!/^\d{4}-\d\d-\d\d$/.test(action.day)) throw new Error("请刷新词卡");
-        payload = { concept_id: uuid(action.conceptId), day: action.day, result: action.result, request_id: uuid(action.requestId) };
-        break;
       default: throw new Error("不支持的视频操作");
     }
     const result = await db.rpc("adult_video_command", { p_profile: id, p_action: action.type, p_data: payload });

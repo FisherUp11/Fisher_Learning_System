@@ -11,6 +11,7 @@ const browserStore = {
 };
 type Options<T, S> = {
   scope: StudyScope; learnerId: string;
+  initial?: T;
   load: (learnerId: string) => Promise<T>;
   save: (answer: StudyAnswer) => Promise<S>;
   advance: (data: T, answer: StudyAnswer) => T;
@@ -18,8 +19,8 @@ type Options<T, S> = {
 };
 
 // One write in flight. Only presentation advances optimistically, never scores or stages.
-export function useImmediateStudy<T, S>({ scope, learnerId, load, save, advance, reconcile }: Options<T, S>) {
-  const [data, setData] = useState<T | null>(null);
+export function useImmediateStudy<T, S>({ scope, learnerId, initial, load, save, advance, reconcile }: Options<T, S>) {
+  const [data, setData] = useState<T | null>(initial ?? null);
   const [status, setStatus] = useState<Status>("loading");
   const [error, setError] = useState("");
   const [lastCommit, setLastCommit] = useState<{ answer: StudyAnswer; saved: S } | null>(null);
@@ -28,7 +29,8 @@ export function useImmediateStudy<T, S>({ scope, learnerId, load, save, advance,
   const inFlight = useRef(false);
   const mounted = useRef(false);
   const generation = useRef(0);
-  const dataRef = useRef<T | null>(null);
+  const dataRef = useRef<T | null>(initial ?? null);
+  const seed = useRef({ scope, learnerId, data: initial });
 
   const put = useCallback((next: T) => { dataRef.current = next; setData(next); }, []);
   const commit = useCallback(async (answer: StudyAnswer, version: number) => {
@@ -83,6 +85,10 @@ export function useImmediateStudy<T, S>({ scope, learnerId, load, save, advance,
       if (recovery) {
         pending.current = recovery; locked.current = true; setStatus("saving");
         void commit(recovery, version);
+      } else if (seed.current.scope === scope && seed.current.learnerId === learnerId && seed.current.data !== undefined) {
+        put(seed.current.data);
+        locked.current = false;
+        setStatus("ready");
       } else void reload();
     });
     const warn = (event: BeforeUnloadEvent) => {
@@ -90,7 +96,7 @@ export function useImmediateStudy<T, S>({ scope, learnerId, load, save, advance,
     };
     window.addEventListener("beforeunload", warn);
     return () => { mounted.current = false; generation.current += 1; window.removeEventListener("beforeunload", warn); };
-  }, [commit, learnerId, reload, scope]);
+  }, [commit, learnerId, put, reload, scope]);
 
   const submit = useCallback((input: Omit<StudyAnswer, "requestId" | "learnerId">) => {
     if (locked.current || pending.current || !dataRef.current) return false;

@@ -21,7 +21,7 @@ export default async function AdultVideoPage({ searchParams }: {
         href={`/english/video?profile=${person.id}`} aria-current={profile?.id === person.id ? "page" : undefined}>{person.name}</Link>)}</nav>}
     </header>
     {error ? <section className={s.paper} role="alert"><h2>暂时打不开练习</h2><p>{error}</p><Link href="/english/video">返回视频跟读 ↗</Link></section>
-      : profile && data ? <AdultVideoDesk key={profile.id} profileId={profile.id} data={data} wordView={query.view === "words"} />
+      : profile && data ? <AdultVideoDesk key={`${profile.id}:${data.today}:${data.total_today}`} profileId={profile.id} data={data} wordView={query.view === "words"} />
         : <NewVideoProfile />}
   </div>;
 }

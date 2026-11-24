@@ -4,8 +4,9 @@ export type StudyAnswer = {
   result: "known" | "again" | "helped";
   assisted: boolean;
   requestId: string;
+  day?: string;
 };
-export type StudyScope = "hanzi" | "pinyin";
+export type StudyScope = "hanzi" | "pinyin" | "adult-video";
 export type AnswerStore = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 function key(scope: StudyScope, learnerId: string) { return `ziya:pending-answer:v1:${scope}:${learnerId}`; }
@@ -16,7 +17,12 @@ export function readStudyAnswer(store: AnswerStore, scope: StudyScope, learnerId
     if (!value || value.learnerId !== learnerId || typeof value.itemId !== "string" || !value.itemId
       || typeof value.requestId !== "string" || !value.requestId || typeof value.assisted !== "boolean"
       || !["known", "again", "helped"].includes(value.result)) return null;
-    return { learnerId, itemId: value.itemId, requestId: value.requestId, result: value.result, assisted: value.assisted };
+    const answer: StudyAnswer = { learnerId, itemId: value.itemId, requestId: value.requestId, result: value.result, assisted: value.assisted };
+    if (scope === "adult-video") {
+      if (typeof value.day !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value.day) || value.assisted || value.result === "helped") return null;
+      answer.day = value.day;
+    }
+    return answer;
   } catch { return null; }
 }
 

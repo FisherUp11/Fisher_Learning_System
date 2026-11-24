@@ -3,6 +3,7 @@ import { adultContext, uuid } from "@/lib/adult-server";
 import { loadAccessContext } from "@/lib/access";
 import { requireAccountModule } from "@/lib/module-access";
 import type { VideoSnapshot } from "@/lib/adult-video";
+import { readVideoPracticeQueue } from "@/lib/adult-video-practice-server";
 
 export async function videoContext() {
   const ctx = await adultContext();
@@ -27,8 +28,15 @@ export async function loadVideoPage(query: { profile?: string; video?: string; p
   let video = null;
   if (query.video) { try { video = uuid(query.video); } catch { /* invalid bookmarks fall back to the weekly video */ } }
   const page = (raw: unknown) => typeof raw === "string" && /^\d{1,4}$/.test(raw) ? Math.max(1, Number(raw)) : 1;
-  const result = await db.rpc("adult_video_snapshot", {
-    p_profile: profile.id, p_video: video, p_video_page: page(query.page), p_word_page: page(query.words),
-  });
-  return { people, profile, data: result.data as VideoSnapshot | null, error: result.error ? videoDatabaseError(result.error) : "" };
+  const [result, queue] = await Promise.all([
+    db.rpc("adult_video_snapshot", {
+      p_profile: profile.id, p_video: video, p_video_page: page(query.page), p_word_page: page(query.words),
+    }),
+    readVideoPracticeQueue(db, user.id, profile.id).catch(() => null),
+  ]);
+  const data = result.data as VideoSnapshot | null;
+  if (data?.current && queue?.today === data.today && queue.remaining === data.remaining &&
+    queue.cards[0]?.concept_id === data.current.concept_id && queue.cards[0].attempt_count === data.current.attempt_count &&
+    queue.cards[1]) data.next_card = queue.cards[1];
+  return { people, profile, data, error: result.error ? videoDatabaseError(result.error) : "" };
 }

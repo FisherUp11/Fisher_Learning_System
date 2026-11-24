@@ -3,16 +3,34 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition, type FormEvent } from "react";
-import { changeAdultVideo, createVideoAdultProfile, previewAdultVideo } from "@/lib/adult-video-actions";
-import { videoTime, youtubeHref, type VideoAction, type VideoCard, type VideoImportRow, type VideoSnapshot, type VideoSummary, type VideoWord } from "@/lib/adult-video";
+import { changeAdultVideo, createVideoAdultProfile, previewAdultVideo, reloadAdultVideoPractice, saveAdultVideoPracticeAnswer } from "@/lib/adult-video-actions";
+import { previewNextVideoCard, selectVideoReviewRows, videoTime, youtubeHref, type VideoAction, type VideoAnswerReceipt, type VideoCard, type VideoImportRow, type VideoPracticeQueue, type VideoSnapshot, type VideoSummary, type VideoWord, type VideoWordStats } from "@/lib/adult-video";
+import type { StudyAnswer } from "@/lib/study-answer-sync";
 import { FeedbackForm } from "./feedback-form";
 import { PrivateAudio } from "./adult-english-study";
+import { useImmediateStudy } from "./use-immediate-study";
 import s from "./adult-video.module.css";
 
 const rounds = ["听懂主要意思", "逐句听，暂停后模仿", "少看字幕，跟原声读", "不看稿，试着复述几句"];
 type Reply = { error?: string; result?: Record<string, unknown> };
 type Run = (action: VideoAction, message: string | ((data: Record<string, unknown>) => string)) => Promise<Reply>;
 type Preview = { title: string; url: string; rows: VideoImportRow[] };
+type Practice = VideoPracticeQueue & { stats?: Record<string, VideoWordStats> };
+
+async function saveAnswer(answer: StudyAnswer) {
+  const response = await saveAdultVideoPracticeAnswer(answer);
+  if ("error" in response) throw new Error(response.error);
+  return response;
+}
+
+function showNext(practice: Practice, answer: StudyAnswer) {
+  return previewNextVideoCard(practice, answer.itemId);
+}
+
+function reconcileAnswer(saved: VideoAnswerReceipt, previous: Practice | null): Practice | null {
+  if (!saved.queue) return null;
+  return { ...saved.queue, stats: saved.stats ? { ...previous?.stats, [saved.conceptId]: saved.stats } : previous?.stats };
+}
 
 export function NewVideoProfile() {
   return <section className={s.paper}><p className={s.kicker}>GET STARTED</p><h2>先建一个成人档案</h2><p className={s.dim}>和会议英语、专业英语共用档案。同个账号下，词库可共用，练习记录分开。</p>
@@ -38,7 +56,24 @@ export function AdultVideoDesk({ profileId, data, wordView }: { profileId: strin
   const [error, setError] = useState("");
   const lock = useRef(false);
   const retryCheckins = useRef(new Map<string, string>());
-  const disabled = Boolean(pending) || refreshing;
+  const study = useImmediateStudy<Practice, VideoAnswerReceipt>({
+    scope: "adult-video", learnerId: profileId,
+    initial: { today: data.today, total: data.total_today, remaining: data.remaining,
+      cards: data.current ? (data.next_card ? [data.current, data.next_card] : [data.current]) : [] },
+    load: reloadAdultVideoPractice, save: saveAnswer, advance: showNext, reconcile: reconcileAnswer,
+  });
+  const practice = study.data;
+  const card = practice?.cards[0];
+  const practiceTotal = practice?.total ?? data.total_today;
+  const practiceRemaining = practice?.remaining ?? data.remaining;
+  const disabled = Boolean(pending) || refreshing || study.blocked;
+  const saved = study.lastCommit?.saved.result;
+
+  function answer(result: "known" | "again") {
+    if (!practice || !card || lock.current || refreshing) return;
+    setNotice(""); setError("");
+    study.submit({ itemId: card.concept_id, day: practice.today, result, assisted: false });
+  }
 
   function href(query: { video?: string; page?: number; words?: number; view?: "words" } = {}) {
     const params = new URLSearchParams({ profile: profileId });
@@ -50,7 +85,7 @@ export function AdultVideoDesk({ profileId, data, wordView }: { profileId: strin
   }
 
   const run: Run = async (action, message) => {
-    if (lock.current) return { error: "正在保存另一项操作" };
+    if (lock.current || study.blocked) return { error: "正在保存另一项操作" };
     lock.current = true; setPending(action.type); setNotice(""); setError("");
     try {
       const response = await changeAdultVideo(profileId, action);
@@ -61,6 +96,7 @@ export function AdultVideoDesk({ profileId, data, wordView }: { profileId: strin
       setNotice(typeof message === "function" ? message(response.result) : message);
       if (action.type === "import" && typeof response.result.video_id === "string")
         startTransition(() => router.replace(href({ video: String(response.result!.video_id), view: "words" }), { scroll: false }));
+      if (card && (action.type === "edit_timestamp" || action.type === "import")) void study.reload();
       return response;
     } catch {
       const detail = "网络暂时中断，保存结果未确认。请在此页按原操作重试。";
@@ -91,17 +127,27 @@ export function AdultVideoDesk({ profileId, data, wordView }: { profileId: strin
         </> : <><h2>留一条视频，练深一点</h2><p className={s.dim}>先添加原视频和词表。从听懂、模仿到脱稿复述。</p><a href="#video-import">导入第一条视频 ↓</a></>}
       </section>
       <section className={`${s.paper} ${s.studySummary}`} id="video-study">
-        <p className={s.kicker}>02 / 今日词卡</p><h2>{data.total_today > 0 ? `还剩 ${data.remaining} 张` : `${data.due} 张到期`}</h2>
+        <p className={s.kicker}>02 / 今日词卡</p><h2>{practiceTotal > 0 ? `还剩 ${practiceRemaining} 张` : practice?.today === data.today ? `${data.due} 张到期` : "今日词卡"}</h2>
         <p className={s.dim}>已选 {data.tracked} 个词句 · 每天最多 {data.daily_new} 个新词</p>
-        {data.total_today > 0 ? <a href="#video-current">{data.remaining ? "继续复习 ↓" : "查看今日完成 ↓"}</a>
+        {practiceTotal > 0 ? <a href="#video-current">{practiceRemaining ? "继续复习 ↓" : "查看今日完成 ↓"}</a>
           : <button className={s.dark} disabled={disabled || !data.tracked} onClick={() => void run({ type: "start" }, r => Number(r.remaining) ? "已安排今日词卡。" : "今天暂无符合条件的词卡。")}>安排今日词卡</button>}
         <details className={s.fold}><summary>调整每日新词</summary><form className={s.form} onSubmit={e => {
           e.preventDefault(); void run({ type: "settings", dailyNew: Number(new FormData(e.currentTarget).get("daily")) }, "设置已保存，已生成的今日队列不变。");
         }}><label>每日新词（0～20）<input name="daily" type="number" min={0} max={20} defaultValue={data.daily_new} required /></label><button className={s.light} disabled={disabled}>保存节奏</button></form></details>
       </section>
     </div>
-    {data.current ? <RecallCard key={`${data.today}:${data.current.concept_id}:${data.current.attempt_count}`} card={data.current} today={data.today} disabled={disabled} run={run} />
-      : data.total_today > 0 && <section className={s.paper} id="video-current"><p className={s.kicker}>DONE FOR TODAY</p><h2>今日词卡完成</h2><p className={s.dim}>已练 {data.total_today} 张。下次到期再来巩固，也可以继续跟读本周视频。</p></section>}
+    {(practiceTotal > 0 || study.status === "saving" || study.error) && <div id="video-current" className={s.practice}>
+      {study.error ? <section className={s.paper}>
+        <p className={s.error} role="alert">{study.error}</p><div className={s.buttons}>
+          <button className={s.dark} onClick={study.retry}>{study.status === "save-error" ? "重试保存这次作答" : "重新加载词卡"}</button>
+          {study.status === "save-error" && <button className={s.light} onClick={study.discard}>按云端记录重新加载</button>}
+        </div></section> : study.status === "saving"
+        ? <p className={s.feedback} role="status">{card ? "上一笔正在保存，可以先看词卡；保存后即可作答。" : "正在确认这次作答…"}</p>
+        : study.status === "loading" ? <p className={s.feedback} role="status">正在同步今日词卡…</p>
+        : saved && !notice && !pending && <p className={s.feedback} role="status">{saved.completed ? `上张词卡已完成 · ${saved.due_date} 再复习。` : "已记录，这张稍后再认一次。"}</p>}
+      {card ? <RecallCard key={`${practice?.today}:${card.concept_id}:${card.attempt_count}`} card={card} focusId={data.focus?.id} disabled={disabled} answer={answer} />
+        : !study.blocked && practiceRemaining === 0 && practiceTotal > 0 && <section className={s.paper}><p className={s.kicker}>DONE FOR TODAY</p><h2>今日词卡完成</h2><p className={s.dim}>已练 {practiceTotal} 张。下次到期再来巩固，也可以继续跟读本周视频。</p></section>}
+    </div>}
     <section className={s.paper} id="video-library">
       <div className={s.heading}><div><p className={s.kicker}>THE SHELF / 视频架</p><h2>我的视频</h2></div><a href="#video-import">＋ 导入词表</a></div>
       {!data.videos.length ? <p className={s.dim}>还没有视频。导入后，这里会留下每次练习和对应的词表。</p> : <>
@@ -118,7 +164,7 @@ export function AdultVideoDesk({ profileId, data, wordView }: { profileId: strin
         {!!data.history.length && <details className={s.fold}><summary>最近 {data.history.length} 次打卡</summary><ol className={s.history}>{data.history.map(log => <li key={log.id}>{log.local_date} · {new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(log.created_at))}</li>)}</ol></details>}
         <details key={`${data.selected.id}:${data.word_page}:${wordView}`} className={s.fold} open={wordView || undefined}>
           <summary>本篇词表 · {data.total_words} 项</summary><p className={s.dim}>只把想记的词加入轮转；取消不会删除词条或既有进度。</p>
-          <ul className={s.words}>{data.words.map(word => <WordRow key={word.concept_id} word={word} video={data.selected!} disabled={disabled} run={run} />)}</ul>
+          <ul className={s.words}>{data.words.map(word => <WordRow key={word.concept_id} word={{ ...word, ...practice?.stats?.[word.concept_id] }} video={data.selected!} disabled={disabled} run={run} />)}</ul>
           <Pagination label="本篇词表分页" page={data.word_page} total={data.total_words} size={30} link={words => href({ video: data.selected?.id, page: data.video_page, words, view: "words" })} />
         </details>
       </article>}
@@ -133,25 +179,19 @@ function Pagination({ label, page, total, size, link }: { label: string; page: n
   return <nav className={s.pagination} aria-label={label}>{page > 1 && <Link href={link(page - 1)}>← 上一页</Link>}<span>{page} / {pages}</span>{page < pages && <Link href={link(page + 1)}>下一页 →</Link>}</nav>;
 }
 
-function RecallCard({ card, today, disabled, run }: { card: VideoCard; today: string; disabled: boolean; run: Run }) {
+function RecallCard({ card, focusId, disabled, answer }: { card: VideoCard; focusId?: string; disabled: boolean; answer: (result: "known" | "again") => void }) {
   const [revealed, reveal] = useState(false);
-  const [awaiting, setAwaiting] = useState<"known" | "again" | null>(null);
-  const intention = useRef<{ result: "known" | "again"; id: string } | null>(null);
-  const origin = card.origins.find(source => source.example) ?? card.origins[0];
-  async function answer(result: "known" | "again") {
-    intention.current ??= { result, id: crypto.randomUUID() };
-    setAwaiting(intention.current.result);
-    await run({ type: "answer", conceptId: card.concept_id, day: today, result: intention.current.result, requestId: intention.current.id }, r =>
-      r.completed ? `这张词卡今日完成 · ${r.due_date} 再见。` : "已记录，等会儿再回来认一次。");
-  }
-  return <section className={`${s.paper} ${s.recall}`} id="video-current">
+  const focused = card.origins.find(source => source.id === focusId);
+  const origins = focused ? [focused, ...card.origins.filter(source => source !== focused)] : card.origins;
+  const origin = origins.find(source => source.example) ?? origins[0];
+  return <section className={`${s.paper} ${s.recall}`}>
     <p className={s.kicker}>{card.queue_kind === "new" ? "NEW / 新词句" : "REVIEW / 到期复习"}{card.attempt_count > 0 ? " · 再确认" : ""}</p><h2 lang="en">{card.phrase}</h2>
     {origin?.pronunciation && <p className={s.phonetic}>{origin.pronunciation}</p>}
     <PrivateAudio body={{ concept_id: card.concept_id }} label="朗读词句" />
     {!revealed ? <button className={s.dark} onClick={() => reveal(true)}>我先回忆，再看答案</button> : <>
       <div className={s.answer}><strong>{card.meaning}</strong>{origin?.example && <><p lang="en">{origin.example}</p><PrivateAudio body={{ concept_id: card.concept_id, field: "video_example", video_id: origin.id }} label="朗读例句" /></>}</div>
-      <div className={s.buttons}><button className={s.dark} disabled={disabled || awaiting === "again"} onClick={() => void answer("known")}>{awaiting === "known" ? "重试原作答" : "我记得"}</button><button className={s.light} disabled={disabled || awaiting === "known"} onClick={() => void answer("again")}>{awaiting === "again" ? "重试原作答" : "再学一次"}</button></div>
-      <details className={s.fold}><summary>回到来源视频 · {card.origins.length} 个</summary><ul className={s.history}>{card.origins.map(source => <li key={source.id}><SourceLink id={source.youtube_id} second={source.start_second}>{source.title}{source.start_second === null ? " · 打开原视频" : ` · ${videoTime(source.start_second)}`}</SourceLink></li>)}</ul></details>
+      <div className={s.buttons}><button className={s.dark} disabled={disabled} onClick={() => answer("known")}>我记得</button><button className={s.light} disabled={disabled} onClick={() => answer("again")}>再学一次</button></div>
+      <details className={s.fold}><summary>回到来源视频 · {origins.length} 个</summary><ul className={s.history}>{origins.map(source => <li key={source.id}><SourceLink id={source.youtube_id} second={source.start_second}>{source.title}{source.start_second === null ? " · 打开原视频" : ` · ${videoTime(source.start_second)}`}</SourceLink></li>)}</ul></details>
     </>}
   </section>;
 }
@@ -175,6 +215,10 @@ function ImportPanel({ video, disabled, run }: { video: VideoSummary | null; dis
   const [error, setError] = useState("");
   const [append, setAppend] = useState(false);
   const [added, setAdded] = useState(false);
+  const selectedCount = preview?.rows.filter(row => row.track).length ?? 0;
+  function selectForReview(first?: number) {
+    setPreview(current => current ? { ...current, rows: selectVideoReviewRows(current.rows, first) } : current);
+  }
   function invalidatePreview() { setPreview(null); setAdded(false); }
   function review(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -195,15 +239,19 @@ function ImportPanel({ video, disabled, run }: { video: VideoSummary | null; dis
       <label>YouTube 链接<input name="url" type="url" maxLength={500} required readOnly={append} disabled={previewing || disabled} defaultValue={append && video ? youtubeHref(video.youtube_id) : ""} placeholder="https://www.youtube.com/watch?v=…" /></label>
       <label>CSV 词表<input name="csv" type="file" accept=".csv,text/csv" required disabled={previewing || disabled} /></label><button className={s.light} disabled={previewing || disabled}>{previewing ? "正在预览…" : "检查文件并预览"}</button></form>
     {error && <div className={s.error} role="alert"><p>{error}</p>{!!details.length && <ul>{details.map((detail, i) => <li key={i}>{detail}</li>)}</ul>}</div>}
-    {preview && !added && <div className={s.preview}><div className={s.heading}><div><h3>{preview.title} · {preview.rows.length} 项</h3><p className={s.dim}>所有项都会保存；只有勾选项会进入你的复习计划。</p></div>
-      <button className={s.light} disabled={disabled} onClick={() => setPreview({ ...preview, rows: preview.rows.map((row, i) => ({ ...row, track: i < 5 || row.track })) })}>勾选前 5 项</button></div>
+    {preview && !added && <div className={s.preview}><div className={s.heading}><div><h3>{preview.title} · {preview.rows.length} 项</h3><p className={s.dim}>全部词句都会保存；勾选项按每日上限分批进入学习和复习。</p></div>
+      <div className={s.buttons}>
+        <button type="button" className={s.light} disabled={disabled || selectedCount === preview.rows.length} onClick={() => selectForReview()}>全选加入复习</button>
+        <button type="button" className={s.light} disabled={disabled || preview.rows.slice(0, 5).every(row => row.track)} onClick={() => selectForReview(5)}>勾选前 5 项</button>
+      </div></div>
+      <p className={s.dim} role="status">已选 {selectedCount} / {preview.rows.length} 项加入复习</p>
       <ul className={s.previewList}>{preview.rows.map((row, i) => <li key={i}><label className={s.inline}><input type="checkbox" checked={row.track} onChange={e => setPreview({ ...preview, rows: preview.rows.map((x, j) => i === j ? { ...x, track: e.target.checked } : x) })} disabled={disabled} /><span><strong lang="en">{row.word}</strong> · {row.meaning}{row.timestamp === null ? "" : ` · ${videoTime(row.timestamp)}`}{row.example && <small lang="en">{row.example}</small>}</span></label></li>)}</ul>
       <FeedbackForm action={async () => {
         const response = await run({ type: "import", ...preview }, r => `已导入：新增 ${r.new_terms} 个词句，复用 ${r.reused} 项，建立 ${r.new_links} 条视频关联。`);
         if (response.error) return { status: "error", message: response.error };
         setAdded(true);
         return { status: "success", message: "视频与词表已保存。原有词条进度不变。" };
-      }} pendingLabel="正在写入词表…" successTitle="词表已保存" confirm={{ title: "确认导入这份词表？", description: `${preview.title}：保存全部 ${preview.rows.length} 项；勾选 ${preview.rows.filter(row => row.track).length} 项加入复习。重复词会复用，不重置进度。`, confirmLabel: "确认导入" }}>
+      }} pendingLabel="正在写入词表…" successTitle="词表已保存" confirm={{ title: "确认导入这份词表？", description: `${preview.title}：保存全部 ${preview.rows.length} 项；勾选 ${selectedCount} 项加入复习。重复词会复用，不重置进度。`, confirmLabel: "确认导入" }}>
         <button className={s.dark} disabled={disabled}>确认保存词表</button>
       </FeedbackForm>
     </div>}
